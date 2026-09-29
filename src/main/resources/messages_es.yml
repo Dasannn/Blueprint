@@ -75,6 +75,8 @@ honor:
   write-failed: '&cError al registrar la calificación. Tu dinero fue reembolsado.'
   trust-usage: '&eUso: &f/status trust <jugador> [motivo]'
   distrust-usage: '&eUso: &f/status distrust <jugador> <motivo>'
+  give-usage: '&eUso: &f/status give <jugador> [motivo]'
+  take-usage: '&eUso: &f/status take <jugador> <motivo>'
 
 duel:
   challenge-sent: '&7Has retado a &e{target}&7 a un duelo.'

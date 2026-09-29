@@ -12,15 +12,16 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Handles `/status trust <player> [reason]` per SB-050, SB-052, and SB-055.
+ * Handles giving honor (`/status give <player> [reason]` and alias `/status trust`)
+ * per SB-050, SB-052, and SB-055.
  * Only players can issue honor. Shows exact cost and registers pending confirmation.
  */
-public class StatusTrustCommand {
+public class StatusGiveCommand {
 
     private final HonorService honorService;
     private final MessageRegistry messageRegistry;
 
-    public StatusTrustCommand(HonorService honorService, MessageRegistry messageRegistry) {
+    public StatusGiveCommand(HonorService honorService, MessageRegistry messageRegistry) {
         this.honorService = Objects.requireNonNull(honorService, "honorService must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
     }
@@ -37,7 +38,7 @@ public class StatusTrustCommand {
         }
 
         if (args.length < 1) {
-            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.trust-usage"));
+            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.give-usage"));
             return CompletableFuture.completedFuture(null);
         }
 

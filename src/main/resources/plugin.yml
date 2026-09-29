@@ -12,6 +12,24 @@ commands:
     description: Social profile and actions
 
 permissions:
+  socialblueprint.*:
+    description: All SocialBlueprint permissions
+    default: op
+    children:
+      socialblueprint.show: true
+      socialblueprint.show.others: true
+      socialblueprint.give: true
+      socialblueprint.take: true
+      socialblueprint.view: true
+      socialblueprint.admin: true
+
+  socialblueprint.admin:
+    description: All administrative SocialBlueprint permissions
+    default: op
+    children:
+      socialblueprint.admin.adjust: true
+      socialblueprint.admin.config: true
+
   socialblueprint.show:
     description: Permite al jugador ver su propio estatus social
     default: true
@@ -54,6 +72,9 @@ permissions:
   pstatus.viewReputation:
     children:
       socialblueprint.view: true
+  pstatus.admin:
+    children:
+      socialblueprint.admin: true
 
 libraries:
   - org.xerial:sqlite-jdbc:3.53.4.0

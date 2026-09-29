@@ -44,8 +44,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final HonorService honorService;
     private final StatusConfigCommand configCommand;
     private final StatusAdminCommand adminCommand;
-    private final StatusTrustCommand trustCommand;
-    private final StatusDistrustCommand distrustCommand;
+    private final StatusGiveCommand giveCommand;
+    private final StatusTakeCommand takeCommand;
     private final StatusConfirmCommand confirmCommand;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
@@ -66,8 +66,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.honorService = honorService;
         this.configCommand = new StatusConfigCommand(configManager, messageRegistry);
         this.adminCommand = honorService != null ? new StatusAdminCommand(honorService, messageRegistry) : null;
-        this.trustCommand = honorService != null ? new StatusTrustCommand(honorService, messageRegistry) : null;
-        this.distrustCommand = honorService != null ? new StatusDistrustCommand(honorService, messageRegistry) : null;
+        this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
+        this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
         this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
@@ -125,6 +125,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        // Reset lastExecution for each command
+        this.lastExecution = CompletableFuture.completedFuture(null);
+
         // Capture snapshot once per request (T-040)
         RuntimeSnapshot snapshot = configManager.snapshot();
 
@@ -162,23 +165,23 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // 4. Subcommand: /status trust <player> [reason] or /status give <player> [reason]
-        if ("trust".equals(sub) || "give".equals(sub)) {
-            if (trustCommand == null) {
+        // 4. Subcommand: /status give <player> [reason] or /status trust <player> [reason]
+        if ("give".equals(sub) || "trust".equals(sub)) {
+            if (giveCommand == null) {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
                 return true;
             }
-            this.lastExecution = trustCommand.execute(sender, subArgs, snapshot);
+            this.lastExecution = giveCommand.execute(sender, subArgs, snapshot);
             return true;
         }
 
-        // 5. Subcommand: /status distrust <player> <reason> or /status take <player> <reason>
-        if ("distrust".equals(sub) || "take".equals(sub) || "remove".equals(sub)) {
-            if (distrustCommand == null) {
+        // 5. Subcommand: /status take <player> <reason> or /status remove <player> <reason> or /status distrust <player> <reason>
+        if ("take".equals(sub) || "remove".equals(sub) || "distrust".equals(sub)) {
+            if (takeCommand == null) {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
                 return true;
             }
-            this.lastExecution = distrustCommand.execute(sender, subArgs, snapshot);
+            this.lastExecution = takeCommand.execute(sender, subArgs, snapshot);
             return true;
         }
 
@@ -215,8 +218,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 String[] forwardArgs = new String[1 + reasonArgs.length];
                 forwardArgs[0] = target;
                 System.arraycopy(reasonArgs, 0, forwardArgs, 1, reasonArgs.length);
-                if (trustCommand != null) {
-                    this.lastExecution = trustCommand.execute(player, forwardArgs, snapshot);
+                if (giveCommand != null) {
+                    this.lastExecution = giveCommand.execute(player, forwardArgs, snapshot);
                 }
                 return true;
             } else {
@@ -227,8 +230,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 String[] forwardArgs = new String[1 + reasonArgs.length];
                 forwardArgs[0] = target;
                 System.arraycopy(reasonArgs, 0, forwardArgs, 1, reasonArgs.length);
-                if (distrustCommand != null) {
-                    this.lastExecution = distrustCommand.execute(player, forwardArgs, snapshot);
+                if (takeCommand != null) {
+                    this.lastExecution = takeCommand.execute(player, forwardArgs, snapshot);
                 }
                 return true;
             }
@@ -237,7 +240,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         // Unknown multi-arg subcommand
         if (args.length > 1) {
             sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.unknown-subcommand",
-                    Map.of("subcommand", sub)));
+                    Map.of("command", sub)));
             return true;
         }
 
@@ -366,7 +369,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 }
             }
 
-            if (("trust".equals(sub) || "give".equals(sub) || "distrust".equals(sub) || "take".equals(sub) || "info".equals(sub))
+            if (("give".equals(sub) || "trust".equals(sub) || "take".equals(sub) || "remove".equals(sub) || "distrust".equals(sub) || "info".equals(sub))
                     && subArgs.length == 1) {
                 String current = subArgs[0].toLowerCase(Locale.ROOT);
                 List<String> playerMatches = new ArrayList<>();

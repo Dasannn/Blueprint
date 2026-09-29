@@ -312,7 +312,7 @@ public class HonorService {
         }
 
         return saveFuture
-                .whenComplete((saved, error) -> {
+                .handle((saved, error) -> {
                     if (error != null) {
                         // Write failed: refund on main thread (SB-057)
                         mainThreadRunner.accept(() -> {
@@ -329,8 +329,8 @@ public class HonorService {
                                     Map.of("target", pending.targetName())));
                         });
                     }
-                })
-                .thenApply(v -> null);
+                    return null;
+                });
     }
 
     /**
@@ -370,6 +370,7 @@ public class HonorService {
                         reputationRepository.findByTargetAsync(target.id())
                                 .thenCompose(events -> {
                                     Status before = Status.fromEvents(events);
+                                    int afterScore = before.value() + amount;
                                     ReputationEvent repEvent = new ReputationEvent(
                                             actorId,
                                             target.id(),
@@ -382,17 +383,16 @@ public class HonorService {
 
                                     return reputationRepository.saveAsync(repEvent)
                                             .thenCompose(saved -> {
-                                                Status after = Status.fromEvents(reputationRepository.findByTarget(target.id()));
                                                 AuditEvent audit = new AuditEvent(
                                                         actorId,
                                                         "admin_give",
                                                         target.id(),
                                                         String.valueOf(before.value()),
-                                                        String.valueOf(after.value()),
+                                                        String.valueOf(afterScore),
                                                         now
                                                 );
                                                 return auditRepository.saveAsync(audit)
-                                                        .thenApply(a -> after.value());
+                                                        .thenApply(a -> afterScore);
                                             });
                                 })
                                 .thenAccept(afterVal -> mainThreadRunner.accept(() -> {
@@ -401,7 +401,7 @@ public class HonorService {
                                     future.complete(null);
                                 }))
                                 .exceptionally(ex -> {
-                                    future.completeExceptionally(ex);
+                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
                                     return null;
                                 });
                     });
@@ -446,6 +446,7 @@ public class HonorService {
                         reputationRepository.findByTargetAsync(target.id())
                                 .thenCompose(events -> {
                                     Status before = Status.fromEvents(events);
+                                    int afterScore = before.value() - amount;
                                     ReputationEvent repEvent = new ReputationEvent(
                                             actorId,
                                             target.id(),
@@ -458,17 +459,16 @@ public class HonorService {
 
                                     return reputationRepository.saveAsync(repEvent)
                                             .thenCompose(saved -> {
-                                                Status after = Status.fromEvents(reputationRepository.findByTarget(target.id()));
                                                 AuditEvent audit = new AuditEvent(
                                                         actorId,
                                                         "admin_take",
                                                         target.id(),
                                                         String.valueOf(before.value()),
-                                                        String.valueOf(after.value()),
+                                                        String.valueOf(afterScore),
                                                         now
                                                 );
                                                 return auditRepository.saveAsync(audit)
-                                                        .thenApply(a -> after.value());
+                                                        .thenApply(a -> afterScore);
                                             });
                                 })
                                 .thenAccept(afterVal -> mainThreadRunner.accept(() -> {
@@ -477,7 +477,7 @@ public class HonorService {
                                     future.complete(null);
                                 }))
                                 .exceptionally(ex -> {
-                                    future.completeExceptionally(ex);
+                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
                                     return null;
                                 });
                     });
@@ -551,7 +551,7 @@ public class HonorService {
                                     future.complete(null);
                                 }))
                                 .exceptionally(ex -> {
-                                    future.completeExceptionally(ex);
+                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
                                     return null;
                                 });
                     });

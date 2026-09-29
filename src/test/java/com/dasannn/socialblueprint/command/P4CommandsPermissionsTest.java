@@ -12,9 +12,6 @@ import com.dasannn.socialblueprint.feature.honor.HonorService;
 import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
 import com.dasannn.socialblueprint.storage.AuditRepository;
-import com.dasannn.socialblueprint.storage.Migration;
-import com.dasannn.socialblueprint.storage.MigrationRunner;
-import com.dasannn.socialblueprint.storage.Migration_1_InitialSchema;
 import com.dasannn.socialblueprint.storage.ProfileRepository;
 import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
@@ -39,8 +36,6 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
@@ -48,6 +43,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -58,6 +54,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -84,7 +81,7 @@ class P4CommandsPermissionsTest {
 
     private StorageEngine storage;
     private ConfigManager configManager;
-    private MessageRegistry messageRegistry;
+    private RecordingMessageRegistry messageRegistry;
     private ReputationRepository reputationRepo;
     private PsychosisRepository psychosisRepo;
     private ProfileRepository profileRepo;
@@ -112,6 +109,83 @@ class P4CommandsPermissionsTest {
     interface MessageRecorder {
         List<String> sentMessages();
         List<Component> sentComponents();
+    }
+
+    public static class RecordingMessageRegistry extends MessageRegistry {
+        public record RenderCall(String key, Map<String, String> placeholders, boolean withPrefix) {}
+
+        private final List<RenderCall> renderedCalls = new CopyOnWriteArrayList<>();
+
+        public RecordingMessageRegistry(File dataFolder, String language, Logger logger) {
+            super(dataFolder, language, logger);
+        }
+
+        public void clearCalls() {
+            renderedCalls.clear();
+        }
+
+        public List<RenderCall> renderedCalls() {
+            return Collections.unmodifiableList(renderedCalls);
+        }
+
+        public RenderCall lastCall() {
+            if (renderedCalls.isEmpty()) {
+                throw new AssertionError("No messages were rendered");
+            }
+            return renderedCalls.getLast();
+        }
+
+        public boolean hasCall(String key) {
+            return renderedCalls.stream().anyMatch(c -> c.key().equals(key));
+        }
+
+        public Optional<RenderCall> findLastCall(String key) {
+            return renderedCalls.stream().filter(c -> c.key().equals(key)).reduce((first, second) -> second);
+        }
+
+        @Override
+        public Component renderWithPrefix(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true));
+            return super.renderWithPrefix(snapshot, key, placeholders);
+        }
+
+        @Override
+        public Component renderWithPrefix(RuntimeSnapshot snapshot, String key) {
+            return renderWithPrefix(snapshot, key, Collections.emptyMap());
+        }
+
+        @Override
+        public Component renderWithPrefix(String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true));
+            return super.renderWithPrefix(key, placeholders);
+        }
+
+        @Override
+        public Component renderWithPrefix(String key) {
+            return renderWithPrefix(key, Collections.emptyMap());
+        }
+
+        @Override
+        public Component render(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), false));
+            return super.render(snapshot, key, placeholders);
+        }
+
+        @Override
+        public Component render(RuntimeSnapshot snapshot, String key) {
+            return render(snapshot, key, Collections.emptyMap());
+        }
+
+        @Override
+        public Component render(String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), false));
+            return super.render(key, placeholders);
+        }
+
+        @Override
+        public Component render(String key) {
+            return render(key, Collections.emptyMap());
+        }
     }
 
     static class TestClock extends Clock {
@@ -156,10 +230,9 @@ class P4CommandsPermissionsTest {
         copyResource("messages_es.yml", new File(tempDir, "messages_es.yml"));
 
         Logger logger = Logger.getLogger("P4Test-" + System.nanoTime());
-        messageRegistry = new MessageRegistry(tempDir, "en", logger);
+        messageRegistry = new RecordingMessageRegistry(tempDir, "es", logger);
         configManager = new ConfigManager(configFile, messageRegistry, mainThreadQueue::add, logger);
         configManager.initialize();
-        configManager.set("language", "en");
 
         storage = StorageEngine.inMemory();
         storage.runMigrations();
@@ -323,42 +396,44 @@ class P4CommandsPermissionsTest {
             assertThat(handled).isTrue();
         }).doesNotThrowAnyException();
 
-        assertThat(messages).anyMatch(m -> m.toLowerCase(Locale.ROOT).contains("only") && m.toLowerCase(Locale.ROOT).contains("players"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
     }
 
     @Test
-    @DisplayName("DoD 2 / T-050: Console runs player-only commands (trust, distrust, confirm) without exception")
+    @DisplayName("DoD 2 / T-050: Console runs player-only commands (give, take, confirm) without exception")
     void consoleRunsPlayerOnlyCommandsWithoutException() {
         List<String> messages = new ArrayList<>();
         CommandSender console = mockConsole(messages);
 
-        // /status trust Target
+        // /status give Target & /status trust Target
         assertThatCode(() -> {
-            boolean handled = runCommandSync(console, "status", "trust", "Alice");
-            assertThat(handled).isTrue();
-        }).doesNotThrowAnyException();
-        assertThat(messages.getLast().toLowerCase(Locale.ROOT)).contains("only").contains("players");
+            runCommandSync(console, "status", "give", "Alice");
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
 
-        // /status distrust Target reason
-        assertThatCode(() -> {
-            boolean handled = runCommandSync(console, "status", "distrust", "Alice", "griefing");
-            assertThat(handled).isTrue();
+            runCommandSync(console, "status", "trust", "Alice");
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
         }).doesNotThrowAnyException();
-        assertThat(messages.getLast().toLowerCase(Locale.ROOT)).contains("only").contains("players");
+
+        // /status take Target reason & /status distrust Target reason
+        assertThatCode(() -> {
+            runCommandSync(console, "status", "take", "Alice", "griefing");
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
+
+            runCommandSync(console, "status", "distrust", "Alice", "griefing");
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
+        }).doesNotThrowAnyException();
 
         // /status confirm
         assertThatCode(() -> {
-            boolean handled = runCommandSync(console, "status", "confirm");
-            assertThat(handled).isTrue();
+            runCommandSync(console, "status", "confirm");
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
         }).doesNotThrowAnyException();
-        assertThat(messages.getLast().toLowerCase(Locale.ROOT)).contains("only").contains("players");
 
         // Legacy /reputation Target +
         assertThatCode(() -> {
-            boolean handled = runCommandSync(console, "reputation", "Alice", "+");
-            assertThat(handled).isTrue();
+            runCommandSync(console, "reputation", "Alice", "+");
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
         }).doesNotThrowAnyException();
-        assertThat(messages.getLast().toLowerCase(Locale.ROOT)).contains("only").contains("players");
     }
 
     @Test
@@ -373,23 +448,29 @@ class P4CommandsPermissionsTest {
             boolean handled = runCommandSync(console, "status", "admin", "give", "Alice", "10");
             assertThat(handled).isTrue();
         }).doesNotThrowAnyException();
-        assertThat(messages).anyMatch(m -> m.contains("Added") && m.contains("10"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.give-success");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("amount", "10")
+                .containsEntry("target", "Alice");
 
         // Admin take
-        messages.clear();
         assertThatCode(() -> {
             boolean handled = runCommandSync(console, "status", "admin", "take", "Alice", "3");
             assertThat(handled).isTrue();
         }).doesNotThrowAnyException();
-        assertThat(messages).anyMatch(m -> m.contains("Removed") && m.contains("3"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.take-success");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("amount", "3")
+                .containsEntry("target", "Alice");
 
         // Admin reset
-        messages.clear();
         assertThatCode(() -> {
             boolean handled = runCommandSync(console, "status", "admin", "reset", "Alice");
             assertThat(handled).isTrue();
         }).doesNotThrowAnyException();
-        assertThat(messages).anyMatch(m -> m.contains("Reset") && m.contains("Alice"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.reset-success");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("target", "Alice");
     }
 
     @Test
@@ -402,7 +483,8 @@ class P4CommandsPermissionsTest {
             boolean handled = runCommandSync(console, "status", "config", "language");
             assertThat(handled).isTrue();
         }).doesNotThrowAnyException();
-        assertThat(messages).anyMatch(m -> m.contains("language") && m.contains("en"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "language");
     }
 
     @Test
@@ -412,8 +494,8 @@ class P4CommandsPermissionsTest {
         boolean handled = runCommandSync(player, "status", "unknownSubcommand", "extraArg");
         assertThat(handled).isTrue();
 
-        List<String> msgs = getMessages(player);
-        assertThat(msgs).anyMatch(m -> m.contains("Unknown subcommand"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.unknown-subcommand");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("command", "unknownsubcommand");
     }
 
     // =========================================================================
@@ -438,8 +520,8 @@ class P4CommandsPermissionsTest {
         // Step 2: Query by old name
         Player viewer = mockPlayer("Viewer", "socialblueprint.show.others");
         runCommandSync(viewer, "status", "OldBob");
-        List<String> viewerMsgs = getMessages(viewer);
-        assertThat(viewerMsgs).anyMatch(m -> m.contains("Status Score: &f15"));
+        assertThat(messageRegistry.findLastCall("status.profile-status").orElseThrow().placeholders())
+                .containsEntry("status", "15");
 
         // Step 3: Bob changes name to "RenamedBob" in Bukkit lookup
         onlineLookupMap.remove("oldbob");
@@ -449,14 +531,14 @@ class P4CommandsPermissionsTest {
         // Step 4: Query by new name
         Player viewer2 = mockPlayer("Viewer2", "socialblueprint.show.others");
         runCommandSync(viewer2, "status", "RenamedBob");
-        List<String> viewer2Msgs = getMessages(viewer2);
-        assertThat(viewer2Msgs).anyMatch(m -> m.contains("Status Score: &f15"));
+        assertThat(messageRegistry.findLastCall("status.profile-status").orElseThrow().placeholders())
+                .containsEntry("status", "15");
 
         // Step 5: Querying by UUID also yields the exact same record
         Player viewer3 = mockPlayer("Viewer3", "socialblueprint.show.others");
         runCommandSync(viewer3, "status", bobUuid.toString());
-        List<String> viewer3Msgs = getMessages(viewer3);
-        assertThat(viewer3Msgs).anyMatch(m -> m.contains("Status Score: &f15"));
+        assertThat(messageRegistry.findLastCall("status.profile-status").orElseThrow().placeholders())
+                .containsEntry("status", "15");
     }
 
     // =========================================================================
@@ -554,11 +636,10 @@ class P4CommandsPermissionsTest {
         Player target = mockPlayer("Target1");
         economyBalances.put(actor.getUniqueId(), 500.0);
 
-        // Stage 1: Trust command prepares pending confirmation
-        runCommandSync(actor, "status", "trust", "Target1", "great ally");
+        // Stage 1: Give command prepares pending confirmation
+        runCommandSync(actor, "status", "give", "Target1", "great ally");
 
-        List<String> msgs1 = getMessages(actor);
-        assertThat(msgs1).anyMatch(m -> m.contains("/status confirm"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
         // Simulate Economy failure on withdrawal (e.g. concurrent drain or provider error)
         failEconomyWithdrawal.set(true);
@@ -566,8 +647,7 @@ class P4CommandsPermissionsTest {
         // Stage 2: Player runs /status confirm
         runCommandSync(actor, "status", "confirm");
 
-        List<String> msgs2 = getMessages(actor);
-        assertThat(msgs2).anyMatch(m -> m.contains("insufficient funds"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.insufficient-funds");
 
         // Assert NO ReputationEvent was written
         List<ReputationEvent> events = reputationRepo.findByTargetAsync(PlayerId.of(target.getUniqueId())).join();
@@ -578,19 +658,7 @@ class P4CommandsPermissionsTest {
     @DisplayName("DoD 5 / T-058: Failed event write refunds the exact charged amount")
     void failedEventWriteRefundsExactAmount() {
         StorageEngine failingEngine = StorageEngine.inMemory();
-        MigrationRunner dropRunner = new MigrationRunner(List.of(
-                new Migration_1_InitialSchema(),
-                new Migration() {
-                    @Override public int version() { return 2; }
-                    @Override public String description() { return "drop table"; }
-                    @Override public void apply(Connection conn) throws SQLException {
-                        try (Statement stmt = conn.createStatement()) {
-                            stmt.execute("DROP TABLE reputation_event;");
-                        }
-                    }
-                }
-        ));
-        failingEngine.runMigrations(dropRunner);
+        failingEngine.runMigrations();
 
         Queue<Runnable> failingQueue = new ConcurrentLinkedQueue<>();
         try {
@@ -620,16 +688,21 @@ class P4CommandsPermissionsTest {
             Player target = mockPlayer("Target2");
             economyBalances.put(actor.getUniqueId(), 500.0);
 
-            // Prepare rating
-            customExecutor.onCommand(actor, null, "status", new String[]{"trust", "Target2"});
+            // Prepare rating (Stage 1: succeeds and prepares confirmation)
+            customExecutor.onCommand(actor, null, "status", new String[]{"give", "Target2"});
             drainQueue(failingQueue);
             customExecutor.lastExecution().join();
             drainQueue(failingQueue);
 
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
+
             int withdrawsBefore = economyWithdrawCount.get();
             int depositsBefore = economyDepositCount.get();
 
-            // Confirm rating
+            // Simulate database write failure right before confirmation by closing engine
+            failingEngine.close();
+
+            // Confirm rating (Stage 2: charge succeeds, DB write fails, refund triggered)
             customExecutor.onCommand(actor, null, "status", new String[]{"confirm"});
             drainQueue(failingQueue);
             customExecutor.lastExecution().join();
@@ -648,8 +721,7 @@ class P4CommandsPermissionsTest {
             assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(500.0);
 
             // Actor received error notification
-            List<String> actorMsgs = getMessages(actor);
-            assertThat(actorMsgs).anyMatch(m -> m.contains("Failed to record honor") && m.contains("refunded"));
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.write-failed");
         } finally {
             failingEngine.close();
         }
@@ -675,7 +747,7 @@ class P4CommandsPermissionsTest {
 
         // Executing commands runs cleanly without thread assertion violations
         assertThatCode(() -> {
-            runCommandSync(actor, "status", "trust", "ThreadTarget");
+            runCommandSync(actor, "status", "give", "ThreadTarget");
             runCommandSync(actor, "status", "confirm");
         }).doesNotThrowAnyException();
     }
@@ -694,30 +766,32 @@ class P4CommandsPermissionsTest {
         assertThatCode(() -> {
             runCommandSync(admin, "status", "admin", "give", "Evan", "notAnInt");
         }).doesNotThrowAnyException();
-        assertThat(getMessages(admin).getLast()).contains("valid integer");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.invalid-integer");
 
         // Negative integer where positive required
         assertThatCode(() -> {
             runCommandSync(admin, "status", "admin", "give", "Evan", "-5");
         }).doesNotThrowAnyException();
-        assertThat(getMessages(admin).getLast()).contains("positive integer");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.invalid-amount");
 
         // Gigantic integer overflow
         assertThatCode(() -> {
             runCommandSync(admin, "status", "admin", "take", "Evan", "9999999999999999999999999");
         }).doesNotThrowAnyException();
-        assertThat(getMessages(admin).getLast()).contains("valid integer");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.invalid-integer");
     }
 
     @Test
-    @DisplayName("T-051 / SB-056: Distrust requires written reason, sending localized error message if omitted")
-    void distrustRequiresReason() {
+    @DisplayName("T-051 / SB-056: Removing honor requires written reason, sending localized error message if omitted")
+    void removingHonorRequiresReason() {
         Player actor = mockPlayer("Frank", "socialblueprint.take");
         mockPlayer("Grace");
 
-        runCommandSync(actor, "status", "distrust", "Grace");
+        runCommandSync(actor, "status", "take", "Grace");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.reason-required");
 
-        assertThat(getMessages(actor).getLast()).contains("reason is required");
+        runCommandSync(actor, "status", "distrust", "Grace");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.reason-required");
     }
 
     // =========================================================================
@@ -731,21 +805,24 @@ class P4CommandsPermissionsTest {
         Player legacyGiver = mockPlayer("LegacyGiver", "pstatus.giveReputation");
         mockPlayer("TargetLegacy");
 
-        runCommandSync(legacyGiver, "status", "trust", "TargetLegacy");
-        assertThat(getMessages(legacyGiver)).anyMatch(m -> m.contains("/status confirm"));
+        runCommandSync(legacyGiver, "status", "give", "TargetLegacy");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
-        // Player with legacy pstatus.addRemoveRep can distrust and administer
+        runCommandSync(legacyGiver, "status", "trust", "TargetLegacy");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
+
+        // Player with legacy pstatus.addRemoveRep can take and administer
         Player legacyTaker = mockPlayer("LegacyTaker", "pstatus.addRemoveRep");
-        runCommandSync(legacyTaker, "status", "distrust", "TargetLegacy", "rude");
-        assertThat(getMessages(legacyTaker)).anyMatch(m -> m.contains("/status confirm"));
+        runCommandSync(legacyTaker, "status", "take", "TargetLegacy", "rude");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
         runCommandSync(legacyTaker, "status", "admin", "give", "TargetLegacy", "5");
-        assertThat(getMessages(legacyTaker)).anyMatch(m -> m.contains("Added 5"));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.give-success");
 
         // Player with NO permission is denied
         Player unpermitted = mockPlayer("Unpermitted");
-        runCommandSync(unpermitted, "status", "trust", "TargetLegacy");
-        assertThat(getMessages(unpermitted).getLast()).contains("do not have permission");
+        runCommandSync(unpermitted, "status", "give", "TargetLegacy");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
     }
 
     @Test
@@ -755,15 +832,15 @@ class P4CommandsPermissionsTest {
         mockPlayer("CustomTarget");
 
         // Without node configured, user is denied
-        runCommandSync(player, "status", "trust", "CustomTarget");
-        assertThat(getMessages(player).getLast()).contains("do not have permission");
+        runCommandSync(player, "status", "give", "CustomTarget");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
 
         // Reconfigure node dynamically
         configManager.set("permissions.give-reputation", "custom.trust.node");
 
         // Now user is permitted
-        runCommandSync(player, "status", "trust", "CustomTarget");
-        assertThat(getMessages(player)).anyMatch(m -> m.contains("/status confirm"));
+        runCommandSync(player, "status", "give", "CustomTarget");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
     }
 
     // =========================================================================
@@ -778,14 +855,14 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
         // Rate target once
-        runCommandSync(actor, "status", "trust", "Rated");
+        runCommandSync(actor, "status", "give", "Rated");
         runCommandSync(actor, "status", "confirm");
-        assertThat(getMessages(actor)).anyMatch(m -> m.contains("You gave +1 honor"));
+        assertThat(messageRegistry.hasCall("honor.given")).isTrue();
 
         // Immediately attempt to rate again (within cooldown)
-        runCommandSync(actor, "status", "trust", "Rated");
+        runCommandSync(actor, "status", "give", "Rated");
 
-        assertThat(getMessages(actor).getLast()).contains("cooldown");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cooldown");
     }
 
     @Test
@@ -799,18 +876,18 @@ class P4CommandsPermissionsTest {
 
         // Issue 3 positive ratings (advancing time past cooldown each time)
         for (int i = 0; i < 3; i++) {
-            runCommandSync(actor, "status", "trust", "CapTarget");
+            runCommandSync(actor, "status", "give", "CapTarget");
             runCommandSync(actor, "status", "confirm");
             testClock.advance(cooldown.plusSeconds(1));
         }
 
         // 4th positive rating hits cap
-        runCommandSync(actor, "status", "trust", "CapTarget");
-        assertThat(getMessages(actor).getLast()).contains("maximum number of ratings");
+        runCommandSync(actor, "status", "give", "CapTarget");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cap-reached");
 
         // But negative rating is independent and succeeds!
-        runCommandSync(actor, "status", "distrust", "CapTarget", "reversal of opinion");
-        assertThat(getMessages(actor).getLast()).contains("/status confirm");
+        runCommandSync(actor, "status", "take", "CapTarget", "reversal of opinion");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
     }
 
     @Test
@@ -820,14 +897,14 @@ class P4CommandsPermissionsTest {
         mockPlayer("Receiver");
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
-        runCommandSync(actor, "status", "trust", "Receiver");
+        runCommandSync(actor, "status", "give", "Receiver");
 
         // Advance clock by 65 seconds
         testClock.advance(Duration.ofSeconds(65));
 
         runCommandSync(actor, "status", "confirm");
 
-        assertThat(getMessages(actor).getLast()).contains("no pending");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.no-pending");
     }
 
     @Test
@@ -835,17 +912,17 @@ class P4CommandsPermissionsTest {
     void cannotRateSelf() {
         Player actor = mockPlayer("Selfish", "socialblueprint.give");
 
-        runCommandSync(actor, "status", "trust", "Selfish");
+        runCommandSync(actor, "status", "give", "Selfish");
 
-        assertThat(getMessages(actor).getLast()).contains("cannot rate yourself");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cannot-rate-self");
     }
 
     // =========================================================================
-    // DoD 1: Spanish language execution
+    // DoD 1: Pinned-language execution tests (Only place where rendered strings belong)
     // =========================================================================
 
     @Test
-    @DisplayName("DoD 1: Execution with language 'es' outputs Spanish messages")
+    @DisplayName("DoD 1: Pinned Spanish language execution outputs exact Spanish message")
     void executesInSpanish() {
         configManager.set("language", "es");
         List<String> messages = new ArrayList<>();
@@ -855,6 +932,19 @@ class P4CommandsPermissionsTest {
 
         // In Spanish, commands.player-only is: "&cEste comando solo puede ser ejecutado por jugadores."
         assertThat(messages.getLast()).contains("solo puede ser ejecutado por jugadores");
+    }
+
+    @Test
+    @DisplayName("DoD 1: Pinned English language execution outputs exact English message")
+    void executesInEnglish() {
+        configManager.set("language", "en");
+        List<String> messages = new ArrayList<>();
+        CommandSender console = mockConsole(messages);
+
+        runCommandSync(console, "status");
+
+        // In English, commands.player-only is: "&cThis command can only be executed by players."
+        assertThat(messages.getLast()).contains("This command can only be executed by players.");
     }
 
     // =========================================================================

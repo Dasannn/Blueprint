@@ -78,8 +78,7 @@ public class StatusConfigCommand {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
 
         // Permission check
-        String requiredPermission = snapshot.config().permissions().node("admin-config");
-        if (requiredPermission != null && !sender.hasPermission(requiredPermission)) {
+        if (!PermissionChecker.hasPermission(sender, "admin-config", snapshot)) {
             sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
             return true;
         }
@@ -161,8 +160,7 @@ public class StatusConfigCommand {
 
     public List<String> tabComplete(CommandSender sender, String[] args, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
-        String requiredPermission = snapshot.config().permissions().node("admin-config");
-        if (requiredPermission != null && !sender.hasPermission(requiredPermission)) {
+        if (!PermissionChecker.hasPermission(sender, "admin-config", snapshot)) {
             return List.of();
         }
 

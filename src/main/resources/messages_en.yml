@@ -75,6 +75,8 @@ honor:
   write-failed: '&cFailed to record rating. Your funds were refunded.'
   trust-usage: '&eUsage: &f/status trust <player> [reason]'
   distrust-usage: '&eUsage: &f/status distrust <player> <reason>'
+  give-usage: '&eUsage: &f/status give <player> [reason]'
+  take-usage: '&eUsage: &f/status take <player> <reason>'
 
 duel:
   challenge-sent: '&7You challenged &e{target}&7 to a duel.'

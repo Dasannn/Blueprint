@@ -53,36 +53,38 @@ public class StatusAdminCommand {
             case "give" -> {
                 int amount = 1;
                 if (args.length >= 3) {
-                    OptionalInt parsed = ArgumentParser.parsePositiveInt(args[2]);
+                    OptionalInt parsed = ArgumentParser.parseInt(args[2]);
                     if (parsed.isEmpty()) {
                         sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.invalid-integer",
                                 Map.of("value", args[2])));
                         return CompletableFuture.completedFuture(null);
                     }
-                    amount = parsed.getAsInt();
-                    if (amount > ReputationEvent.MAX_DELTA) {
+                    int val = parsed.getAsInt();
+                    if (val <= 0 || val > ReputationEvent.MAX_DELTA) {
                         sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.invalid-amount",
                                 Map.of("max", String.valueOf(ReputationEvent.MAX_DELTA))));
                         return CompletableFuture.completedFuture(null);
                     }
+                    amount = val;
                 }
                 return honorService.adminGive(sender, target, amount, snapshot);
             }
             case "take" -> {
                 int amount = 1;
                 if (args.length >= 3) {
-                    OptionalInt parsed = ArgumentParser.parsePositiveInt(args[2]);
+                    OptionalInt parsed = ArgumentParser.parseInt(args[2]);
                     if (parsed.isEmpty()) {
                         sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.invalid-integer",
                                 Map.of("value", args[2])));
                         return CompletableFuture.completedFuture(null);
                     }
-                    amount = parsed.getAsInt();
-                    if (amount > ReputationEvent.MAX_DELTA) {
+                    int val = parsed.getAsInt();
+                    if (val <= 0 || val > ReputationEvent.MAX_DELTA) {
                         sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.invalid-amount",
                                 Map.of("max", String.valueOf(ReputationEvent.MAX_DELTA))));
                         return CompletableFuture.completedFuture(null);
                     }
+                    amount = val;
                 }
                 return honorService.adminTake(sender, target, amount, snapshot);
             }

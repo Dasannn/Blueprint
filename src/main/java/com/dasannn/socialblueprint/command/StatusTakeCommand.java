@@ -12,15 +12,16 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Handles `/status distrust <player> <reason>` per SB-050, SB-052, SB-055, and SB-056.
+ * Handles removing honor (`/status take <player> <reason>`, `/status remove`, and alias `/status distrust`)
+ * per SB-050, SB-052, SB-055, and SB-056.
  * Removing honor lowers the target directly. Negative honor strictly requires a written reason.
  */
-public class StatusDistrustCommand {
+public class StatusTakeCommand {
 
     private final HonorService honorService;
     private final MessageRegistry messageRegistry;
 
-    public StatusDistrustCommand(HonorService honorService, MessageRegistry messageRegistry) {
+    public StatusTakeCommand(HonorService honorService, MessageRegistry messageRegistry) {
         this.honorService = Objects.requireNonNull(honorService, "honorService must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
     }
@@ -37,7 +38,7 @@ public class StatusDistrustCommand {
         }
 
         if (args.length < 1) {
-            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.distrust-usage"));
+            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.take-usage"));
             return CompletableFuture.completedFuture(null);
         }
 
