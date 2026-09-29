@@ -25,14 +25,28 @@ public final class ReputationRepository {
 
     private final StorageEngine engine;
     private final StatusCache statusCache;
+    private final java.util.List<java.util.function.Consumer<PlayerId>> invalidationListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public ReputationRepository(StorageEngine engine, StatusCache statusCache) {
         this.engine = Objects.requireNonNull(engine, "StorageEngine must not be null");
         this.statusCache = Objects.requireNonNull(statusCache, "StatusCache must not be null");
     }
 
+    public void addInvalidationListener(java.util.function.Consumer<PlayerId> listener) {
+        if (listener != null) {
+            invalidationListeners.add(listener);
+        }
+    }
+
     public StatusCache statusCache() {
         return statusCache;
+    }
+
+    private void notifyInvalidation(PlayerId target) {
+        statusCache.invalidate(target);
+        for (java.util.function.Consumer<PlayerId> listener : invalidationListeners) {
+            listener.accept(target);
+        }
     }
 
     /**
@@ -42,7 +56,7 @@ public final class ReputationRepository {
     public ReputationEvent save(ReputationEvent event) {
         Objects.requireNonNull(event, "Event must not be null");
         ReputationEvent persisted = engine.execute(conn -> saveInternal(conn, event));
-        statusCache.invalidate(persisted.target());
+        notifyInvalidation(persisted.target());
         return persisted;
     }
 
@@ -50,7 +64,7 @@ public final class ReputationRepository {
         Objects.requireNonNull(event, "Event must not be null");
         return engine.executeAsync(conn -> saveInternal(conn, event))
                 .thenApply(persisted -> {
-                    statusCache.invalidate(persisted.target());
+                    notifyInvalidation(persisted.target());
                     return persisted;
                 });
     }

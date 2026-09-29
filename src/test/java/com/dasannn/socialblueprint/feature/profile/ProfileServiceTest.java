@@ -209,4 +209,134 @@ class ProfileServiceTest {
         assertThat(profileService.isCached(target)).isFalse();
         assertThat(statusCache.isCached(target)).isFalse();
     }
+
+    @Test
+    @DisplayName("Finding 2: Repeated cache misses while executor is held submit exactly one in-flight load")
+    void repeatedMissesQueueExactlyOneLoad() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        java.util.concurrent.CountDownLatch holdLatch = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        // 10 repeated chat messages / misses for the same uncached player
+        for (int i = 0; i < 10; i++) {
+            profileService.getViewQuick(target, snapshot);
+        }
+
+        // Exactly one load is in flight
+        assertThat(profileService.inFlightCount()).isEqualTo(1);
+
+        // Release the held executor task
+        holdLatch.countDown();
+
+        long start = System.currentTimeMillis();
+        while ((!profileService.isCached(target) || profileService.inFlightCount() > 0) && System.currentTimeMillis() - start < 3000) {
+            Thread.yield();
+        }
+        assertThat(profileService.isCached(target)).isTrue();
+        assertThat(profileService.inFlightCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("Finding 4: Reputation repository write invalidates cached PlayerSocialView")
+    void reputationSaveInvalidatesViewCache() throws Exception {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // 1. Initial load
+        PlayerSocialView view1 = profileService.loadViewAsync(target, "Target", snapshot).get();
+        assertThat(view1.status()).isZero();
+        assertThat(profileService.isCached(target)).isTrue();
+
+        // 2. Save reputation event
+        reputationRepo.save(new ReputationEvent(actor, target, 20, HonorKind.POSITIVE, 500.0, null, Instant.now()));
+
+        // 3. View cache is invalidated automatically
+        assertThat(profileService.isCached(target)).isFalse();
+
+        // 4. Next chat view/load gets updated status 20
+        PlayerSocialView view2 = profileService.loadViewAsync(target, "Target", snapshot).get();
+        assertThat(view2.status()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("Finding 4: Psychosis repository write invalidates cached PlayerSocialView")
+    void psychosisSaveInvalidatesViewCache() throws Exception {
+        PlayerId killer = PlayerId.of(UUID.randomUUID());
+        PlayerId victim = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // 1. Initial load
+        PlayerSocialView view1 = profileService.loadViewAsync(killer, "Killer", snapshot).get();
+        assertThat(view1.psychosis()).isEqualTo(PsychosisLevel.LOW);
+        assertThat(profileService.isCached(killer)).isTrue();
+
+        // 2. Save psychosis kill event
+        psychosisRepo.save(new PsychosisEvent(killer, victim, CombatContext.OPEN, Instant.now()));
+
+        // 3. View cache is invalidated automatically
+        assertThat(profileService.isCached(killer)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 8: Player quit while load is in-flight does not republish view into cache")
+    void quitDuringInFlightLoadDoesNotRepublish() throws Exception {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        java.util.concurrent.CountDownLatch holdLatch = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        // Trigger load
+        java.util.concurrent.CompletableFuture<PlayerSocialView> future = profileService.loadViewAsync(target, "Quitter", snapshot);
+
+        // Player quits while load is in-flight
+        profileService.evict(target);
+        assertThat(profileService.isCached(target)).isFalse();
+
+        // Release storage executor
+        holdLatch.countDown();
+        future.get();
+
+        // After completion, the view MUST NOT be cached
+        assertThat(profileService.isCached(target)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 8: View cache is bounded to MAX_VIEW_CACHE_SIZE")
+    void viewCacheIsBounded() {
+        assertThat(profileService.cacheSize()).isLessThanOrEqualTo(ProfileService.MAX_VIEW_CACHE_SIZE);
+    }
+
+    @Test
+    @DisplayName("Finding 9: Profile loading uses captured RuntimeSnapshot and does not mix with reloaded config")
+    void profileLoadingUsesCapturedSnapshotNotReloadedConfig() throws Exception {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        reputationRepo.save(new ReputationEvent(actor, target, 5, HonorKind.POSITIVE, 500.0, null, Instant.now()));
+
+        RuntimeSnapshot snapshot1 = configManager.snapshot();
+
+        configManager.set("tiers.tier0.prefix", "&c[MODIFIED]");
+        RuntimeSnapshot snapshot2 = configManager.snapshot();
+        assertThat(snapshot2.config().tiers().prefix(Tier.PARTICULAR)).isEqualTo("&c[MODIFIED]");
+
+        PlayerSocialView view1 = profileService.loadViewAsync(target, "Player", snapshot1).get();
+        Tier tier1 = snapshot1.config().tiers().ladder().resolve(view1.status());
+        assertThat(tier1).isEqualTo(view1.tier());
+    }
 }

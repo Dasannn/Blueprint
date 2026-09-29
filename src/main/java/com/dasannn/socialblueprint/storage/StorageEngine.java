@@ -40,12 +40,22 @@ public final class StorageEngine implements Closeable {
     private final Thread dbThread;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    private StorageEngine(String jdbcUrl) {
+    private StorageEngine(ExecutorService executor, Connection connection, Thread dbThread) {
+        this.executor = Objects.requireNonNull(executor, "executor must not be null");
+        this.connection = Objects.requireNonNull(connection, "connection must not be null");
+        this.dbThread = Objects.requireNonNull(dbThread, "dbThread must not be null");
+        this.guardedConnection = createGuardedConnection(this.connection, this.dbThread);
+    }
+
+    public static CompletableFuture<StorageEngine> openAsync(String jdbcUrl) {
+        return openAsync(jdbcUrl, null);
+    }
+
+    public static CompletableFuture<StorageEngine> openAsync(String jdbcUrl, ExecutorService customExecutor) {
         Objects.requireNonNull(jdbcUrl, "JDBC URL must not be null");
 
-        // Hold a reference to the single DB thread to detect re-entrant calls
         Thread[] threadHolder = new Thread[1];
-        this.executor = Executors.newSingleThreadExecutor(new ThreadFactory() {
+        ExecutorService exec = customExecutor != null ? customExecutor : Executors.newSingleThreadExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable r) {
                 Thread t = new Thread(r, "socialblueprint-db");
@@ -55,48 +65,36 @@ public final class StorageEngine implements Closeable {
             }
         });
 
-        // Initialize connection on the executor thread with resource cleanup on failure
-        Connection rawConnection = null;
-        try {
-            rawConnection = executor.submit(() -> {
-                Connection conn = DriverManager.getConnection(jdbcUrl);
-                try (Statement stmt = conn.createStatement()) {
+        return CompletableFuture.supplyAsync(() -> {
+            Connection rawConnection = null;
+            try {
+                if (threadHolder[0] == null) {
+                    threadHolder[0] = Thread.currentThread();
+                }
+                rawConnection = DriverManager.getConnection(jdbcUrl);
+                try (Statement stmt = rawConnection.createStatement()) {
                     stmt.execute("PRAGMA foreign_keys = ON;");
                     if (!jdbcUrl.contains(":memory:")) {
                         stmt.execute("PRAGMA journal_mode = WAL;");
                     }
-                } catch (Throwable t) {
+                }
+                return new StorageEngine(exec, rawConnection, threadHolder[0]);
+            } catch (Throwable t) {
+                if (customExecutor == null) {
+                    exec.shutdownNow();
+                }
+                if (rawConnection != null) {
                     try {
-                        conn.close();
+                        rawConnection.close();
                     } catch (Throwable ignored) {
                     }
-                    throw t;
                 }
-                return conn;
-            }).get();
-            this.connection = rawConnection;
-        } catch (Throwable t) {
-            executor.shutdownNow();
-            if (rawConnection != null) {
-                try {
-                    rawConnection.close();
-                } catch (Throwable ignored) {
+                if (t instanceof RuntimeException re) {
+                    throw re;
                 }
-            }
-            if (t instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-                throw new StorageException("Interrupted while opening SQLite connection", t);
-            } else if (t instanceof ExecutionException ee) {
-                throw new StorageException("Failed to open SQLite connection to " + jdbcUrl, ee.getCause());
-            } else if (t instanceof RuntimeException re) {
-                throw re;
-            } else {
                 throw new StorageException("Failed to open SQLite connection to " + jdbcUrl, t);
             }
-        }
-
-        this.dbThread = threadHolder[0];
-        this.guardedConnection = createGuardedConnection(this.connection, this.dbThread);
+        }, exec);
     }
 
     private static Connection createGuardedConnection(Connection delegate, Thread allowedThread) {
@@ -125,11 +123,30 @@ public final class StorageEngine implements Closeable {
     }
 
     public static StorageEngine inMemory() {
-        return new StorageEngine("jdbc:sqlite::memory:");
+        return open("jdbc:sqlite::memory:");
     }
 
     public static StorageEngine open(String jdbcUrl) {
-        return new StorageEngine(jdbcUrl);
+        try {
+            return openAsync(jdbcUrl).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new StorageException("Interrupted while opening SQLite connection", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new StorageException("Failed to open SQLite connection to " + jdbcUrl, cause);
+        }
+    }
+
+    public CompletableFuture<Integer> runMigrationsAsync(MigrationRunner runner) {
+        return executeAsync(runner::runMigrations);
+    }
+
+    public CompletableFuture<Integer> runMigrationsAsync() {
+        return runMigrationsAsync(MigrationRunner.withDefaultMigrations());
     }
 
     public int runMigrations(MigrationRunner runner) {
@@ -216,6 +233,10 @@ public final class StorageEngine implements Closeable {
         Objects.requireNonNull(supplier, "Supplier must not be null");
         checkNotClosed();
         return CompletableFuture.supplyAsync(supplier, executor);
+    }
+
+    public boolean isClosed() {
+        return closed.get();
     }
 
     private void checkNotClosed() {

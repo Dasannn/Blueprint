@@ -6,6 +6,7 @@ import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.Tier;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -136,7 +137,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     }
 
     public java.util.concurrent.CompletableFuture<Void> executeShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
-        return profileService.resolvePlayerAsync(targetInput, snapshot.config().tiers().ladder())
+        return profileService.resolvePlayerAsync(targetInput, snapshot)
                 .thenAccept(optView -> mainThreadRunner.accept(() -> {
                     if (optView.isEmpty()) {
                         sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
@@ -158,10 +159,15 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         String psychKey = "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT);
         String localizedPsychosis = messageRegistry.getRaw(snapshot, psychKey);
 
+        Component prefixComp = (prefix != null && !prefix.isEmpty())
+                ? com.dasannn.socialblueprint.config.ColorParser.parse(prefix)
+                : Component.empty();
+
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-header",
                 Map.of("player", view.name())));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-tier",
-                Map.of("prefix", prefix, "tier", localizedTier)));
+                Map.of("tier", localizedTier),
+                Map.of("prefix", prefixComp)));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-status",
                 Map.of("status", String.valueOf(view.status()))));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-confidence",

@@ -83,6 +83,9 @@ class StatusCommandTest {
         profileRepo = new ProfileRepository(storage);
 
         PlayerLookup testLookup = nameOrUuid -> {
+            if (Thread.currentThread().getName().contains("socialblueprint-db")) {
+                throw new IllegalStateException("Bukkit lookup must not be called from the storage executor thread!");
+            }
             if (onlineLookupMap.containsKey(nameOrUuid.toLowerCase())) {
                 return Optional.of(onlineLookupMap.get(nameOrUuid.toLowerCase()));
             }
@@ -151,6 +154,10 @@ class StatusCommandTest {
     }
 
     private CommandSender mockConsole(List<String> messages) {
+        return mockConsole(messages, new ArrayList<>());
+    }
+
+    private CommandSender mockConsole(List<String> messages, List<Component> components) {
         InvocationHandler handler = (proxy, method, args) -> {
             String mName = method.getName();
             if ("getName".equals(mName)) return "CONSOLE";
@@ -158,6 +165,7 @@ class StatusCommandTest {
             if ("sendMessage".equals(mName)) {
                 if (args != null && args.length > 0 && args[0] instanceof Component comp) {
                     messages.add(ColorParser.serialize(comp));
+                    components.add(comp);
                 }
                 return null;
             }
@@ -169,6 +177,18 @@ class StatusCommandTest {
                 new Class<?>[]{CommandSender.class},
                 handler
         );
+    }
+
+    private static boolean hasColor(Component component, net.kyori.adventure.text.format.TextColor targetColor) {
+        if (targetColor.equals(component.color())) {
+            return true;
+        }
+        for (Component child : component.children()) {
+            if (hasColor(child, targetColor)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private interface MessageRecorder {
@@ -203,7 +223,7 @@ class StatusCommandTest {
         // Line 1: Header
         assertThat(messages.get(0)).contains("&8--- &bSocial Status: &eSteve &8---");
         // Line 2: Tier
-        assertThat(messages.get(1)).contains("&7Tier: &7[&f|&7] &fCitizen");
+        assertThat(messages.get(1)).contains("&7Tier: [&f|&7] &fCitizen");
         // Line 3: Status
         assertThat(messages.get(2)).contains("&7Status Score: &f0");
         // Line 4: Confidence
@@ -230,7 +250,7 @@ class StatusCommandTest {
         // Line 1: Header
         assertThat(messages.get(0)).contains("&8--- &bEstatus Social: &eSteve &8---");
         // Line 2: Tier
-        assertThat(messages.get(1)).contains("&7Rango: &7[&f|&7] &fParticular");
+        assertThat(messages.get(1)).contains("&7Rango: [&f|&7] &fParticular");
         // Line 3: Status
         assertThat(messages.get(2)).contains("&7Puntuaci\u00f3n de Estatus: &f0");
         // Line 4: Confidence
@@ -279,7 +299,8 @@ class StatusCommandTest {
         onlineLookupMap.put("alex", new PlayerLookup.KnownPlayer(targetId, "Alex", false));
 
         List<String> consoleMessages = new ArrayList<>();
-        CommandSender console = mockConsole(consoleMessages);
+        List<Component> consoleComponents = new ArrayList<>();
+        CommandSender console = mockConsole(consoleMessages, consoleComponents);
 
         boolean result = commandExecutor.onCommand(console, null, "status", new String[]{"Alex"});
         assertThat(result).isTrue();
@@ -287,9 +308,12 @@ class StatusCommandTest {
 
         assertThat(consoleMessages).hasSize(6);
         assertThat(consoleMessages.get(0)).contains("&8--- &bSocial Status: &eAlex &8---");
-        assertThat(consoleMessages.get(1)).contains("&7Tier: &7[&a||&7] &fHonorable");
+        assertThat(consoleMessages.get(1)).contains("&7Tier: [&a||&7] &fHonorable");
         assertThat(consoleMessages.get(2)).contains("&7Status Score: &f15");
         assertThat(consoleMessages.get(5)).contains("&7Contributors: &f1");
+        assertThat(hasColor(consoleComponents.get(1), net.kyori.adventure.text.format.NamedTextColor.GREEN))
+                .as("Configured tier prefix in /status must retain its parsed color components")
+                .isTrue();
     }
 
     @Test

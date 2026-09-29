@@ -111,16 +111,29 @@ public class MessageRegistry {
      * as literal {@link Component#text(String)}, preventing player input from recolouring messages.
      */
     public Component render(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+        return render(snapshot, key, placeholders, Collections.emptyMap());
+    }
+
+    public Component render(
+            RuntimeSnapshot snapshot,
+            String key,
+            Map<String, String> placeholders,
+            Map<String, Component> componentPlaceholders
+    ) {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
         String template = getRaw(snapshot, key);
         if (template.isEmpty()) {
             return Component.empty();
         }
-        return ColorParser.renderTemplate(template, placeholders);
+        return ColorParser.renderTemplate(template, placeholders, componentPlaceholders);
     }
 
     public Component render(String key, Map<String, String> placeholders) {
-        return render(snapshot(), key, placeholders);
+        return render(snapshot(), key, placeholders, Collections.emptyMap());
+    }
+
+    public Component render(String key, Map<String, String> placeholders, Map<String, Component> componentPlaceholders) {
+        return render(snapshot(), key, placeholders, componentPlaceholders);
     }
 
     /**

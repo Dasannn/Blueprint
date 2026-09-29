@@ -36,7 +36,7 @@ public class PlayerLifecycleListener implements Listener {
         profileService.warmUp(
                 PlayerId.of(player.getUniqueId()),
                 player.getName(),
-                snapshot.config().tiers().ladder()
+                snapshot
         );
     }
 

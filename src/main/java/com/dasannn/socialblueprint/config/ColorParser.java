@@ -98,15 +98,21 @@ public final class ColorParser {
     }
 
     /**
-     * Renders a message template by parsing fixed spans for colour and appending
-     * placeholder values as literal {@link Component#text(String)}, preventing placeholders
-     * from injecting formatting or recolouring subsequent spans.
+     * Renders a message template by parsing fixed spans for colour, appending
+     * string placeholder values as literal {@link Component#text(String)}, and
+     * inserting component placeholders directly at trusted positions.
      */
-    public static Component renderTemplate(String template, Map<String, String> placeholders) {
+    public static Component renderTemplate(
+            String template,
+            Map<String, String> placeholders,
+            Map<String, Component> componentPlaceholders
+    ) {
         if (template == null || template.isEmpty()) {
             return Component.empty();
         }
-        if (placeholders == null || placeholders.isEmpty()) {
+        boolean hasPlaceholders = (placeholders != null && !placeholders.isEmpty())
+                || (componentPlaceholders != null && !componentPlaceholders.isEmpty());
+        if (!hasPlaceholders) {
             return parse(template);
         }
 
@@ -125,7 +131,12 @@ public final class ColorParser {
             currentStyle = appendStyledSpan(builder, spanBefore, currentStyle);
 
             String token = m.group(1);
-            if (placeholders.containsKey(token)) {
+            if (componentPlaceholders != null && componentPlaceholders.containsKey(token)) {
+                Component comp = componentPlaceholders.get(token);
+                if (comp != null) {
+                    builder.append(comp);
+                }
+            } else if (placeholders != null && placeholders.containsKey(token)) {
                 String val = placeholders.get(token);
                 if (val != null && !val.isEmpty()) {
                     builder.append(Component.text(val, currentStyle));
@@ -143,6 +154,15 @@ public final class ColorParser {
         }
 
         return builder.build();
+    }
+
+    /**
+     * Renders a message template by parsing fixed spans for colour and appending
+     * placeholder values as literal {@link Component#text(String)}, preventing placeholders
+     * from injecting formatting or recolouring subsequent spans.
+     */
+    public static Component renderTemplate(String template, Map<String, String> placeholders) {
+        return renderTemplate(template, placeholders, java.util.Collections.emptyMap());
     }
 
     private static net.kyori.adventure.text.format.Style appendStyledSpan(

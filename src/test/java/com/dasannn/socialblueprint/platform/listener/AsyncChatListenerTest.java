@@ -164,10 +164,25 @@ class AsyncChatListenerTest {
         String serialized = ColorParser.serialize(hover);
 
         assertThat(serialized).contains("&7Status: &f25");
-        assertThat(serialized).contains("&7Tier: &7[&a||&7] &fHonorable");
+        assertThat(serialized).contains("&7Tier: [&a||&7] &fHonorable");
         assertThat(serialized).contains("&7Confidence: &fEstablished");
         assertThat(serialized).contains("&7Psychosis: &fLow");
         assertThat(serialized).contains("&7Contributors: &f7");
+        assertThat(hasColor(hover, net.kyori.adventure.text.format.NamedTextColor.GREEN))
+                .as("Configured tier prefix color codes (&a) must be parsed into components with GREEN color, not literal text")
+                .isTrue();
+    }
+
+    private static boolean hasColor(Component component, TextColor targetColor) {
+        if (targetColor.equals(component.color())) {
+            return true;
+        }
+        for (Component child : component.children()) {
+            if (hasColor(child, targetColor)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Test
@@ -191,10 +206,13 @@ class AsyncChatListenerTest {
         String serialized = ColorParser.serialize(hover);
 
         assertThat(serialized).contains("&7Estatus: &f25");
-        assertThat(serialized).contains("&7Rango: &7[&a||&7] &fHonorable");
+        assertThat(serialized).contains("&7Rango: [&a||&7] &fHonorable");
         assertThat(serialized).contains("&7Confianza: &fEstablecida");
         assertThat(serialized).contains("&7Psicosis: &fBaja");
         assertThat(serialized).contains("&7Colaboradores: &f7");
+        assertThat(hasColor(hover, net.kyori.adventure.text.format.NamedTextColor.GREEN))
+                .as("Configured tier prefix color codes (&a) must be parsed into components with GREEN color, not literal text")
+                .isTrue();
     }
 
     @Test
@@ -242,5 +260,71 @@ class AsyncChatListenerTest {
         HoverEvent<?> hoverEvent = rendered.hoverEvent();
         assertThat(hoverEvent).isNotNull();
         assertThat(hoverEvent.action()).isEqualTo(HoverEvent.Action.SHOW_TEXT);
+    }
+
+    @Test
+    @DisplayName("Finding 5: Renderer falls back to original display name and complete message when a dependency throws")
+    void rendererFallsBackWhenDependencyThrows() {
+        Tier tier = Tier.HONORABLE;
+        TextColor shade = TextColor.color(ChatGradient.rgb(tier));
+        Component prefixComp = Component.text("[Prefix]");
+        Component hoverComp = Component.text("Hover text");
+
+        ChatRenderer renderer = chatListener.createRenderer(
+                prefixComp,
+                hoverComp,
+                shade,
+                (name, hover) -> {
+                    throw new RuntimeException("Simulated dependency crash during hover rendering");
+                }
+        );
+
+        Component inputName = Component.text("PlayerOne");
+        Component originalMessage = Component.text("Critical message that must not be dropped");
+
+        Component rendered = renderer.render(null, inputName, originalMessage, null);
+        String serialized = ColorParser.serialize(rendered);
+
+        assertThat(serialized).contains("PlayerOne");
+        assertThat(serialized).contains("Critical message that must not be dropped");
+    }
+
+    @Test
+    @DisplayName("Finding 7: Styled incoming message children do not escape gradient")
+    void styledMessageChildrenDoNotEscapeGradient() {
+        Tier minTier = Tier.CRIMINAL;
+        TextColor minShade = TextColor.color(ChatGradient.rgb(minTier));
+        assertThat(minShade.asHexString()).isEqualTo("#202020");
+
+        ChatRenderer renderer = chatListener.createRenderer(Component.empty(), Component.empty(), minShade);
+
+        Component inputName = Component.text("CriminalPlayer");
+        Component styledChild = Component.text("Bright Yellow Child Text", net.kyori.adventure.text.format.NamedTextColor.YELLOW, net.kyori.adventure.text.format.TextDecoration.BOLD);
+        Component inputMessage = Component.text("Root text ").append(styledChild);
+
+        Component rendered = renderer.render(null, inputName, inputMessage, null);
+        String serialized = ColorParser.serialize(rendered);
+
+        assertThat(serialized).contains("Root text");
+        assertThat(serialized).contains("Bright Yellow Child Text");
+
+        // The bright yellow color MUST NOT survive: all text descendants are near-black #202020
+        assertThat(hasColor(rendered, net.kyori.adventure.text.format.NamedTextColor.YELLOW)).isFalse();
+        assertThat(hasColor(rendered, minShade)).isTrue();
+
+        // Non-color decorations (BOLD) are preserved on child
+        assertThat(hasDecoration(rendered, net.kyori.adventure.text.format.TextDecoration.BOLD)).isTrue();
+    }
+
+    private static boolean hasDecoration(Component component, net.kyori.adventure.text.format.TextDecoration decoration) {
+        if (component.hasDecoration(decoration)) {
+            return true;
+        }
+        for (Component child : component.children()) {
+            if (hasDecoration(child, decoration)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

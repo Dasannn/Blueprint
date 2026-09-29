@@ -46,58 +46,110 @@ public class AsyncChatListener implements Listener {
 
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
-        // Read one immutable snapshot per event (T-040, T-042)
-        RuntimeSnapshot snapshot = configManager.snapshot();
+        try {
+            // Read one immutable snapshot per event (T-040, T-042)
+            RuntimeSnapshot snapshot = configManager.snapshot();
 
-        Player player = event.getPlayer();
-        PlayerId playerId = PlayerId.of(player.getUniqueId());
+            Player player = event.getPlayer();
+            PlayerId playerId = PlayerId.of(player.getUniqueId());
 
-        // Single read from in-memory cache, neutral default if absent, never blocks event (T-042)
-        PlayerSocialView view = profileService.getViewQuick(playerId, snapshot.config().tiers().ladder());
+            // Single read from in-memory cache, neutral default if absent (T-042)
+            PlayerSocialView view = profileService.getViewQuick(playerId, snapshot);
 
-        // Resolve tier and prefix dynamically from current snapshot per lookup (T-040)
-        Tier tier = snapshot.config().tiers().ladder().resolve(view.status());
-        String prefixStr = snapshot.config().tiers().prefix(tier);
-        Component prefixComp = (prefixStr != null && !prefixStr.isEmpty())
-                ? ColorParser.parse(prefixStr)
-                : Component.empty();
+            // Resolve tier and prefix dynamically from current snapshot per lookup (T-040)
+            Tier tier = snapshot.config().tiers().ladder().resolve(view.status());
+            String prefixStr = snapshot.config().tiers().prefix(tier);
+            Component prefixComp = (prefixStr != null && !prefixStr.isEmpty())
+                    ? ColorParser.parse(prefixStr)
+                    : Component.empty();
 
-        // Chat gradient from #202020 to bright white by tier (T-041)
-        TextColor shade = TextColor.color(ChatGradient.rgb(tier));
+            // Chat gradient from #202020 to bright white by tier (T-041)
+            TextColor shade = TextColor.color(ChatGradient.rgb(tier));
 
-        // Format name hover summary from message bundle (T-043)
-        Component hoverComponent = buildHoverComponent(snapshot, view, tier);
+            // Format name hover summary from message bundle (T-043)
+            Component hoverComponent = buildHoverComponent(snapshot, view, tier);
 
-        // Install renderer: preserves player name, attaches hover, colors message (T-043, T-044)
-        event.renderer(createRenderer(prefixComp, hoverComponent, shade));
+            // Install renderer: preserves player name, attaches hover, colors message (T-043, T-044)
+            event.renderer(createRenderer(prefixComp, hoverComponent, shade));
+        } catch (Throwable t) {
+            // Fallback renderer preserving display name and complete original message per SB-021
+            event.renderer((source, sourceDisplayName, message, viewer) ->
+                    sourceDisplayName.append(Component.text(": ")).append(message)
+            );
+        }
     }
 
     public ChatRenderer createRenderer(Component prefixComp, Component hoverComponent, TextColor shade) {
+        return createRenderer(prefixComp, hoverComponent, shade, (name, hover) ->
+                (hover != null && !hover.equals(Component.empty()))
+                        ? name.hoverEvent(HoverEvent.showText(hover))
+                        : name
+        );
+    }
+
+    public ChatRenderer createRenderer(
+            Component prefixComp,
+            Component hoverComponent,
+            TextColor shade,
+            java.util.function.BiFunction<Component, Component, Component> hoverAttacher
+    ) {
+        Objects.requireNonNull(hoverAttacher, "hoverAttacher must not be null");
         return (source, sourceDisplayName, message, viewer) -> {
-            Component hoveredName = sourceDisplayName.hoverEvent(HoverEvent.showText(hoverComponent));
-            if (prefixComp.equals(Component.empty())) {
-                return hoveredName
+            try {
+                Component hoveredName = hoverAttacher.apply(sourceDisplayName, hoverComponent);
+                Component coloredMessage = recolorMessage(message, shade);
+                if (prefixComp == null || prefixComp.equals(Component.empty())) {
+                    return hoveredName
+                            .append(Component.text(": "))
+                            .append(coloredMessage);
+                } else {
+                    return prefixComp
+                            .append(Component.space())
+                            .append(hoveredName)
+                            .append(Component.text(": "))
+                            .append(coloredMessage);
+                }
+            } catch (Throwable t) {
+                // SB-021 and constitution §2.2: Never lose or truncate messages on failure.
+                // Fall back to original display name and the complete original message.
+                return sourceDisplayName
                         .append(Component.text(": "))
-                        .append(message.color(shade));
-            } else {
-                return prefixComp
-                        .append(Component.space())
-                        .append(hoveredName)
-                        .append(Component.text(": "))
-                        .append(message.color(shade));
+                        .append(message);
             }
         };
+    }
+
+    /**
+     * Recolors text descendants while preserving text and non-color decorations.
+     */
+    public static Component recolorMessage(Component component, TextColor shade) {
+        if (component == null) {
+            return Component.empty();
+        }
+        java.util.List<Component> children = component.children();
+        if (children.isEmpty()) {
+            return component.color(shade);
+        }
+        java.util.List<Component> recoloredChildren = new java.util.ArrayList<>(children.size());
+        for (Component child : children) {
+            recoloredChildren.add(recolorMessage(child, shade));
+        }
+        return component.color(shade).children(recoloredChildren);
     }
 
     public Component buildHoverComponent(RuntimeSnapshot snapshot, PlayerSocialView view, Tier tier) {
         Component line1 = messageRegistry.render(snapshot, "chat.hover-status",
                 Map.of("status", String.valueOf(view.status())));
 
+        String prefixStr = snapshot.config().tiers().prefix(tier);
+        Component prefixComp = (prefixStr != null && !prefixStr.isEmpty())
+                ? ColorParser.parse(prefixStr)
+                : Component.empty();
+
         Component line2 = messageRegistry.render(snapshot, "chat.hover-tier",
-                Map.of(
-                        "prefix", snapshot.config().tiers().prefix(tier),
-                        "tier", messageRegistry.tierName(snapshot, tier)
-                ));
+                Map.of("tier", messageRegistry.tierName(snapshot, tier)),
+                Map.of("prefix", prefixComp)
+        );
 
         Component line3 = messageRegistry.render(snapshot, "chat.hover-confidence",
                 Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence." + view.confidence().name().toLowerCase(Locale.ROOT))));

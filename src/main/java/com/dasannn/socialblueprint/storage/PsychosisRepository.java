@@ -22,19 +22,38 @@ import java.util.concurrent.CompletableFuture;
 public final class PsychosisRepository {
 
     private final StorageEngine engine;
+    private final java.util.List<java.util.function.Consumer<PlayerId>> invalidationListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public PsychosisRepository(StorageEngine engine) {
         this.engine = Objects.requireNonNull(engine, "StorageEngine must not be null");
     }
 
+    public void addInvalidationListener(java.util.function.Consumer<PlayerId> listener) {
+        if (listener != null) {
+            invalidationListeners.add(listener);
+        }
+    }
+
+    private void notifyInvalidation(PlayerId player) {
+        for (java.util.function.Consumer<PlayerId> listener : invalidationListeners) {
+            listener.accept(player);
+        }
+    }
+
     public PsychosisEvent save(PsychosisEvent event) {
         Objects.requireNonNull(event, "Event must not be null");
-        return engine.execute(conn -> saveInternal(conn, event));
+        PsychosisEvent persisted = engine.execute(conn -> saveInternal(conn, event));
+        notifyInvalidation(persisted.killer());
+        return persisted;
     }
 
     public CompletableFuture<PsychosisEvent> saveAsync(PsychosisEvent event) {
         Objects.requireNonNull(event, "Event must not be null");
-        return engine.executeAsync(conn -> saveInternal(conn, event));
+        return engine.executeAsync(conn -> saveInternal(conn, event))
+                .thenApply(persisted -> {
+                    notifyInvalidation(persisted.killer());
+                    return persisted;
+                });
     }
 
     private PsychosisEvent saveInternal(Connection conn, PsychosisEvent event) throws SQLException {

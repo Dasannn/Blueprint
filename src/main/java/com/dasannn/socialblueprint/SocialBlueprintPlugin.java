@@ -15,6 +15,7 @@ import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
+import com.dasannn.socialblueprint.storage.StorageLifecycleCoordinator;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -65,19 +66,33 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             throw new IllegalStateException("Failed to enable SocialBlueprint due to invalid configuration: " + e.getMessage(), e);
         }
 
-        // Initialize StorageEngine and run SQLite migrations (T-018, ARCHITECTURE.md §4, §5)
+        // Initialize StorageEngine and run SQLite migrations on storage executor (T-018, ARCHITECTURE.md §4, §5)
         File dbFile = new File(getDataFolder(), "socialblueprint.db");
-        this.storageEngine = StorageEngine.open("jdbc:sqlite:" + dbFile.getAbsolutePath());
-        this.storageEngine.runMigrations();
+        String jdbcUrl = "jdbc:sqlite:" + dbFile.getAbsolutePath();
 
-        // Initialize repositories and in-memory status cache (T-018, T-019)
+        StorageLifecycleCoordinator coordinator = new StorageLifecycleCoordinator(
+                getLogger(),
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    } else {
+                        runnable.run();
+                    }
+                },
+                () -> getServer().getPluginManager().disablePlugin(this)
+        );
+
+        coordinator.start(jdbcUrl, this::completeInitialization);
+    }
+
+    void completeInitialization(StorageEngine engine) {
+        this.storageEngine = engine;
         this.statusCache = new StatusCache();
         this.reputationRepository = new ReputationRepository(storageEngine, statusCache);
         this.profileRepository = new ProfileRepository(storageEngine);
         this.psychosisRepository = new PsychosisRepository(storageEngine);
         this.auditRepository = new AuditRepository(storageEngine);
 
-        // Initialize ProfileService (T-042, T-045)
         BukkitPlayerLookup playerLookup = new BukkitPlayerLookup(getServer());
         this.profileService = new ProfileService(
                 storageEngine,
@@ -90,7 +105,6 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 getLogger()
         );
 
-        // Register event listeners (T-040, T-041, T-042, T-043, T-044)
         getServer().getPluginManager().registerEvents(
                 new AsyncChatListener(profileService, configManager, messageRegistry),
                 this
@@ -100,7 +114,6 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this
         );
 
-        // Register /status command dispatcher (T-035, T-045)
         PluginCommand statusCmd = getCommand("status");
         if (statusCmd != null) {
             StatusCommandExecutor executor = new StatusCommandExecutor(
