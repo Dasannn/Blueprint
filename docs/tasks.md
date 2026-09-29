@@ -1,4 +1,4 @@
-﻿# Tasks â€” Release 1
+# Tasks — Release 1
 
 Units of work for `docs/plan.md`. Each task names the requirements it satisfies
 and how it is proven done. Status values: `todo`, `in progress`, `review`,
@@ -18,8 +18,8 @@ second place where progress is recorded.
 |---|---|---|
 | P0 Build foundation | `feat/p0-build-foundation` | **done** — gate met on Paper 26.3 build 135 with LuckPerms, Vault, EssentialsX, WorldEdit and WorldGuard loaded |
 | P1 Storage and domain | `feat/p1-storage-domain` | **done** — 86 tests green; eleven review findings closed, six accepted with reasons recorded in the commit |
-| P2 Configuration | — | next |
-| P3 Status, tiers, chat | — | not started |
+| P2 Configuration | `feat/p2-configuration` | **done** — 157 tests green in both languages; thirteen review findings closed across three rounds |
+| P3 Status, tiers, chat | — | next |
 | P4 Commands, permissions | — | not started |
 | P5 Duels | — | not started |
 | P6 Ambient effects | — | not started |
@@ -43,23 +43,23 @@ Neither blocks current work; both land in `config.yml` during P2.
 
 ---
 
-## P0 â€” Build foundation
+## P0 — Build foundation
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-001 | Add the Maven wrapper (`mvnw`, `mvnw.cmd`, `.mvn/`). Maven is not installed locally. | â€” | done |
-| T-002 | Retarget `pom.xml`: `maven.compiler.release` 25, `io.papermc.paper:paper-api:26.3.build.135-beta` provided, Paper repository, Vault API provided. Drop the Spigot dependency and repository. | Â§3 | done |
-| T-003 | Move `plugin.yml` and `config.yml` from `src/main/java` to `src/main/resources`; remove the explicit `<resource>` block from `pom.xml`. | â€” | done |
-| T-004 | Rename package to `com.dasannn.socialblueprint`; rename entry class `main` to `SocialBlueprintPlugin`; update `plugin.yml`. | â€” | done |
+| T-001 | Add the Maven wrapper (`mvnw`, `mvnw.cmd`, `.mvn/`). Maven is not installed locally. | — | done |
+| T-002 | Retarget `pom.xml`: `maven.compiler.release` 25, `io.papermc.paper:paper-api:26.3.build.135-beta` provided, Paper repository, Vault API provided. Drop the Spigot dependency and repository. | §3 | done |
+| T-003 | Move `plugin.yml` and `config.yml` from `src/main/java` to `src/main/resources`; remove the explicit `<resource>` block from `pom.xml`. | — | done |
+| T-004 | Rename package to `com.dasannn.socialblueprint`; rename entry class `main` to `SocialBlueprintPlugin`; update `plugin.yml`. | — | done |
 | T-005 | Delete `PrefixManager`. It is entirely commented out and wrongly extends `JavaPlugin`. | SB-12.4 | done |
-| T-006 | Reduce the entry class to a skeleton: enable, disable, logging, no feature code. Remove `/pstatus evaluate`, the `eco` dispatch, the death item rewards and `/utils`. | Â§12 | done |
-| T-007 | Declare `sqlite-jdbc` under `libraries:` in `plugin.yml`. | â€” | done |
+| T-006 | Reduce the entry class to a skeleton: enable, disable, logging, no feature code. Remove `/pstatus evaluate`, the `eco` dispatch, the death item rewards and `/utils`. | §12 | done |
+| T-007 | Declare `sqlite-jdbc` under `libraries:` in `plugin.yml`. | — | done |
 
 **Gate:** Paper 26.3 starts with the jar and no configuration file; enable and disable are clean in the log.
 
 ---
 
-## P1 â€” Storage and domain
+## P1 — Storage and domain
 
 | id | task | spec | status |
 |---|---|---|---|
@@ -70,43 +70,43 @@ Neither blocks current work; both land in `config.yml` during P2.
 | T-014 | Killing Psychosis over a rolling window. Never reads or writes social status. | SB-004 | done |
 | T-015 | Honor cost: fixed base times the progressive multiplier for the actor's ratings inside the window. | SB-050 | done |
 | T-016 | Per-pair allowance: at most three positive and three negative per actor-target pair inside the window; independent counts; the window expiring restores it. | SB-054 | done |
-| T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` Â§4. | â€” | done |
-| T-018 | Repositories over a single-threaded executor; one connection; no pool. | â€” | done |
-| T-019 | In-memory status cache, invalidated on write, rebuildable from events. | â€” | done |
-| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | Â§13 | done |
-| T-021 | Storage tests against an in-memory database, including the full migration chain. | â€” | done |
+| T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` §4. | — | done |
+| T-018 | Repositories over a single-threaded executor; one connection; no pool. | — | done |
+| T-019 | In-memory status cache, invalidated on write, rebuildable from events. | — | done |
+| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | §13 | done |
+| T-021 | Storage tests against an in-memory database, including the full migration chain. | — | done |
 
 **Gate:** T-020 and T-021 pass.
 
 ---
 
-## P2 â€” Configuration
+## P2 — Configuration
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-030 | Typed immutable config records for every section; one load, no scattered `getString`. | â€” | todo |
-| T-031 | Load-time validation: malformed tier ladder, missing required key, negative cooldown, or a tier threshold out of order fails the enable with a message naming the key. Never a silent default. | SB-011 | todo |
-| T-032 | Split text into per-language message files; every player-visible string configurable. | SB-062 | todo |
-| T-032a | Ship `messages_es.yml` and `messages_en.yml` with identical keys, both inside the jar and both written to the data folder on first run. A `language:` key in `config.yml` selects one. | SB-066, SB-067 | todo |
-| T-032b | Missing-key fallback to the other language, with a one-time warning naming the key. A raw key must never reach a player. | SB-068 | todo |
-| T-032c | A test that fails when the two language files' key sets diverge, and one that fails when a player-visible string is hardcoded in Java. | SB-069 | todo |
-| T-032d | Move the nine tier display names out of `config.yml` into the language files, keyed by tier. `config.yml` keeps each tier's prefix token and threshold. Supply the English names. | SB-070i | todo |
-| T-033 | Colour parsing through Adventure's legacy serializer with `&` and hex. One interpretation only; never also MiniMessage. | SB-063 | todo |
-| T-034 | Atomic reload: replace the snapshot wholesale; nothing caches derived values across a reload. | SB-013 | todo |
-| T-035 | `/status config <key> [value]`: read and edit in-game through the same validation, persist, publish a new snapshot. | SB-062 | todo |
-| T-036 | Ship a `config.yml` whose tier ladder is correct â€” negative tiers carry negative thresholds. The baseline shipped positive ones. | SB-011 | todo |
+| T-030 | Typed immutable config records for every section; one load, no scattered `getString`. | — | done |
+| T-031 | Load-time validation: malformed tier ladder, missing required key, negative cooldown, or a tier threshold out of order fails the enable with a message naming the key. Never a silent default. | SB-011 | done |
+| T-032 | Split text into per-language message files; every player-visible string configurable. | SB-062 | done |
+| T-032a | Ship `messages_es.yml` and `messages_en.yml` with identical keys, both inside the jar and both written to the data folder on first run. A `language:` key in `config.yml` selects one. | SB-066, SB-067 | done |
+| T-032b | Missing-key fallback to the other language, with a one-time warning naming the key. A raw key must never reach a player. | SB-068 | done |
+| T-032c | A test that fails when the two language files' key sets diverge, and one that fails when a player-visible string is hardcoded in Java. | SB-069 | done |
+| T-032d | Move the nine tier display names out of `config.yml` into the language files, keyed by tier. `config.yml` keeps each tier's prefix token and threshold. Supply the English names. | SB-070i | done |
+| T-033 | Colour parsing through Adventure's legacy serializer with `&` and hex. One interpretation only; never also MiniMessage. | SB-063 | done |
+| T-034 | Atomic reload: replace the snapshot wholesale; nothing caches derived values across a reload. | SB-013 | done |
+| T-035 | `/status config <key> [value]`: read and edit in-game through the same validation, persist, publish a new snapshot. | SB-062 | done |
+| T-036 | Ship a `config.yml` whose tier ladder is correct — negative tiers carry negative thresholds. The baseline shipped positive ones. | SB-011 | done |
 
 **Gate:** a malformed ladder names its key and refuses to enable; an in-game colour edit applies with no restart; switching `language:` changes every player-visible string with no other edit.
 
 ---
 
-## P3 â€” Status, tiers, prefixes, chat
+## P3 — Status, tiers, prefixes, chat
 
 | id | task | spec | status |
 |---|---|---|---|
 | T-040 | Resolve the prefix per lookup from the current snapshot. No static caching at enable. | SB-013 | todo |
 | T-041 | Chat gradient from `#202020` to bright white by tier. Never absolute black, never hidden, truncated, delayed or blocked. | SB-020, SB-021 | todo |
-| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | â€” | todo |
+| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | — | todo |
 | T-043 | Name hover: status, tier, Confidence, Psychosis, count of distinct contributors. | SB-022 | todo |
 | T-044 | Coexist with other prefix plugins: never overwrite display, list or custom name unconditionally. | SB-014 | todo |
 | T-045 | `/status [player]` profile output, including offline targets. | SB-005 | todo |
@@ -115,7 +115,7 @@ Neither blocks current work; both land in `config.yml` during P2.
 
 ---
 
-## P4 â€” Commands and permissions
+## P4 — Commands and permissions
 
 | id | task | spec | status |
 |---|---|---|---|
@@ -133,20 +133,20 @@ Neither blocks current work; both land in `config.yml` during P2.
 
 ---
 
-## P5 â€” Duels
+## P5 — Duels
 
 | id | task | spec | status |
 |---|---|---|---|
 | T-060 | Duel lifecycle: challenge, accept, deny, leave, expiry. 1v1 and group. | SB-030 | todo |
 | T-061 | A kill inside an active duel affects neither status nor Psychosis. | SB-031 | todo |
-| T-062 | A kill outside a duel raises Psychosis and never changes status. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, Â§12 | todo |
+| T-062 | A kill outside a duel raises Psychosis and never changes status. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, §12 | todo |
 | T-063 | Configurable disconnect handling, distinguishing a combat log from a normal quit. | SB-033 | todo |
 
 **Gate:** duel kill changes neither metric; open-world kill changes only Psychosis.
 
 ---
 
-## P6 â€” Ambient effects
+## P6 — Ambient effects
 
 Parallel with P5.
 
@@ -156,14 +156,14 @@ Parallel with P5.
 | T-071 | Delivery to the affected player only. Nothing reaches other players, the real chat, or the server log. | SB-041 | todo |
 | T-072 | Speed III silverfish: no damage dealt or taken, no targeting, no loot, no XP, not persistent, removed on timer. | SB-042 | todo |
 | T-073 | Entity registry cleaned on despawn timer, quit, world change and disable. No entity survives any of them. | SB-042 | todo |
-| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements â€” all private. | SB-040 | todo |
+| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements — all private. | SB-040 | todo |
 | T-075 | `/status effects` per-player opt-out, persisted. Changes no metric and hides nothing from others. | SB-044 | todo |
 
 **Gate:** effects are private; no entity leaks; opt-out works.
 
 ---
 
-## P7 â€” Self-update
+## P7 — Self-update
 
 | id | task | spec | status |
 |---|---|---|---|
@@ -178,25 +178,25 @@ Parallel with P5.
 
 ---
 
-## P8 â€” Legacy import
+## P8 — Legacy import
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-090 | Read an old PlayerStatus `config.yml`; write one `legacy_import` event per player, no actor. | â€” | todo |
+| T-090 | Read an old PlayerStatus `config.yml`; write one `legacy_import` event per player, no actor. | — | todo |
 | T-091 | Legacy events contribute nothing to Reputation Confidence. | SB-003 | todo |
-| T-092 | Import is idempotent and reports what it did. | â€” | todo |
+| T-092 | Import is idempotent and reports what it did. | — | todo |
 
 **Gate:** a real old configuration imports with no score loss and invents no evidence.
 
 ---
 
-## P9 â€” Hardening
+## P9 — Hardening
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-100 | Walk every acceptance criterion in `docs/spec.md` Â§13 on a running Paper 26.3 server; record evidence per box. | Â§13 | todo |
-| T-101 | Confirm no file or database I/O happens on the main thread. | Â§13 | todo |
-| T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | Â§13 | todo |
-| T-103 | Codex reviews the full release diff, not phase by phase. | â€” | todo |
+| T-100 | Walk every acceptance criterion in `docs/spec.md` §13 on a running Paper 26.3 server; record evidence per box. | §13 | todo |
+| T-101 | Confirm no file or database I/O happens on the main thread. | §13 | todo |
+| T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §13 | todo |
+| T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
 
-**Gate:** every box in Â§13 ticked with evidence.
+**Gate:** every box in §13 ticked with evidence.
