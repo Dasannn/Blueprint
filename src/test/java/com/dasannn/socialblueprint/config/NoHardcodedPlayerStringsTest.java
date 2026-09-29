@@ -23,18 +23,46 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class NoHardcodedPlayerStringsTest {
 
-    // Regex to detect calls sending literal strings directly to players/senders
-    private static final Pattern LITERAL_SEND_MESSAGE_PATTERN = Pattern.compile(
-            "\\b(?:sender|player|audience|target)\\.sendMessage\\s*\\(\\s*\"[^\"]+\"\\s*\\)"
+    // 1. Literal strings passed directly to sendMessage or sendActionBar on any receiver
+    private static final Pattern DIRECT_LITERAL_MESSAGE_PATTERN = Pattern.compile(
+            "\\b[a-zA-Z0-9_]+\\.(?:sendMessage|sendActionBar)\\s*\\(\\s*\"[^\"]+\"\\s*\\)"
     );
 
-    private static final Pattern COMPONENT_LITERAL_SEND_PATTERN = Pattern.compile(
-            "\\b(?:sender|player|audience|target)\\.sendMessage\\s*\\(\\s*Component\\.text\\s*\\(\\s*\"[^\"]+\"\\s*\\)\\s*\\)"
+    // 2. Component.text("literal") passed inside sendMessage or sendActionBar on any receiver (including chaining)
+    private static final Pattern COMPONENT_TEXT_MESSAGE_PATTERN = Pattern.compile(
+            "\\b[a-zA-Z0-9_]+\\.(?:sendMessage|sendActionBar)\\s*\\([^;]*Component\\.text\\s*\\(\\s*\"[^\"]+\""
     );
 
-    private static final Pattern LITERAL_ACTION_BAR_PATTERN = Pattern.compile(
-            "\\b(?:sender|player|audience|target)\\.sendActionBar\\s*\\(\\s*\"[^\"]+\"\\s*\\)"
+    // 3. Title display calls with literal strings or Component.text("literal") on any receiver
+    private static final Pattern TITLE_LITERAL_PATTERN = Pattern.compile(
+            "\\b[a-zA-Z0-9_]+\\.(?:showTitle|sendTitle)\\s*\\([^;]*(?:\"[^\"]+\"|Component\\.text\\s*\\(\\s*\"[^\"]+\")"
     );
+
+    // 4. Bukkit or Server broadcast calls with literal strings or Component.text("literal")
+    private static final Pattern BROADCAST_LITERAL_PATTERN = Pattern.compile(
+            "\\b(?:Bukkit|Server|server)\\.(?:broadcast|broadcastMessage)\\s*\\([^;]*(?:\"[^\"]+\"|Component\\.text\\s*\\(\\s*\"[^\"]+\")"
+    );
+
+    static List<String> scanForViolations(String content) {
+        List<String> found = new ArrayList<>();
+        Matcher m1 = DIRECT_LITERAL_MESSAGE_PATTERN.matcher(content);
+        while (m1.find()) {
+            found.add("Direct literal: " + m1.group());
+        }
+        Matcher m2 = COMPONENT_TEXT_MESSAGE_PATTERN.matcher(content);
+        while (m2.find()) {
+            found.add("Component.text literal: " + m2.group());
+        }
+        Matcher m3 = TITLE_LITERAL_PATTERN.matcher(content);
+        while (m3.find()) {
+            found.add("Title literal: " + m3.group());
+        }
+        Matcher m4 = BROADCAST_LITERAL_PATTERN.matcher(content);
+        while (m4.find()) {
+            found.add("Broadcast literal: " + m4.group());
+        }
+        return found;
+    }
 
     @Test
     @DisplayName("T-032c / DoD 5: No player-visible string is hardcoded in Java source files")
@@ -47,21 +75,9 @@ class NoHardcodedPlayerStringsTest {
 
             for (Path javaFile : javaFiles) {
                 String content = Files.readString(javaFile, StandardCharsets.UTF_8);
-
-                // Check for direct literal sendMessage calls
-                Matcher m1 = LITERAL_SEND_MESSAGE_PATTERN.matcher(content);
-                while (m1.find()) {
-                    violations.add(javaFile + ": " + m1.group());
-                }
-
-                Matcher m2 = COMPONENT_LITERAL_SEND_PATTERN.matcher(content);
-                while (m2.find()) {
-                    violations.add(javaFile + ": " + m2.group());
-                }
-
-                Matcher m3 = LITERAL_ACTION_BAR_PATTERN.matcher(content);
-                while (m3.find()) {
-                    violations.add(javaFile + ": " + m3.group());
+                List<String> fileViolations = scanForViolations(content);
+                for (String v : fileViolations) {
+                    violations.add(javaFile + ": " + v);
                 }
             }
         }
@@ -106,10 +122,25 @@ class NoHardcodedPlayerStringsTest {
     }
 
     @Test
-    @DisplayName("T-032c: Test mechanism fails when a hardcoded string is present in source code")
-    void scannerDetectsHardcodedStrings() {
-        String testSnippet = "sender.sendMessage(\"Hardcoded message to player\");";
-        Matcher matcher = LITERAL_SEND_MESSAGE_PATTERN.matcher(testSnippet);
-        assertThat(matcher.find()).isTrue();
+    @DisplayName("T-032c: Widened scanner catches all player-visible display API shapes (negative test)")
+    void scannerDetectsAllHardcodedNegativeExamples() {
+        List<String> negativeExamples = List.of(
+                "viewer.sendMessage(\"Hello\");",
+                "player.sendMessage(Component.text(\"Hello\").color(NamedTextColor.RED));",
+                "player.showTitle(Title.title(Component.text(\"Title\"), Component.text(\"Subtitle\")));",
+                "player.sendTitle(\"Title\", \"Subtitle\", 10, 70, 20);",
+                "Bukkit.broadcast(Component.text(\"Hello\"));",
+                "Bukkit.broadcastMessage(\"Broadcast\");",
+                "server.broadcastMessage(\"Server broadcast\");",
+                "audience.sendActionBar(\"Action bar\");",
+                "target.sendActionBar(Component.text(\"Action bar\"));"
+        );
+
+        for (String example : negativeExamples) {
+            List<String> violations = scanForViolations(example);
+            assertThat(violations)
+                    .withFailMessage("Scanner failed to detect violation in: %s", example)
+                    .isNotEmpty();
+        }
     }
 }

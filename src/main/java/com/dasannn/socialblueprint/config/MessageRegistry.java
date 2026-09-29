@@ -16,11 +16,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
 
 /**
  * Message resolution and localization service per T-032, T-032a, T-032b, and T-032d.
- * Loads active language with fallback to the alternate language.
+ * Uses an immutable {@link RuntimeSnapshot} published through a single atomic reference.
+ * The chat prefix is rendered directly from the authoritative configuration snapshot (SB-062).
  * Logs a warning naming missing keys ONCE.
  * A raw key must never reach a player (T-032b).
  */
@@ -29,37 +31,45 @@ public class MessageRegistry {
     private final File dataFolder;
     private final Logger logger;
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
-
-    private volatile String activeLanguage;
-    private volatile Map<String, String> activeMessages;
-    private volatile Map<String, String> fallbackMessages;
-    private volatile Map<String, String> bundledActiveMessages;
-    private volatile Map<String, String> bundledFallbackMessages;
+    private final AtomicReference<RuntimeSnapshot> snapshotRef = new AtomicReference<>();
 
     public MessageRegistry(File dataFolder, String language, Logger logger) {
         this.dataFolder = dataFolder;
         this.logger = logger != null ? logger : Logger.getLogger(MessageRegistry.class.getName());
-        setLanguage(language);
+
+        String initialLang = (language != null && !language.isBlank())
+                ? language.trim().toLowerCase(Locale.ROOT)
+                : "en";
+        PluginConfig initialConfig = loadBundledConfig(initialLang);
+        MessagesSnapshot initialMessages = loadMessagesSnapshot(dataFolder, initialLang, this.logger);
+        this.snapshotRef.set(new RuntimeSnapshot(initialConfig, initialMessages));
+    }
+
+    public AtomicReference<RuntimeSnapshot> snapshotReference() {
+        return snapshotRef;
+    }
+
+    public RuntimeSnapshot snapshot() {
+        return snapshotRef.get();
     }
 
     /**
-     * Changes the active language, reloading message maps from disk/bundled files.
+     * Changes the active language, reloading message maps from disk/bundled files
+     * and atomically updating the runtime snapshot.
      */
     public synchronized void setLanguage(String language) {
-        this.activeLanguage = (language != null && !language.isBlank())
+        String newLang = (language != null && !language.isBlank())
                 ? language.trim().toLowerCase(Locale.ROOT)
                 : "en";
-        String fallbackLang = "es".equalsIgnoreCase(this.activeLanguage) ? "en" : "es";
-
-        this.bundledActiveMessages = loadFromJar(this.activeLanguage);
-        this.bundledFallbackMessages = loadFromJar(fallbackLang);
-
-        this.activeMessages = loadFromDiskOrJar(this.activeLanguage, bundledActiveMessages);
-        this.fallbackMessages = loadFromDiskOrJar(fallbackLang, bundledFallbackMessages);
+        RuntimeSnapshot current = snapshotRef.get();
+        PluginConfig cfg = current != null ? current.config() : loadBundledConfig(newLang);
+        MessagesSnapshot newMessages = loadMessagesSnapshot(dataFolder, newLang, logger);
+        snapshotRef.set(new RuntimeSnapshot(cfg, newMessages));
     }
 
     public String activeLanguage() {
-        return activeLanguage;
+        RuntimeSnapshot snap = snapshotRef.get();
+        return snap != null ? snap.messages().activeLanguage() : "en";
     }
 
     /**
@@ -68,50 +78,11 @@ public class MessageRegistry {
      * Never returns the raw key if completely missing (T-032b).
      */
     public String getRaw(String key) {
-        Objects.requireNonNull(key, "Message key must not be null");
-
-        // 1. Try active language from disk/memory
-        String val = activeMessages.get(key);
-        if (val != null && !val.isBlank()) {
-            return val;
+        RuntimeSnapshot snap = snapshotRef.get();
+        if (snap == null) {
+            return "";
         }
-
-        // 2. Try fallback language from disk/memory
-        String fallbackLang = "es".equalsIgnoreCase(activeLanguage) ? "en" : "es";
-        String fallbackVal = fallbackMessages.get(key);
-        if (fallbackVal != null && !fallbackVal.isBlank()) {
-            if (warnedKeys.add(key)) {
-                logger.warning("[SocialBlueprint] Missing translation key '" + key
-                        + "' in language '" + activeLanguage + "'; falling back to '" + fallbackLang + "'.");
-            }
-            return fallbackVal;
-        }
-
-        // 3. Try bundled active language from jar
-        String bundledVal = bundledActiveMessages.get(key);
-        if (bundledVal != null && !bundledVal.isBlank()) {
-            if (warnedKeys.add(key)) {
-                logger.warning("[SocialBlueprint] Missing translation key '" + key
-                        + "' in disk file; falling back to bundled jar default for '" + activeLanguage + "'.");
-            }
-            return bundledVal;
-        }
-
-        // 4. Try bundled fallback language from jar
-        String bundledFallbackVal = bundledFallbackMessages.get(key);
-        if (bundledFallbackVal != null && !bundledFallbackVal.isBlank()) {
-            if (warnedKeys.add(key)) {
-                logger.warning("[SocialBlueprint] Missing translation key '" + key
-                        + "' in disk file; falling back to bundled jar fallback for '" + fallbackLang + "'.");
-            }
-            return bundledFallbackVal;
-        }
-
-        // 5. Completely missing - never show raw key to player (T-032b)
-        if (warnedKeys.add(key)) {
-            logger.severe("[SocialBlueprint] Translation key '" + key + "' not found in any message file!");
-        }
-        return "";
+        return snap.messages().resolveRaw(key, warnedKeys, logger);
     }
 
     /**
@@ -123,32 +94,31 @@ public class MessageRegistry {
 
     /**
      * Renders a message key with placeholder replacements as an Adventure Component.
+     * Fixed template spans are parsed for formatting while placeholder values are appended
+     * as literal {@link Component#text(String)}, preventing player input from recolouring messages.
      */
     public Component render(String key, Map<String, String> placeholders) {
-        String text = getRaw(key);
-        if (text.isEmpty()) {
+        String template = getRaw(key);
+        if (template.isEmpty()) {
             return Component.empty();
         }
-        if (placeholders != null && !placeholders.isEmpty()) {
-            for (Map.Entry<String, String> entry : placeholders.entrySet()) {
-                text = text.replace("{" + entry.getKey() + "}", entry.getValue() != null ? entry.getValue() : "");
-            }
-        }
-        return ColorParser.parse(text);
+        return ColorParser.renderTemplate(template, placeholders);
     }
 
     /**
-     * Renders a message key prefixed by the configured chat prefix.
+     * Renders a message key prefixed by the authoritative chat prefix from configuration.
      */
     public Component renderWithPrefix(String key) {
         return renderWithPrefix(key, Collections.emptyMap());
     }
 
     /**
-     * Renders a message key with placeholder replacements prefixed by the chat prefix.
+     * Renders a message key with placeholder replacements prefixed by the authoritative
+     * chat prefix from the current runtime snapshot.
      */
     public Component renderWithPrefix(String key, Map<String, String> placeholders) {
-        Component prefix = ColorParser.parse(getRaw("prefix"));
+        RuntimeSnapshot snap = snapshotRef.get();
+        Component prefix = snap != null ? snap.chatPrefixComponent() : Component.empty();
         Component message = render(key, placeholders);
         return prefix.append(message);
     }
@@ -162,26 +132,41 @@ public class MessageRegistry {
     }
 
     /**
-     * Loads messages directly from an in-memory configuration section (primarily for testing).
+     * Loads messages directly from in-memory maps (primarily for testing).
      */
     public static MessageRegistry fromMaps(Map<String, String> active, Map<String, String> fallback, String lang, Logger logger) {
         MessageRegistry registry = new MessageRegistry(null, lang, logger);
-        registry.activeMessages = new HashMap<>(active);
-        registry.fallbackMessages = new HashMap<>(fallback);
-        registry.bundledActiveMessages = Collections.emptyMap();
-        registry.bundledFallbackMessages = Collections.emptyMap();
+        String activeLang = (lang != null && !lang.isBlank()) ? lang.trim().toLowerCase(Locale.ROOT) : "en";
+        String fallbackLang = "es".equalsIgnoreCase(activeLang) ? "en" : "es";
+        MessagesSnapshot ms = new MessagesSnapshot(activeLang, fallbackLang, active, fallback, Collections.emptyMap(), Collections.emptyMap());
+        PluginConfig defaultCfg = loadBundledConfig(activeLang);
+        registry.snapshotRef.set(new RuntimeSnapshot(defaultCfg, ms));
         return registry;
     }
 
-    private Map<String, String> loadFromDiskOrJar(String lang, Map<String, String> bundled) {
+    public static MessagesSnapshot loadMessagesSnapshot(File dataFolder, String language, Logger logger) {
+        String activeLang = (language != null && !language.isBlank())
+                ? language.trim().toLowerCase(Locale.ROOT)
+                : "en";
+        String fallbackLang = "es".equalsIgnoreCase(activeLang) ? "en" : "es";
+
+        Map<String, String> bundledActive = loadFromJar(activeLang, logger);
+        Map<String, String> bundledFallback = loadFromJar(fallbackLang, logger);
+
+        Map<String, String> active = loadFromDiskOrJar(dataFolder, activeLang, bundledActive, logger);
+        Map<String, String> fallback = loadFromDiskOrJar(dataFolder, fallbackLang, bundledFallback, logger);
+
+        return new MessagesSnapshot(activeLang, fallbackLang, active, fallback, bundledActive, bundledFallback);
+    }
+
+    private static Map<String, String> loadFromDiskOrJar(File dataFolder, String lang, Map<String, String> bundled, Logger logger) {
         if (dataFolder == null) {
             return bundled != null ? bundled : Collections.emptyMap();
         }
 
         File file = new File(dataFolder, "messages_" + lang + ".yml");
         if (!file.exists()) {
-            // Write to data folder on first run (T-032a)
-            saveBundledResource(lang, file);
+            saveBundledResource(lang, file, logger);
         }
 
         if (file.exists()) {
@@ -189,29 +174,35 @@ public class MessageRegistry {
                 YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
                 return flattenKeys(yaml);
             } catch (Exception e) {
-                logger.warning("[SocialBlueprint] Failed to load messages_" + lang + ".yml from disk: " + e.getMessage());
+                if (logger != null) {
+                    logger.warning("[SocialBlueprint] Failed to load messages_" + lang + ".yml from disk: " + e.getMessage());
+                }
             }
         }
 
         return bundled != null ? bundled : Collections.emptyMap();
     }
 
-    private void saveBundledResource(String lang, File targetFile) {
+    private static void saveBundledResource(String lang, File targetFile, Logger logger) {
         String resourcePath = "messages_" + lang + ".yml";
-        try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+        try (InputStream in = MessageRegistry.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (in == null) {
                 return;
             }
-            targetFile.getParentFile().mkdirs();
+            if (targetFile.getParentFile() != null) {
+                targetFile.getParentFile().mkdirs();
+            }
             java.nio.file.Files.copy(in, targetFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } catch (Exception e) {
-            logger.warning("[SocialBlueprint] Could not extract default " + resourcePath + ": " + e.getMessage());
+            if (logger != null) {
+                logger.warning("[SocialBlueprint] Could not extract default " + resourcePath + ": " + e.getMessage());
+            }
         }
     }
 
-    private Map<String, String> loadFromJar(String lang) {
+    private static Map<String, String> loadFromJar(String lang, Logger logger) {
         String resourcePath = "messages_" + lang + ".yml";
-        try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+        try (InputStream in = MessageRegistry.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (in == null) {
                 return Collections.emptyMap();
             }
@@ -220,9 +211,29 @@ public class MessageRegistry {
                 return flattenKeys(yaml);
             }
         } catch (Exception e) {
-            logger.warning("[SocialBlueprint] Could not read bundled " + resourcePath + ": " + e.getMessage());
+            if (logger != null) {
+                logger.warning("[SocialBlueprint] Could not read bundled " + resourcePath + ": " + e.getMessage());
+            }
             return Collections.emptyMap();
         }
+    }
+
+    private static PluginConfig loadBundledConfig(String language) {
+        try (InputStream in = MessageRegistry.class.getClassLoader().getResourceAsStream("config.yml")) {
+            if (in != null) {
+                try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+                    YamlConfiguration yaml = YamlConfiguration.loadConfiguration(reader);
+                    return PluginConfig.load(yaml);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        // Minimal fallback config if jar resource fails
+        return new PluginConfig(
+                language,
+                "&8[&bSocialBlueprint&8]&r ",
+                null, null, null, null, null
+        );
     }
 
     public static Map<String, String> flattenKeys(ConfigurationSection section) {

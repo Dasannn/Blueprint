@@ -49,15 +49,46 @@ class LanguageFilesKeyDivergenceTest {
                 .isEmpty();
 
         assertThat(esKeys).containsExactlyInAnyOrderElementsOf(enKeys);
+
+        // Assert that every shipped key in Spanish has a non-blank value (finding 10)
+        for (Map.Entry<String, String> entry : esMap.entrySet()) {
+            assertThat(entry.getValue())
+                    .withFailMessage("Key '%s' in messages_es.yml has a blank value", entry.getKey())
+                    .isNotBlank();
+        }
+
+        // Assert that every shipped key in English has a non-blank value (finding 10)
+        for (Map.Entry<String, String> entry : enMap.entrySet()) {
+            assertThat(entry.getValue())
+                    .withFailMessage("Key '%s' in messages_en.yml has a blank value", entry.getKey())
+                    .isNotBlank();
+        }
     }
 
     @Test
     @DisplayName("T-032c: Test mechanism fails when two simulated key sets diverge")
     void failsWhenKeySetsDiverge() {
-        Set<String> setA = Set.of("prefix", "tiers.tier-4", "commands.help");
-        Set<String> setB = Set.of("prefix", "tiers.tier-4", "commands.unknown");
+        Set<String> setA = Set.of("tiers.tier-4", "commands.help");
+        Set<String> setB = Set.of("tiers.tier-4", "commands.unknown");
 
         assertThatThrownBy(() -> assertThat(setA).containsExactlyInAnyOrderElementsOf(setB))
                 .isInstanceOf(AssertionError.class);
+    }
+
+    @Test
+    @DisplayName("T-032c / Finding 10: Test mechanism fails when a key has an empty or blank value")
+    void failsWhenAKeyHasBlankValue() {
+        Map<String, String> mapWithBlank = Map.of(
+                "key1", "Valid value",
+                "key2", "   "
+        );
+
+        assertThatThrownBy(() -> {
+            for (Map.Entry<String, String> entry : mapWithBlank.entrySet()) {
+                assertThat(entry.getValue())
+                        .withFailMessage("Key '%s' has a blank value", entry.getKey())
+                        .isNotBlank();
+            }
+        }).isInstanceOf(AssertionError.class).hasMessageContaining("key2");
     }
 }

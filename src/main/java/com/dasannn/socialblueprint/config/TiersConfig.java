@@ -73,6 +73,7 @@ public record TiersConfig(
             if (prefix == null || prefix.isBlank()) {
                 throw new ConfigValidationException(prefixKey, "Prefix cannot be blank for tier '" + tier.displayName() + "'");
             }
+            ColorParser.validate(prefix, prefixKey);
 
             // Check threshold (support 'threshold' or baseline 'repRequired')
             String thresholdKey = fullTierPath + ".threshold";

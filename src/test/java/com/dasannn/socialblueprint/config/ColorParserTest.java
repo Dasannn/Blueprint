@@ -57,4 +57,50 @@ class ColorParserTest {
         assertThat(ColorParser.parse("")).isEqualTo(Component.empty());
         assertThat(ColorParser.serialize(null)).isEmpty();
     }
+
+    @Test
+    @DisplayName("Finding 11: ColorParser.validate rejects malformed color and formatting inputs")
+    void validateRejectsMalformedColorInputs() {
+        // Trailing &
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ColorParser.validate("Hello &", "key"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("Trailing '&'");
+
+        // Truncated hex
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ColorParser.validate("&#1234", "key"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("Truncated hex");
+
+        // Invalid hex characters
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ColorParser.validate("&#12345z", "key"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("Invalid hex character");
+
+        // Invalid code letter
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ColorParser.validate("&zText", "key"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("Invalid color/formatting code '&z'");
+
+        // Valid inputs pass without exception
+        ColorParser.validate("&8[&bSocialBlueprint&8]&r ", "key");
+        ColorParser.validate("&#abcdefHex color &lBold &rNormal", "key");
+    }
+
+    @Test
+    @DisplayName("Finding 8: ColorParser.renderTemplate inserts placeholder values as literal text")
+    void renderTemplateRendersPlaceholdersLiterally() {
+        String template = "&aWelcome &e{name}&a! Reason: &f{reason}";
+        java.util.Map<String, String> placeholders = java.util.Map.of(
+                "name", "&cAttacker&#123456",
+                "reason", "said {name} to someone"
+        );
+
+        Component rendered = ColorParser.renderTemplate(template, placeholders);
+        String serialized = ColorParser.serialize(rendered);
+
+        // Name is rendered with yellow style from {name}, literal text &cAttacker&#123456
+        assertThat(serialized).contains("&e&cAttacker&#123456");
+        // Reason contains literal {name}, NOT recursively substituted
+        assertThat(serialized).contains("&fsaid {name} to someone");
+    }
 }

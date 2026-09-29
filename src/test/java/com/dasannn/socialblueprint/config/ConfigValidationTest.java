@@ -258,6 +258,146 @@ class ConfigValidationTest {
                 .matches(e -> ((ConfigValidationException) e).key().equals("permissions.admin-config"));
     }
 
+    @Test
+    @DisplayName("Finding 6: NaN and Infinity bypass check on confidence.low-threshold and are rejected with named key")
+    void nanAndInfinityRejectedOnConfidenceLowThreshold() {
+        // Quoted NaN
+        YamlConfiguration yaml1 = loadValidYaml();
+        yaml1.set("confidence.low-threshold", "NaN");
+        assertThatThrownBy(() -> PluginConfig.load(yaml1))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("confidence.low-threshold")
+                .matches(e -> ((ConfigValidationException) e).key().equals("confidence.low-threshold"));
+
+        // Unquoted Double.NaN
+        YamlConfiguration yaml2 = loadValidYaml();
+        yaml2.set("confidence.low-threshold", Double.NaN);
+        assertThatThrownBy(() -> PluginConfig.load(yaml2))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("confidence.low-threshold")
+                .matches(e -> ((ConfigValidationException) e).key().equals("confidence.low-threshold"));
+
+        // Quoted Infinity
+        YamlConfiguration yaml3 = loadValidYaml();
+        yaml3.set("confidence.low-threshold", "Infinity");
+        assertThatThrownBy(() -> PluginConfig.load(yaml3))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("confidence.low-threshold")
+                .matches(e -> ((ConfigValidationException) e).key().equals("confidence.low-threshold"));
+
+        // Unquoted Double.POSITIVE_INFINITY
+        YamlConfiguration yaml4 = loadValidYaml();
+        yaml4.set("confidence.low-threshold", Double.POSITIVE_INFINITY);
+        assertThatThrownBy(() -> PluginConfig.load(yaml4))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("confidence.low-threshold")
+                .matches(e -> ((ConfigValidationException) e).key().equals("confidence.low-threshold"));
+    }
+
+    @Test
+    @DisplayName("Finding 6: NaN and Infinity bypass check on honor.cost and are rejected with named key")
+    void nanAndInfinityRejectedOnHonorCost() {
+        // Quoted NaN
+        YamlConfiguration yaml1 = loadValidYaml();
+        yaml1.set("honor.cost", "NaN");
+        assertThatThrownBy(() -> PluginConfig.load(yaml1))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("honor.cost")
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.cost"));
+
+        // Unquoted Double.NaN
+        YamlConfiguration yaml2 = loadValidYaml();
+        yaml2.set("honor.cost", Double.NaN);
+        assertThatThrownBy(() -> PluginConfig.load(yaml2))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("honor.cost")
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.cost"));
+
+        // Quoted Infinity
+        YamlConfiguration yaml3 = loadValidYaml();
+        yaml3.set("honor.cost", "Infinity");
+        assertThatThrownBy(() -> PluginConfig.load(yaml3))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("honor.cost")
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.cost"));
+
+        // Unquoted Double.POSITIVE_INFINITY
+        YamlConfiguration yaml4 = loadValidYaml();
+        yaml4.set("honor.cost", Double.POSITIVE_INFINITY);
+        assertThatThrownBy(() -> PluginConfig.load(yaml4))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("honor.cost")
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.cost"));
+    }
+
+    @Test
+    @DisplayName("Finding 9: Oversized duration causes overflow and throws ConfigValidationException naming the key")
+    void oversizedDurationNamesKey() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("confidence.half-life", "9223372036854775807d");
+
+        assertThatThrownBy(() -> PluginConfig.load(yaml))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("confidence.half-life")
+                .matches(e -> ((ConfigValidationException) e).key().equals("confidence.half-life"));
+
+        // Direct DurationParser check on overflow
+        assertThatThrownBy(() -> DurationParser.parsePositive("9223372036854775807d", "confidence.half-life"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("confidence.half-life")
+                .matches(e -> ((ConfigValidationException) e).key().equals("confidence.half-life"));
+    }
+
+    @Test
+    @DisplayName("Finding 9: Bare number duration is parsed as seconds")
+    void bareNumberDurationParsedAsSeconds() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("confidence.half-life", "86400"); // 1 day in seconds
+
+        PluginConfig config = PluginConfig.load(yaml);
+        assertThat(config.confidence().halfLife()).isEqualTo(Duration.ofSeconds(86400));
+    }
+
+    @Test
+    @DisplayName("Finding 11: Malformed colour codes in chat-prefix are rejected naming the key")
+    void malformedColorInChatPrefixRejected() {
+        // Trailing &
+        YamlConfiguration yaml1 = loadValidYaml();
+        yaml1.set("chat-prefix", "&8[SocialBlueprint&8]&r &");
+        assertThatThrownBy(() -> PluginConfig.load(yaml1))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("chat-prefix")
+                .matches(e -> ((ConfigValidationException) e).key().equals("chat-prefix"));
+
+        // Truncated hex
+        YamlConfiguration yaml2 = loadValidYaml();
+        yaml2.set("chat-prefix", "&#123Prefix");
+        assertThatThrownBy(() -> PluginConfig.load(yaml2))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("chat-prefix")
+                .matches(e -> ((ConfigValidationException) e).key().equals("chat-prefix"));
+
+        // Invalid formatting code letter
+        YamlConfiguration yaml3 = loadValidYaml();
+        yaml3.set("chat-prefix", "&zPrefix");
+        assertThatThrownBy(() -> PluginConfig.load(yaml3))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("chat-prefix")
+                .matches(e -> ((ConfigValidationException) e).key().equals("chat-prefix"));
+    }
+
+    @Test
+    @DisplayName("Finding 11: Malformed colour codes in tier prefix are rejected naming the key")
+    void malformedColorInTierPrefixRejected() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("tiers.tier0.prefix", "&7[&f|&7]&");
+
+        assertThatThrownBy(() -> PluginConfig.load(yaml))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("tiers.tier0.prefix")
+                .matches(e -> ((ConfigValidationException) e).key().equals("tiers.tier0.prefix"));
+    }
+
     private static YamlConfiguration loadValidYaml() {
         InputStream stream = ConfigValidationTest.class.getClassLoader().getResourceAsStream("config.yml");
         assertThat(stream).isNotNull();

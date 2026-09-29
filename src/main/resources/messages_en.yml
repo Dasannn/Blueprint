@@ -2,7 +2,6 @@
 # English messages file - SocialBlueprint
 # ==============================================================================
 
-prefix: '&8[&bSocialBlueprint&8]&r '
 
 tiers:
   tier-4: 'Criminal'

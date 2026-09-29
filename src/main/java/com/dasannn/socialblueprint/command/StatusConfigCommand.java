@@ -64,8 +64,11 @@ public class StatusConfigCommand {
     }
 
     public boolean execute(CommandSender sender, String[] args) {
+        // Capture snapshot once per request
+        var snapshot = configManager.snapshot();
+
         // Permission check
-        String requiredPermission = configManager.config().permissions().node("admin-config");
+        String requiredPermission = snapshot.config().permissions().node("admin-config");
         if (requiredPermission != null && !sender.hasPermission(requiredPermission)) {
             sender.sendMessage(messageRegistry.renderWithPrefix("commands.no-permission"));
             return true;
@@ -107,6 +110,12 @@ public class StatusConfigCommand {
         }
 
         // Set key value: /status config <key> <value>
+        if (!configManager.isEditableKey(key)) {
+            sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.invalid-key",
+                    Map.of("key", key)));
+            return true;
+        }
+
         String rawValue = args[1];
         try {
             configManager.set(key, rawValue);

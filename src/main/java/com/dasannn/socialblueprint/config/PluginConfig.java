@@ -57,6 +57,7 @@ public record PluginConfig(
         if (chatPrefix == null || chatPrefix.isBlank()) {
             throw new ConfigValidationException("chat-prefix", "Configuration key 'chat-prefix' must not be blank");
         }
+        ColorParser.validate(chatPrefix, "chat-prefix");
 
         // Validate sections
         TiersConfig tiers = TiersConfig.load(root);

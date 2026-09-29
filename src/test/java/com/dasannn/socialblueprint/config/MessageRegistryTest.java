@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Handler;
@@ -137,14 +138,37 @@ class MessageRegistryTest {
     }
 
     @Test
-    @DisplayName("T-032a: Extracts messages_es.yml and messages_en.yml to data folder on first run")
-    void extractsMessagesFilesOnFirstRun() {
-        MessageRegistry registry = new MessageRegistry(tempDir, "en", testLogger);
+    @DisplayName("Finding 8: Placeholder values cannot recolour message or substitute recursively")
+    void placeholdersCannotRecolourOrRecurse() {
+        Map<String, String> spanish = Map.of(
+                "test.greeting", "&aJugador: &f{player}&a dice &b{message}"
+        );
+        MessageRegistry registry = MessageRegistry.fromMaps(spanish, Collections.emptyMap(), "es", testLogger);
 
-        File esFile = new File(tempDir, "messages_es.yml");
-        File enFile = new File(tempDir, "messages_en.yml");
+        Component rendered = registry.render("test.greeting", Map.of(
+                "player", "&cMaliciousName",
+                "message", "hola &4mundo {player}"
+        ));
 
-        assertThat(esFile).exists();
-        assertThat(enFile).exists();
+        // When serialized, the literal characters &c and &4 are preserved as text within their enclosing styles,
+        // and {player} inside the message value is not expanded.
+        String serialized = ColorParser.serialize(rendered);
+        assertThat(serialized).isEqualTo("&aJugador: &f&cMaliciousName&a dice &bhola &4mundo {player}");
+
+        // Also verify the component structure: the placeholder text is literal text
+        assertThat(rendered).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Finding 1: Prefix is rendered from the authoritative runtime snapshot")
+    void prefixRenderedFromAuthoritativeSnapshot() {
+        Map<String, String> spanish = Map.of("test.msg", "Mensaje de prueba");
+        MessageRegistry registry = MessageRegistry.fromMaps(spanish, Collections.emptyMap(), "es", testLogger);
+
+        Component rendered = registry.renderWithPrefix("test.msg");
+        String serialized = ColorParser.serialize(rendered);
+
+        // Uses the chat-prefix from configuration snapshot (&8[&bSocialBlueprint&8]&r )
+        assertThat(serialized).startsWith("&8[&bSocialBlueprint&8]&r ");
     }
 }

@@ -57,6 +57,8 @@ tiers:
 # ==============================================================================
 confidence:
   # Exponential decay half-life for rating age (default: 30 days).
+  # Durations support units like d (days), h (hours), m (minutes), s (seconds).
+  # A bare number without a unit is interpreted as seconds.
   # After this period, a rating's contribution to confidence is halved.
   half-life: 30d
 

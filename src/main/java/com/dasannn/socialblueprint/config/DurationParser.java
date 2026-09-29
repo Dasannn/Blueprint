@@ -76,14 +76,18 @@ public final class DurationParser {
             }
 
             String unit = matcher.group(2).toLowerCase(Locale.ROOT);
-            return switch (unit) {
-                case "d", "day", "days" -> Duration.ofDays(amount);
-                case "h", "hr", "hrs", "hour", "hours" -> Duration.ofHours(amount);
-                case "m", "min", "mins", "minute", "minutes" -> Duration.ofMinutes(amount);
-                case "s", "sec", "secs", "second", "seconds" -> Duration.ofSeconds(amount);
-                case "ms", "milli", "millis", "millisecond", "milliseconds" -> Duration.ofMillis(amount);
-                default -> throw new ConfigValidationException(key, "Unknown duration unit '" + unit + "' in: " + raw);
-            };
+            try {
+                return switch (unit) {
+                    case "d", "day", "days" -> Duration.ofDays(amount);
+                    case "h", "hr", "hrs", "hour", "hours" -> Duration.ofHours(amount);
+                    case "m", "min", "mins", "minute", "minutes" -> Duration.ofMinutes(amount);
+                    case "s", "sec", "secs", "second", "seconds" -> Duration.ofSeconds(amount);
+                    case "ms", "milli", "millis", "millisecond", "milliseconds" -> Duration.ofMillis(amount);
+                    default -> throw new ConfigValidationException(key, "Unknown duration unit '" + unit + "' in: " + raw);
+                };
+            } catch (ArithmeticException e) {
+                throw new ConfigValidationException(key, "Duration value causes arithmetic overflow: " + raw);
+            }
         }
 
         // Plain number without unit defaults to seconds
@@ -92,7 +96,11 @@ public final class DurationParser {
             if (amount < 0) {
                 throw new ConfigValidationException(key, "Duration must not be negative, got: " + raw);
             }
-            return Duration.ofSeconds(amount);
+            try {
+                return Duration.ofSeconds(amount);
+            } catch (ArithmeticException e) {
+                throw new ConfigValidationException(key, "Duration value causes arithmetic overflow: " + raw);
+            }
         } catch (NumberFormatException ignored) {
             // Not a plain number
         }

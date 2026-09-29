@@ -158,6 +158,79 @@ class ConfigManagerTest {
                 .matches(e -> ((ConfigValidationException) e).key().equals("tiers.tier-4.threshold"));
     }
 
+    @Test
+    @DisplayName("Finding 4: In-game editing preserves comments and formatting in config.yml")
+    void inGameEditPreservesCommentsAndFormatting() {
+        String beforeContent = readConfigFile();
+        assertThat(beforeContent).contains("# Exponential decay half-life for rating age");
+        assertThat(beforeContent).contains("# ==============================================================================");
+
+        configManager.set("honor.cost", "650.0");
+
+        String afterContent = readConfigFile();
+        // The edited value is updated
+        assertThat(afterContent).contains("cost: 650.0");
+        // Comments and dividers are preserved
+        assertThat(afterContent).contains("# Exponential decay half-life for rating age");
+        assertThat(afterContent).contains("# ==============================================================================");
+        assertThat(afterContent).contains("# Reputation Confidence (SB-003, T-013)");
+    }
+
+    @Test
+    @DisplayName("Finding 2: In-game editing of message key routes to active language file, updates disk and snapshot")
+    void inGameEditMessageUpdatesActiveLanguageFileAndSnapshot() throws Exception {
+        // Pin explicitly to Spanish
+        configManager.set("language", "es");
+        File esFile = new File(tempDir, "messages_es.yml");
+
+        configManager.set("commands.config.usage", "&eUso modificado: &f/status config <k> <v>");
+
+        // Verify disk file updated
+        assertThat(esFile).exists();
+        String esContent = Files.readString(esFile.toPath());
+        assertThat(esContent).contains("usage: '&eUso modificado: &f/status config <k> <v>'");
+
+        // Verify config.yml was NOT polluted with this key
+        String configContent = readConfigFile();
+        assertThat(configContent).doesNotContain("usage:");
+
+        // Verify snapshot updated
+        assertThat(messageRegistry.getRaw("commands.config.usage"))
+                .isEqualTo("&eUso modificado: &f/status config <k> <v>");
+    }
+
+    @Test
+    @DisplayName("Finding 3: In-game editing of unknown or uneditable key is rejected before modifying disk")
+    void inGameEditUnknownKeyRefused() {
+        String diskBefore = readConfigFile();
+
+        assertThatThrownBy(() -> configManager.set("imaginary.key", "someValue"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("imaginary.key");
+
+        assertThatThrownBy(() -> configManager.set("tiers.tier0.typo", "someValue"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("tiers.tier0.typo");
+
+        // Verify disk was completely untouched
+        String diskAfter = readConfigFile();
+        assertThat(diskAfter).isEqualTo(diskBefore);
+    }
+
+    @Test
+    @DisplayName("Finding 5: Single atomic RuntimeSnapshot couples config and messages")
+    void reloadIsAtomicAcrossConfigAndLanguage() {
+        RuntimeSnapshot snap1 = configManager.snapshot();
+        assertThat(snap1).isNotNull();
+        assertThat(snap1.config().language()).isEqualTo(snap1.messages().activeLanguage());
+
+        configManager.set("language", "es");
+        RuntimeSnapshot snap2 = configManager.snapshot();
+        assertThat(snap2).isNotSameAs(snap1);
+        assertThat(snap2.config().language()).isEqualTo("es");
+        assertThat(snap2.messages().activeLanguage()).isEqualTo("es");
+    }
+
     private String readConfigFile() {
         try {
             return Files.readString(configFile.toPath());

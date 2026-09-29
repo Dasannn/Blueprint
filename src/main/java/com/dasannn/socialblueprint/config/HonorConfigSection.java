@@ -108,14 +108,16 @@ public record HonorConfigSection(
     }
 
     private static double parseDouble(ConfigurationSection section, String subKey, String fullKey) {
+        double val;
         if (!section.isDouble(subKey) && !section.isInt(subKey)) {
             try {
-                return Double.parseDouble(section.getString(subKey, ""));
+                val = Double.parseDouble(section.getString(subKey, ""));
             } catch (NumberFormatException e) {
                 throw new ConfigValidationException(fullKey, "Value must be a valid number, got: " + section.get(subKey));
             }
+        } else {
+            val = section.getDouble(subKey);
         }
-        double val = section.getDouble(subKey);
         if (!Double.isFinite(val)) {
             throw new ConfigValidationException(fullKey, "Value must be finite, got: " + val);
         }

@@ -218,6 +218,76 @@ class StatusConfigCommandTest {
         assertThat(msg).isEqualTo("&8[&bSocialBlueprint&8]&r &aSe actualiz\u00f3 exitosamente &bhonor.cost&a a: &f650.0");
     }
 
+    @Test
+    @DisplayName("Finding 1: Editing chat-prefix in-game immediately changes the rendered prefix seen by players")
+    void chatPrefixEditVisiblyChangesRenderedPrefixImmediately() {
+        setLanguage("es");
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+
+        // Before edit: prefix is default &8[&bSocialBlueprint&8]&r
+        Component before = messageRegistry.renderWithPrefix("commands.config.usage");
+        assertThat(ColorParser.serialize(before)).startsWith("&8[&bSocialBlueprint&8]&r ");
+
+        // In-game command: /status config chat-prefix &4[PROD]&r
+        boolean result = command.execute(admin, new String[]{"chat-prefix", "&4[PROD]&r "});
+        assertThat(result).isTrue();
+
+        // 1. Snapshot value updated
+        assertThat(configManager.config().chatPrefix()).isEqualTo("&4[PROD]&r ");
+
+        // 2. Visible effect in sent response: the set-success notification itself renders with the NEW prefix
+        String response = admin.sentMessages().getLast();
+        assertThat(response).startsWith("&4[PROD]&r ");
+
+        // 3. Subsequent player-visible messages immediately use the new prefix without restart
+        Component after = messageRegistry.renderWithPrefix("commands.config.usage");
+        assertThat(ColorParser.serialize(after)).startsWith("&4[PROD]&r ");
+    }
+
+    @Test
+    @DisplayName("Finding 2: In-game editing of player-visible message immediately changes the message seen by players")
+    void messageEditVisiblyChangesRenderedMessageImmediately() {
+        setLanguage("es");
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+
+        // Execute edit: /status config commands.config.usage &eUso personalizado: &f/status config <k> <v>
+        boolean result = command.execute(admin, new String[]{
+                "commands.config.usage",
+                "&eUso personalizado: &f/status config <k> <v>"
+        });
+        assertThat(result).isTrue();
+
+        // Run /status config with no args to trigger the usage message
+        admin.sentMessages().clear();
+        boolean usageResult = command.execute(admin, new String[]{});
+        assertThat(usageResult).isTrue();
+
+        // Visible effect: the message displayed to the sender is the newly edited string
+        assertThat(admin.sentMessages()).hasSize(1);
+        String displayed = admin.sentMessages().getFirst();
+        assertThat(displayed).isEqualTo("&8[&bSocialBlueprint&8]&r &eUso personalizado: &f/status config <k> <v>");
+    }
+
+    @Test
+    @DisplayName("Finding 3: Setting an unknown or uneditable key is rejected with invalid-key before mutating anything")
+    void unknownKeyIsRejectedWithInvalidKeyMessage() {
+        setLanguage("es");
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+
+        // Unknown key: imaginary.key
+        boolean result1 = command.execute(admin, new String[]{"imaginary.key", "someValue"});
+        assertThat(result1).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.invalid-key");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "imaginary.key");
+
+        // Typos in valid sections: tiers.tier0.typo
+        messageRegistry.clear();
+        boolean result2 = command.execute(admin, new String[]{"tiers.tier0.typo", "someValue"});
+        assertThat(result2).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.invalid-key");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "tiers.tier0.typo");
+    }
+
     private static class MockSender implements CommandSender {
         private final String name;
         private final Set<String> permissions = new HashSet<>();
