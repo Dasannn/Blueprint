@@ -46,7 +46,7 @@ public final class HonorAllowanceTracker {
 
     /**
      * Counts how many ratings of the given kind (or sign) the actor has issued to the target
-     * within [now - window, now].
+     * within (now - window, now].
      */
     public int countInWindow(PlayerId actor, PlayerId target, HonorKind kind, Collection<ReputationEvent> events, Instant now) {
         Objects.requireNonNull(actor, "Actor must not be null");

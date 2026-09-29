@@ -18,10 +18,25 @@ public record ReputationEvent(
         String reason,
         Instant createdAt
 ) {
+    /**
+     * Maximum sane magnitude for a single reputation delta (±10,000).
+     * Justification: In SocialBlueprint, tier thresholds span -30 (Criminal) to +50 (Ilustre),
+     * a total range of 80 points. A delta of 10,000 is 125 times the entire ladder span and
+     * 200 times the highest tier threshold. Bounding delta to ±10,000 prevents corrupted or
+     * overflow-inducing rows from entering the database (which would otherwise poison all future
+     * reads in Status.fromEvents), while providing generous capacity for any administrative
+     * adjustment, reset compensation, or legacy import.
+     */
+    public static final int MAX_DELTA = 10_000;
+
     public ReputationEvent {
         Objects.requireNonNull(target, "Target must not be null");
         Objects.requireNonNull(kind, "Kind must not be null");
         Objects.requireNonNull(createdAt, "CreatedAt must not be null");
+
+        if (Math.abs((long) delta) > MAX_DELTA) {
+            throw new IllegalArgumentException("Delta magnitude exceeds maximum sane bound (" + MAX_DELTA + "), got " + delta);
+        }
 
         if (!Double.isFinite(cost) || cost < 0.0) {
             throw new IllegalArgumentException("Cost cannot be negative and must be finite, got " + cost);
@@ -32,6 +47,9 @@ public record ReputationEvent(
         }
 
         if (kind.isPlayerHonor()) {
+            if (cost <= 0.0) {
+                throw new IllegalArgumentException("Player honor event must have a strictly positive cost (> 0) per Constitution §2.4, got " + cost);
+            }
             if (actor == null) {
                 throw new IllegalArgumentException("Player honor event must have an actor");
             }

@@ -3,6 +3,7 @@ package com.dasannn.socialblueprint.storage;
 import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.CombatContext;
 import com.dasannn.socialblueprint.domain.HonorKind;
+import com.dasannn.socialblueprint.domain.NonPlayerTarget;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.PlayerProfile;
 import com.dasannn.socialblueprint.domain.PsychosisEvent;
@@ -18,6 +19,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -179,14 +184,40 @@ class RepositoryTest {
         assertThat(targetAudits.get(0).after()).isEqualTo("0");
 
         // Console actor auditing a non-player action like config edit (SB-064, SB-065)
-        AuditEvent consoleEvent = new AuditEvent(PlayerId.CONSOLE, "config_edit", "honor.cost", "500", "600", baseTime.plusSeconds(5));
+        NonPlayerTarget configTarget = NonPlayerTarget.configKey("honor.cost");
+        AuditEvent consoleEvent = new AuditEvent(PlayerId.CONSOLE, "config_edit", configTarget, "500", "600", baseTime.plusSeconds(5));
         AuditEvent savedConsole = auditRepo.save(consoleEvent);
         assertThat(savedConsole.actor()).isEqualTo(PlayerId.CONSOLE);
         assertThat(savedConsole.actor().isConsole()).isTrue();
 
-        List<AuditEvent> configAudits = auditRepo.findByTarget("honor.cost");
+        List<AuditEvent> configAudits = auditRepo.findByTarget(configTarget);
         assertThat(configAudits).hasSize(1);
         assertThat(configAudits.get(0).actor()).isEqualTo(PlayerId.CONSOLE);
+    }
+
+    @Test
+    @DisplayName("Fix 3: Renamed player audit history stays joined across name change")
+    void renamedPlayerAuditHistoryStaysJoined() {
+        // Player UUID is durable identity per SB-060
+        UUID playerUuid = UUID.randomUUID();
+        PlayerId playerId = PlayerId.of(playerUuid);
+        PlayerId admin = PlayerId.of(UUID.randomUUID());
+
+        // Event 1 when player was named "Steve"
+        AuditEvent event1 = new AuditEvent(admin, "status_reset", playerId, "+10", "0", baseTime);
+        auditRepo.save(event1);
+
+        // Event 2 when player changed their name to "Alex"
+        AuditEvent event2 = new AuditEvent(admin, "honor_take", playerId, "0", "-5", baseTime.plusSeconds(10));
+        auditRepo.save(event2);
+
+        // Target lookup by PlayerId returns both audit records; history remains unified
+        List<AuditEvent> playerAudits = auditRepo.findByTarget(playerId);
+        assertThat(playerAudits).hasSize(2);
+        assertThat(playerAudits.get(0).operation()).isEqualTo("status_reset");
+        assertThat(playerAudits.get(1).operation()).isEqualTo("honor_take");
+        assertThat(playerAudits.get(0).target()).isEqualTo(playerUuid.toString());
+        assertThat(playerAudits.get(1).target()).isEqualTo(playerUuid.toString());
     }
 
     @Test
@@ -236,41 +267,46 @@ class RepositoryTest {
 
         reputationRepo.save(new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, baseTime));
 
-        java.util.concurrent.CountDownLatch readerStarted = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.CountDownLatch writerFinished = new java.util.concurrent.CountDownLatch(1);
+        CountDownLatch readerStarted = new CountDownLatch(1);
+        CountDownLatch writerFinished = new CountDownLatch(1);
 
-        // Reader starts rebuilding with status 1, but pauses before returning events
-        java.util.concurrent.Future<Status> readerFuture = java.util.concurrent.Executors.newSingleThreadExecutor().submit(() -> {
-            return statusCache.getOrRebuild(target, () -> {
-                List<ReputationEvent> oldEvents = reputationRepo.findByTarget(target);
-                readerStarted.countDown();
-                try {
-                    writerFinished.await();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                return oldEvents;
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            // Reader starts rebuilding with status 1, but pauses before returning events
+            Future<Status> readerFuture = readerExecutor.submit(() -> {
+                return statusCache.getOrRebuild(target, () -> {
+                    List<ReputationEvent> oldEvents = reputationRepo.findByTarget(target);
+                    readerStarted.countDown();
+                    try {
+                        writerFinished.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return oldEvents;
+                });
             });
-        });
 
-        // Wait for reader to start loading old events
-        readerStarted.await();
+            // Wait for reader to start loading old events
+            readerStarted.await();
 
-        // Concurrent write: saves event (+5) and invalidates target cache
-        reputationRepo.save(new ReputationEvent(actor, target, 5, HonorKind.POSITIVE, 500.0, null, baseTime.plusSeconds(5)));
+            // Concurrent write: saves event (+5) and invalidates target cache
+            reputationRepo.save(new ReputationEvent(actor, target, 5, HonorKind.POSITIVE, 500.0, null, baseTime.plusSeconds(5)));
 
-        // Unblock reader to complete its rebuild
-        writerFinished.countDown();
-        Status staleDerived = readerFuture.get();
-        assertThat(staleDerived.value()).isEqualTo(1);
+            // Unblock reader to complete its rebuild
+            writerFinished.countDown();
+            Status staleDerived = readerFuture.get();
+            assertThat(staleDerived.value()).isEqualTo(1);
 
-        // The cache must NOT contain the stale value 1 because an invalidation happened during rebuild
-        assertThat(statusCache.get(target)).isEmpty();
+            // The cache must NOT contain the stale value 1 because an invalidation happened during rebuild
+            assertThat(statusCache.get(target)).isEmpty();
 
-        // Fresh getStatus rebuilds with the latest events -> total 6
-        Status freshStatus = reputationRepo.getStatus(target);
-        assertThat(freshStatus.value()).isEqualTo(6);
-        assertThat(statusCache.get(target)).contains(Status.of(6));
+            // Fresh getStatus rebuilds with the latest events -> total 6
+            Status freshStatus = reputationRepo.getStatus(target);
+            assertThat(freshStatus.value()).isEqualTo(6);
+            assertThat(statusCache.get(target)).contains(Status.of(6));
+        } finally {
+            readerExecutor.shutdownNow();
+        }
     }
 
     @Test

@@ -138,14 +138,45 @@ class ValueTypesTest {
         assertThat(validPositive.reason()).isNull();
         assertThat(validPositive.delta()).isEqualTo(1);
 
-        // Finding 6: Non-finite cost is rejected, zero cost is allowed (SB-058 admin actions)
+        // Finding 6 & Fix 2: Non-finite cost is rejected; player honor requires strictly positive cost (> 0)
         assertThatThrownBy(() -> new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, Double.NaN, null, now))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, Double.POSITIVE_INFINITY, null, now))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 0.0, null, now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("strictly positive cost");
+        assertThatThrownBy(() -> new ReputationEvent(actor, target, -1, HonorKind.NEGATIVE, 0.0, "reason", now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("strictly positive cost");
 
+        // Admin events stay free (SB-058)
         ReputationEvent freeAdminEvent = new ReputationEvent(0L, actor, target, 5, HonorKind.ADMIN_GIVE, 0.0, "bonus", now);
         assertThat(freeAdminEvent.cost()).isEqualTo(0.0);
+        ReputationEvent freeAdminTake = new ReputationEvent(0L, actor, target, -5, HonorKind.ADMIN_TAKE, 0.0, "penalty", now);
+        assertThat(freeAdminTake.cost()).isEqualTo(0.0);
+        ReputationEvent freeAdminReset = new ReputationEvent(0L, actor, target, -5, HonorKind.ADMIN_RESET, 0.0, "reset", now);
+        assertThat(freeAdminReset.cost()).isEqualTo(0.0);
+
+        // Fix 1: Delta bounds enforcement (±MAX_DELTA)
+        assertThatThrownBy(() -> new ReputationEvent(actor, target, ReputationEvent.MAX_DELTA + 1, HonorKind.POSITIVE, 500.0, null, now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
+        assertThatThrownBy(() -> new ReputationEvent(actor, target, -(ReputationEvent.MAX_DELTA + 1), HonorKind.NEGATIVE, 500.0, "bad", now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
+    }
+
+    @Test
+    @DisplayName("Fix 3: NonPlayerTarget rejects null and blank identifiers")
+    void nonPlayerTargetInvariants() {
+        assertThatThrownBy(() -> new NonPlayerTarget(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new NonPlayerTarget("")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new NonPlayerTarget("   ")).isInstanceOf(IllegalArgumentException.class);
+
+        NonPlayerTarget target = NonPlayerTarget.configKey("honor.cost");
+        assertThat(target.identifier()).isEqualTo("honor.cost");
+        assertThat(target.toString()).isEqualTo("honor.cost");
     }
 
     @Test
@@ -190,7 +221,7 @@ class ValueTypesTest {
     }
 
     @Test
-    @DisplayName("Finding 11: ConfidenceConfig rejects non-finite thresholds and non-positive half-life")
+    @DisplayName("Finding 11 & Fix 4: ConfidenceConfig rejects non-finite thresholds and half-life beyond 100 years")
     void confidenceConfigValidation() {
         java.time.Duration halfLife = java.time.Duration.ofDays(30);
 
@@ -217,5 +248,14 @@ class ValueTypesTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ConfidenceConfig(1.0, 5.0, 15.0, java.time.Duration.ofSeconds(-1)))
                 .isInstanceOf(IllegalArgumentException.class);
+
+        // Fix 4: Half-life exceeding 100 years (MAX_HALF_LIFE) is rejected
+        assertThatThrownBy(() -> new ConfidenceConfig(1.0, 5.0, 15.0, ConfidenceConfig.MAX_HALF_LIFE.plusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("halfLife exceeds maximum supported duration");
+
+        // Exactly MAX_HALF_LIFE is valid
+        ConfidenceConfig maxValidConfig = new ConfidenceConfig(1.0, 5.0, 15.0, ConfidenceConfig.MAX_HALF_LIFE);
+        assertThat(maxValidConfig.halfLife()).isEqualTo(ConfidenceConfig.MAX_HALF_LIFE);
     }
 }

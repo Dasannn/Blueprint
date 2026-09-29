@@ -26,15 +26,26 @@ public record AuditEvent(
     public AuditEvent(
             PlayerId actor,
             String operation,
-            String target,
+            PlayerId targetPlayer,
             String before,
             String after,
             Instant createdAt
     ) {
-        this(0L, actor, operation, target, before, after, createdAt);
+        this(0L, actor, operation, Objects.requireNonNull(targetPlayer, "targetPlayer must not be null").toString(), before, after, createdAt);
     }
 
     public AuditEvent(
+            PlayerId actor,
+            String operation,
+            NonPlayerTarget target,
+            String before,
+            String after,
+            Instant createdAt
+    ) {
+        this(0L, actor, operation, Objects.requireNonNull(target, "target must not be null").identifier(), before, after, createdAt);
+    }
+
+    public static AuditEvent forPlayer(
             PlayerId actor,
             String operation,
             PlayerId targetPlayer,
@@ -42,6 +53,28 @@ public record AuditEvent(
             String after,
             Instant createdAt
     ) {
-        this(0L, actor, operation, Objects.requireNonNull(targetPlayer, "targetPlayer must not be null").toString(), before, after, createdAt);
+        return new AuditEvent(actor, operation, targetPlayer, before, after, createdAt);
+    }
+
+    public static AuditEvent forNonPlayer(
+            PlayerId actor,
+            String operation,
+            NonPlayerTarget target,
+            String before,
+            String after,
+            Instant createdAt
+    ) {
+        return new AuditEvent(actor, operation, target, before, after, createdAt);
+    }
+
+    public static AuditEvent forConfigKey(
+            PlayerId actor,
+            String operation,
+            String configKey,
+            String before,
+            String after,
+            Instant createdAt
+    ) {
+        return new AuditEvent(actor, operation, NonPlayerTarget.configKey(configKey), before, after, createdAt);
     }
 }

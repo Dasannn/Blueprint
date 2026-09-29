@@ -13,6 +13,15 @@ public record ConfidenceConfig(
         double highThreshold,
         Duration halfLife
 ) {
+    /**
+     * Maximum supported half-life duration: 100 years.
+     * Defendable bound: 100 years (36,500 days) is >5x the age of Minecraft itself,
+     * ~1,200x the default 30-day half-life, and ensures all nanosecond conversions
+     * (~3.15e16 ns) comfortably fit inside a signed 64-bit long (capacity ~9.22e18 ns / 292 years)
+     * without risk of ArithmeticException from Duration.toNanos().
+     */
+    public static final Duration MAX_HALF_LIFE = Duration.ofDays(365 * 100);
+
     public ConfidenceConfig {
         if (!Double.isFinite(lowThreshold) || lowThreshold <= 0.0) {
             throw new IllegalArgumentException("lowThreshold must be finite and strictly positive (> 0), got " + lowThreshold);
@@ -28,6 +37,10 @@ public record ConfidenceConfig(
         Objects.requireNonNull(halfLife, "halfLife must not be null");
         if (halfLife.isNegative() || halfLife.isZero()) {
             throw new IllegalArgumentException("halfLife must be positive, got " + halfLife);
+        }
+        if (halfLife.compareTo(MAX_HALF_LIFE) > 0) {
+            throw new IllegalArgumentException("halfLife exceeds maximum supported duration of 100 years ("
+                    + MAX_HALF_LIFE + "), got " + halfLife);
         }
     }
 

@@ -42,7 +42,7 @@ public final class PsychosisCalculator {
     }
 
     /**
-     * Counts the qualifying PvP kills for the player in the rolling window [now - window, now].
+     * Counts the qualifying PvP kills for the player in the rolling window (now - window, now].
      * Only open-world kills (CombatContext.OPEN) are counted.
      * Consensual duel kills (CombatContext.DUEL) are excluded per SB-031.
      */

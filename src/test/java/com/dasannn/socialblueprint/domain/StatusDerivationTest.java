@@ -47,8 +47,8 @@ class StatusDerivationTest {
         Instant now = Instant.parse("2026-09-29T12:00:00Z");
 
         List<ReputationEvent> events = new ArrayList<>();
-        events.add(new ReputationEvent(actor, target, 5, HonorKind.POSITIVE, 0.0, "Admin bonus", now));
-        events.add(new ReputationEvent(actor, target, 3, HonorKind.POSITIVE, 0.0, "Admin bonus", now.plusSeconds(5)));
+        events.add(new ReputationEvent(actor, target, 5, HonorKind.ADMIN_GIVE, 0.0, "Admin bonus", now));
+        events.add(new ReputationEvent(actor, target, 3, HonorKind.ADMIN_GIVE, 0.0, "Admin bonus", now.plusSeconds(5)));
 
         assertThat(Status.fromEvents(events).value()).isEqualTo(8);
 
@@ -75,27 +75,39 @@ class StatusDerivationTest {
     }
 
     @Test
-    @DisplayName("Finding 1: Status overflow throws ArithmeticException instead of wrapping into Criminal")
-    void statusOverflowThrowsArithmeticException() {
+    @DisplayName("Fix 1: Delta outside sane magnitude is rejected at construction, preventing poisoned rows and MAX_VALUE, +1, -1 sequences")
+    void deltaOutsideSaneMagnitudeRejectedAtConstruction() {
         PlayerId actor = PlayerId.of(UUID.randomUUID());
         PlayerId target = PlayerId.of(UUID.randomUUID());
         Instant now = Instant.parse("2026-09-29T12:00:00Z");
 
-        // Two positive events whose deltas sum beyond Integer.MAX_VALUE
-        List<ReputationEvent> positiveOverflowEvents = List.of(
-                new ReputationEvent(0L, actor, target, Integer.MAX_VALUE, HonorKind.POSITIVE, 0.0, null, now),
-                new ReputationEvent(0L, actor, target, 1, HonorKind.POSITIVE, 0.0, null, now.plusSeconds(1))
-        );
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> Status.fromEvents(positiveOverflowEvents))
-                .isInstanceOf(ArithmeticException.class);
+        // Rejection of Integer.MAX_VALUE prevents creating the MAX_VALUE, +1, -1 sequence
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new ReputationEvent(0L, actor, target, Integer.MAX_VALUE, HonorKind.POSITIVE, 500.0, null, now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
 
-        // Two negative events whose deltas sum below Integer.MIN_VALUE
-        List<ReputationEvent> negativeOverflowEvents = List.of(
-                new ReputationEvent(0L, actor, target, Integer.MIN_VALUE, HonorKind.NEGATIVE, 0.0, "Negative", now),
-                new ReputationEvent(0L, actor, target, -1, HonorKind.NEGATIVE, 0.0, "Negative", now.plusSeconds(1))
+        // Rejection of Integer.MIN_VALUE
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new ReputationEvent(0L, actor, target, Integer.MIN_VALUE, HonorKind.NEGATIVE, 500.0, "Negative", now))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
+
+        // Rejection at boundary: MAX_DELTA + 1 and -(MAX_DELTA + 1)
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new ReputationEvent(0L, actor, target, ReputationEvent.MAX_DELTA + 1, HonorKind.POSITIVE, 500.0, null, now))
+                .isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new ReputationEvent(0L, actor, target, -(ReputationEvent.MAX_DELTA + 1), HonorKind.NEGATIVE, 500.0, "Negative", now))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Events at exactly MAX_DELTA are accepted and derive correctly without intermediate sum failure
+        List<ReputationEvent> legalSequence = List.of(
+                new ReputationEvent(0L, actor, target, ReputationEvent.MAX_DELTA, HonorKind.POSITIVE, 500.0, null, now),
+                new ReputationEvent(0L, actor, target, 1, HonorKind.POSITIVE, 500.0, null, now.plusSeconds(1)),
+                new ReputationEvent(0L, actor, target, -1, HonorKind.NEGATIVE, 500.0, "reason", now.plusSeconds(2))
         );
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> Status.fromEvents(negativeOverflowEvents))
-                .isInstanceOf(ArithmeticException.class);
+        assertThat(Status.fromEvents(legalSequence).value()).isEqualTo(ReputationEvent.MAX_DELTA);
 
         // Status.plus also checks overflow
         Status max = Status.of(Integer.MAX_VALUE);

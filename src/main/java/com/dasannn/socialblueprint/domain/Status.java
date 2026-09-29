@@ -22,13 +22,16 @@ public record Status(int value) implements Comparable<Status> {
         if (events == null) {
             return ZERO;
         }
-        int total = 0;
+        long total = 0;
         for (ReputationEvent event : events) {
             if (event != null) {
-                total = Math.addExact(total, event.delta());
+                total += event.delta();
             }
         }
-        return Status.of(total);
+        if (total > Integer.MAX_VALUE || total < Integer.MIN_VALUE) {
+            throw new ArithmeticException("Derived status aggregate exceeds 32-bit signed integer range: " + total);
+        }
+        return Status.of((int) total);
     }
 
     public Status plus(int delta) {

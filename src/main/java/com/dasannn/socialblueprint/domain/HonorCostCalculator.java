@@ -37,7 +37,11 @@ public final class HonorCostCalculator {
      * Calculates the exact honor cost for a given count of ratings issued in the window.
      */
     public double calculateCost(int ratingsInWindow) {
-        return config.baseCost() * multiplierForRatings(ratingsInWindow);
+        double cost = config.baseCost() * multiplierForRatings(ratingsInWindow);
+        if (!Double.isFinite(cost)) {
+            throw new ArithmeticException("Calculated honor cost overflowed to non-finite value: " + cost);
+        }
+        return cost;
     }
 
     public double calculateCost(PlayerId actor, Collection<ReputationEvent> events, Clock clock) {
@@ -54,7 +58,7 @@ public final class HonorCostCalculator {
     }
 
     /**
-     * Counts how many ratings the actor has issued inside [now - window, now].
+     * Counts how many ratings the actor has issued inside (now - window, now].
      * Only player-issued honor events (POSITIVE/NEGATIVE) by the actor are counted.
      */
     public int countActorRatingsInWindow(PlayerId actor, Collection<ReputationEvent> events, Instant now) {

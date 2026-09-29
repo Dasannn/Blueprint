@@ -95,4 +95,15 @@ class HonorCostCalculatorTest {
         assertThat(calculator.countActorRatingsInWindow(actor, events, justBefore)).isEqualTo(1);
         assertThat(calculator.calculateCost(actor, events, justBefore)).isEqualTo(750.0);
     }
+
+    @Test
+    @DisplayName("Fix 2: calculateCost throws ArithmeticException if finite base and multiplier multiply to infinity")
+    void infiniteCostThrowsArithmeticException() {
+        HonorCostConfig infiniteConfig = new HonorCostConfig(Double.MAX_VALUE, List.of(2.0), Duration.ofHours(1));
+        HonorCostCalculator infiniteCalc = new HonorCostCalculator(infiniteConfig);
+
+        assertThatThrownBy(() -> infiniteCalc.calculateCost(0))
+                .isInstanceOf(ArithmeticException.class)
+                .hasMessageContaining("overflowed to non-finite value");
+    }
 }

@@ -85,10 +85,19 @@ public final class ConfidenceCalculator {
 
         double totalWeightedScore = 0.0;
         for (Instant eventTime : mostRecentByActor.values()) {
-            double ageNanos = Math.max(0.0, (double) Duration.between(eventTime, now).toNanos());
-            // Exponential decay: weight = 2^(-age / halfLife)
-            double weight = Math.pow(2.0, -(ageNanos / halfLifeNanos));
-            totalWeightedScore += weight;
+            Duration age = Duration.between(eventTime, now);
+            if (age.isNegative()) {
+                // Clock skew: event timestamp is in the future relative to 'now'; treat age as 0 (full weight 1.0)
+                totalWeightedScore += 1.0;
+            } else if (age.compareTo(ConfidenceConfig.MAX_HALF_LIFE) > 0) {
+                // Event is older than max supported age (100 years); weight has decayed to 0.0.
+                // Do not invoke toNanos() which would throw ArithmeticException beyond ~292 years.
+            } else {
+                double ageNanos = (double) age.toNanos();
+                // Exponential decay: weight = 2^(-age / halfLife)
+                double weight = Math.pow(2.0, -(ageNanos / halfLifeNanos));
+                totalWeightedScore += weight;
+            }
         }
 
         return totalWeightedScore;

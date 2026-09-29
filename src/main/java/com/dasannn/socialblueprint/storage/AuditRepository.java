@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.storage;
 
 import com.dasannn.socialblueprint.domain.AuditEvent;
+import com.dasannn.socialblueprint.domain.NonPlayerTarget;
 import com.dasannn.socialblueprint.domain.PlayerId;
 
 import java.sql.Connection;
@@ -78,10 +79,15 @@ public final class AuditRepository {
 
     public List<AuditEvent> findByTarget(PlayerId targetPlayer) {
         Objects.requireNonNull(targetPlayer, "targetPlayer must not be null");
-        return findByTarget(targetPlayer.toString());
+        return findByTargetInternal(targetPlayer.toString());
     }
 
-    public List<AuditEvent> findByTarget(String target) {
+    public List<AuditEvent> findByTarget(NonPlayerTarget target) {
+        Objects.requireNonNull(target, "target must not be null");
+        return findByTargetInternal(target.identifier());
+    }
+
+    private List<AuditEvent> findByTargetInternal(String target) {
         Objects.requireNonNull(target, "Target must not be null");
         return engine.execute(conn -> {
             String sql = """

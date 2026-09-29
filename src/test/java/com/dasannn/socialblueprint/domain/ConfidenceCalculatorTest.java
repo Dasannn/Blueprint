@@ -153,4 +153,39 @@ class ConfidenceCalculatorTest {
         double scoreAtQuarterSec = subSecCalc.calculateScore(events, quarterSecond);
         assertThat(scoreAtQuarterSec).isCloseTo(Math.pow(2.0, -0.5), tolerance);
     }
+
+    @Test
+    @DisplayName("Fix 4: Event age beyond 100 years and 292 years does not crash calculator with toNanos overflow")
+    void ancientEventAgeDoesNotCrashCalculator() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Event from year 1700 (326 years ago relative to 2026), which would throw ArithmeticException in Duration.toNanos() (>292 years)
+        Instant ancientTime = Instant.parse("1700-01-01T00:00:00Z");
+        List<ReputationEvent> events = List.of(
+                new ReputationEvent(0L, actor, target, 1, HonorKind.POSITIVE, 500.0, null, ancientTime)
+        );
+
+        // Does not throw ArithmeticException, decays safely to 0.0
+        double score = calculator.calculateScore(events, baseTime);
+        assertThat(score).isZero();
+        assertThat(calculator.calculate(events, baseTime)).isEqualTo(ConfidenceLevel.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("Fix 4: Clock skew with future event timestamp does not crash calculator")
+    void futureEventClockSkewDoesNotCrashCalculator() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Event timestamp is in the future relative to 'now' (e.g. 5 days ahead)
+        Instant futureTime = baseTime.plus(Duration.ofDays(5));
+        List<ReputationEvent> events = List.of(
+                new ReputationEvent(0L, actor, target, 1, HonorKind.POSITIVE, 500.0, null, futureTime)
+        );
+
+        // Does not throw, gives full weight 1.0
+        double score = calculator.calculateScore(events, baseTime);
+        assertThat(score).isEqualTo(1.0);
+    }
 }
