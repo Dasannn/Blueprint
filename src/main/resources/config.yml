@@ -34,9 +34,3 @@ tier4:
     prefix: '&7[&b||||&7]'
     name: 'Ilustre'
     repRequired: 50
-
-defaultMessages:
-  weekBadPersonES: 'Los criminales de la semana son: '
-  weekGoodPersonES: 'Las buenas almas de la semana son: '
-  thereAreGoodPerson: 'No hay criminales conectados, disfruta tu estadia.'
-  thereAreBadPerson: 'No hay gente buena conectada, anda con cuidado.'

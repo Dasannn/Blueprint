@@ -5,33 +5,5 @@ version: 1.0
 description: Social layer plugin for Paper
 api-version: '26.3'
 
-commands:
-  pstatus:
-    usage: /pstatus
-    description: PlayerStatus general command.
-  reputation:
-    usage: /reputation
-    description: Reputation general command.
-
-permissions:
-  pstatus.addRemoveRep:
-    description: Permite al jugador añadir o quitar puntos de reputación
-    default: op
-  pstatus.setReputation:
-    description: Permite al administrador establecer valores específicos de reputación
-    default: op
-  pstatus.show:
-    description: Permite al jugador ver su propio estatus social
-    default: true
-  pstatus.showOtherPlayers:
-    description: Permite al jugador ver el estatus social de otros jugadores
-    default: true
-  pstatus.giveReputation:
-    description: Permite al jugador dar puntos de reputación a otros
-    default: true
-  pstatus.viewReputation:
-    description: Permite al jugador ver la reputación de otros jugadores
-    default: true
-
 libraries:
   - org.xerial:sqlite-jdbc:3.53.4.0
