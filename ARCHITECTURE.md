@@ -140,9 +140,15 @@ Checks go through `Permissible#hasPermission`, so LuckPerms grants apply with no
 LuckPerms dependency and no LuckPerms API call.
 
 Nodes are `socialblueprint.*`, declared in `plugin.yml` with explicit defaults.
-The baseline's `pstatus.*` nodes are registered as **children** of the new ones,
-so existing LuckPerms grants keep working after the rename. `pstatus.evaluate`
-is dropped along with the command it guarded.
+`pstatus.evaluate` is dropped along with the command it guarded.
+
+The legacy `pstatus.*` nodes must keep working for servers that already granted
+them. **Children flow parent → child**, so declaring the old nodes as children
+of the new ones is backwards: it would make a grant of the *new* node imply the
+old one, which is not what anyone needs. The old node must be the parent, or the
+check must consult both. `docs/reference/paper-26.3-notes.md` §9 has the
+mechanics; the direction is verified against a real LuckPerms grant before P4
+closes.
 
 Node *strings* being configurable (SB-061) means the mapping from an action to a
 node is read from configuration at check time; it does not mean nodes are

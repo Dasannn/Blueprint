@@ -80,6 +80,31 @@ codex exec -m gpt-6-sol -c model_reasoning_effort="medium" --sandbox workspace-w
 Task briefs go in `.agent/prompts/`, reports in `.agent/reports/`. Neither is
 committed. A report with durable value is moved into `docs/reference/` instead.
 
+Dispatch through `.agent/dispatch-agy.cmd <prompt> <worktree>` and
+`.agent/dispatch-codex.cmd <prompt> <dir>`, never the CLIs directly. They carry
+hard-won details:
+
+* `agy -p` takes the **next token** as its prompt, so it must come last.
+  `-p --model ...` silently sends the literal string `"--model"`.
+* Codex needs `--skip-git-repo-check` outside a repository, and its
+  `workspace-write` sandbox blocks outbound sockets unless
+  `sandbox_workspace_write.network_access=true` is set. It also cannot run
+  `javac` on this machine — the sandbox denies closing cached jars — so **Codex
+  reads and finds, Antigravity builds and runs**.
+* The wrappers retry on a usage limit with backoff and append the raw failure
+  to `.agent/limit-samples.log`, because neither CLI's exhaustion wording is
+  known yet.
+* `agy` prints nothing until it finishes, so its output file is no liveness
+  signal. Watch the process and the worktree's file mtimes instead.
+
+## Progress
+
+`docs/tasks.md` is the single record of where the project is: phase table at
+the top, per-task status column below. Update it as work moves, not at the end.
+Do not create a second progress file — a `MEMORY.md`, a status report, a
+summary of what was just finished. The source-of-truth list above has five
+documents and a sixth would only compete with them.
+
 Commits and pull requests carry **no** AI attribution: no `Co-Authored-By`, no
 "generated with" footer.
 

@@ -102,6 +102,10 @@ identity and are kept. Their storage, their thresholds and the way they are
 resolved are rewritten; the tokens and colours the players already recognise are
 not.
 
+The **tokens and colours** are the identity, not the words. The nine names are
+translated (SB-070i): the ladder reads `Criminal` to `Ilustre` in Spanish and
+its English equivalents in English, while `&7[&a||&7]` is the same everywhere.
+
 ## 5. How work is done
 
 - Specification-driven. Code follows an approved document, never the reverse.

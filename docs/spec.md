@@ -154,6 +154,27 @@ Checks go through the Bukkit permission API so LuckPerms grants apply unchanged.
 **SB-062.** Every player-visible string is configurable from YAML and in-game,
 including the plugin's own chat prefix.
 
+**SB-066.** One plugin ships both Spanish and English. The active language is a
+single key in `config.yml`; there is no separate build, no separate download.
+
+**SB-067.** Each language is a file — `messages_es.yml`, `messages_en.yml` —
+with identical keys. Both ship inside the jar and are written to the plugin's
+data folder on first run so a server owner can edit either.
+
+**SB-068.** A key missing from the selected language falls back to the other
+language rather than showing the raw key, and logs a warning naming the key
+once. A missing translation must never reach a player as `messages.honor.cost`.
+
+**SB-069.** No player-visible string is ever written in Java source. Every one
+goes through the message layer, so adding a third language later is a new file
+and nothing else.
+
+**SB-070i.** The nine tier names are translated too. A tier's **prefix token**
+(`&7[&a||&7]`) and its **threshold** stay in `config.yml`, because they are
+structure; its **display name** lives in the language files, keyed by tier, so
+an English player reads `Honourable` where a Spanish player reads `Honorable`.
+Editing a name in either language file is the supported way to rename a tier.
+
 **SB-063.** Colours accept Essentials-style `&` codes, including hex, in every
 configurable string.
 
@@ -262,3 +283,5 @@ Deliberate deletions, so no agent restores them as "missing functionality".
       the server picks it up on restart.
 - [ ] Every administrative action leaves an audit record.
 - [ ] Every value named in this document is configurable without recompiling.
+- [ ] Changing `language:` from `es` to `en` changes every player-visible
+      string, with no other edit and no separate build.
