@@ -37,6 +37,13 @@ commands:
     invalid-key: '&cClave de configuración desconocida o no editable: &f{key}'
     reload-success: '&aConfiguración recargada exitosamente.'
 
+chat:
+  hover-status: '&7Estatus: &f{status}'
+  hover-tier: '&7Rango: {prefix} &f{tier}'
+  hover-confidence: '&7Confianza: &f{confidence}'
+  hover-psychosis: '&7Psicosis: &f{psychosis}'
+  hover-contributors: '&7Colaboradores: &f{contributors}'
+
 status:
   not-found: '&cJugador no encontrado: &f{player}'
   profile-header: '&8--- &bEstatus Social: &e{player} &8---'

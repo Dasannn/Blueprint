@@ -200,6 +200,24 @@ public final class StorageEngine implements Closeable {
         });
     }
 
+    /**
+     * Submits a task to be executed asynchronously on the database executor thread.
+     */
+    public CompletableFuture<Void> submitAsync(Runnable task) {
+        Objects.requireNonNull(task, "Task must not be null");
+        checkNotClosed();
+        return CompletableFuture.runAsync(task, executor);
+    }
+
+    /**
+     * Submits a supplier to be executed asynchronously on the database executor thread.
+     */
+    public <T> CompletableFuture<T> supplyAsync(java.util.function.Supplier<T> supplier) {
+        Objects.requireNonNull(supplier, "Supplier must not be null");
+        checkNotClosed();
+        return CompletableFuture.supplyAsync(supplier, executor);
+    }
+
     private void checkNotClosed() {
         if (closed.get()) {
             throw new IllegalStateException("StorageEngine is closed");

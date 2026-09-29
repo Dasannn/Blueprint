@@ -37,6 +37,13 @@ commands:
     invalid-key: '&cUnknown or uneditable configuration key: &f{key}'
     reload-success: '&aConfiguration reloaded successfully.'
 
+chat:
+  hover-status: '&7Status: &f{status}'
+  hover-tier: '&7Tier: {prefix} &f{tier}'
+  hover-confidence: '&7Confidence: &f{confidence}'
+  hover-psychosis: '&7Psychosis: &f{psychosis}'
+  hover-contributors: '&7Contributors: &f{contributors}'
+
 status:
   not-found: '&cPlayer not found: &f{player}'
   profile-header: '&8--- &bSocial Status: &e{player} &8---'
