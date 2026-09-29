@@ -1,4 +1,4 @@
-# Tasks — Release 1
+﻿# Tasks â€” Release 1
 
 Units of work for `docs/plan.md`. Each task names the requirements it satisfies
 and how it is proven done. Status values: `todo`, `in progress`, `review`,
@@ -7,50 +7,84 @@ and how it is proven done. Status values: `todo`, `in progress`, `review`,
 Every task is implemented by Antigravity in its phase worktree and reviewed by
 Codex before Claude commits.
 
+**This file is the project's state.** It is updated as work moves, not at the
+end. Anyone — human or agent — reads it to learn where the project is, so a
+stale `todo` beside finished work is a defect in its own right. There is no
+second place where progress is recorded.
+
+## Phase status
+
+| phase | branch | state |
+|---|---|---|
+| P0 Build foundation | `feat/p0-build-foundation` | **done** — gate met on Paper 26.3 build 135 with LuckPerms, Vault, EssentialsX, WorldEdit and WorldGuard loaded |
+| P1 Storage and domain | `feat/p1-storage-domain` | **in review** — 63 tests green, eight blocking review findings being fixed |
+| P2 Configuration | — | not started |
+| P3 Status, tiers, chat | — | not started |
+| P4 Commands, permissions | — | not started |
+| P5 Duels | — | not started |
+| P6 Ambient effects | — | not started |
+| P7 Self-update | — | not started |
+| P8 Legacy import | — | not started |
+| P9 Hardening | — | not started |
+
+Reference produced along the way: `docs/reference/paper-26.3-notes.md` settles
+the 26.3 API for every later phase, and corrected two things this project had
+already written down wrongly.
+
+## Decisions waiting on the product owner
+
+Neither blocks current work; both land in `config.yml` during P2.
+
+- **Confidence decay.** Exponential half-life, `w = 2^(-age/halfLife)`, default
+  30 days. The default threshold of exactly `1.0` means a single recent actor
+  reads `Low` only during the rating's first second, then `Unknown`.
+- **Psychosis window.** 24 hours, thresholds medium 2, high 5, extreme 10
+  kills. On an active PvP server ten kills in a day is an ordinary afternoon.
+
 ---
 
-## P0 — Build foundation
+## P0 â€” Build foundation
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-001 | Add the Maven wrapper (`mvnw`, `mvnw.cmd`, `.mvn/`). Maven is not installed locally. | — | todo |
-| T-002 | Retarget `pom.xml`: `maven.compiler.release` 25, `io.papermc.paper:paper-api:26.3.build.135-beta` provided, Paper repository, Vault API provided. Drop the Spigot dependency and repository. | §3 | todo |
-| T-003 | Move `plugin.yml` and `config.yml` from `src/main/java` to `src/main/resources`; remove the explicit `<resource>` block from `pom.xml`. | — | todo |
-| T-004 | Rename package to `com.dasannn.socialblueprint`; rename entry class `main` to `SocialBlueprintPlugin`; update `plugin.yml`. | — | todo |
-| T-005 | Delete `PrefixManager`. It is entirely commented out and wrongly extends `JavaPlugin`. | SB-12.4 | todo |
-| T-006 | Reduce the entry class to a skeleton: enable, disable, logging, no feature code. Remove `/pstatus evaluate`, the `eco` dispatch, the death item rewards and `/utils`. | §12 | todo |
-| T-007 | Declare `sqlite-jdbc` under `libraries:` in `plugin.yml`. | — | todo |
+| T-001 | Add the Maven wrapper (`mvnw`, `mvnw.cmd`, `.mvn/`). Maven is not installed locally. | â€” | done |
+| T-002 | Retarget `pom.xml`: `maven.compiler.release` 25, `io.papermc.paper:paper-api:26.3.build.135-beta` provided, Paper repository, Vault API provided. Drop the Spigot dependency and repository. | Â§3 | done |
+| T-003 | Move `plugin.yml` and `config.yml` from `src/main/java` to `src/main/resources`; remove the explicit `<resource>` block from `pom.xml`. | â€” | done |
+| T-004 | Rename package to `com.dasannn.socialblueprint`; rename entry class `main` to `SocialBlueprintPlugin`; update `plugin.yml`. | â€” | done |
+| T-005 | Delete `PrefixManager`. It is entirely commented out and wrongly extends `JavaPlugin`. | SB-12.4 | done |
+| T-006 | Reduce the entry class to a skeleton: enable, disable, logging, no feature code. Remove `/pstatus evaluate`, the `eco` dispatch, the death item rewards and `/utils`. | Â§12 | done |
+| T-007 | Declare `sqlite-jdbc` under `libraries:` in `plugin.yml`. | â€” | done |
 
 **Gate:** Paper 26.3 starts with the jar and no configuration file; enable and disable are clean in the log.
 
 ---
 
-## P1 — Storage and domain
+## P1 â€” Storage and domain
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-010 | Domain value types: `PlayerId` (UUID), `Status`, `Tier`, `ConfidenceLevel`, `PsychosisLevel`, `ReputationEvent`, `HonorKind`. Pure Java, no Bukkit import. | SB-001, SB-060 | todo |
-| T-011 | Tier ladder resolution over signed, strictly ordered thresholds. Nine tiers. Exactly `0` resolves to the neutral tier. | SB-010, SB-011, SB-012 | todo |
-| T-012 | Derive status from an event list. No standalone authoritative integer. | SB-002 | todo |
-| T-013 | Reputation Confidence from the count of distinct actors, weighted by rating age. Repeated ratings from one actor do not raise it. | SB-003 | todo |
-| T-014 | Killing Psychosis over a rolling window. Never reads or writes social status. | SB-004 | todo |
-| T-015 | Honor cost: fixed base times the progressive multiplier for the actor's ratings inside the window. | SB-050 | todo |
-| T-016 | Per-pair allowance: at most three positive and three negative per actor-target pair inside the window; independent counts; the window expiring restores it. | SB-054 | todo |
-| T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` §4. | — | todo |
-| T-018 | Repositories over a single-threaded executor; one connection; no pool. | — | todo |
-| T-019 | In-memory status cache, invalidated on write, rebuildable from events. | — | todo |
-| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | §13 | todo |
-| T-021 | Storage tests against an in-memory database, including the full migration chain. | — | todo |
+| T-010 | Domain value types: `PlayerId` (UUID), `Status`, `Tier`, `ConfidenceLevel`, `PsychosisLevel`, `ReputationEvent`, `HonorKind`. Pure Java, no Bukkit import. | SB-001, SB-060 | review |
+| T-011 | Tier ladder resolution over signed, strictly ordered thresholds. Nine tiers. Exactly `0` resolves to the neutral tier. | SB-010, SB-011, SB-012 | review |
+| T-012 | Derive status from an event list. No standalone authoritative integer. | SB-002 | review |
+| T-013 | Reputation Confidence from the count of distinct actors, weighted by rating age. Repeated ratings from one actor do not raise it. | SB-003 | review |
+| T-014 | Killing Psychosis over a rolling window. Never reads or writes social status. | SB-004 | review |
+| T-015 | Honor cost: fixed base times the progressive multiplier for the actor's ratings inside the window. | SB-050 | review |
+| T-016 | Per-pair allowance: at most three positive and three negative per actor-target pair inside the window; independent counts; the window expiring restores it. | SB-054 | review |
+| T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` Â§4. | â€” | review |
+| T-018 | Repositories over a single-threaded executor; one connection; no pool. | â€” | review |
+| T-019 | In-memory status cache, invalidated on write, rebuildable from events. | â€” | review |
+| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | Â§13 | review |
+| T-021 | Storage tests against an in-memory database, including the full migration chain. | â€” | review |
 
 **Gate:** T-020 and T-021 pass.
 
 ---
 
-## P2 — Configuration
+## P2 â€” Configuration
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-030 | Typed immutable config records for every section; one load, no scattered `getString`. | — | todo |
+| T-030 | Typed immutable config records for every section; one load, no scattered `getString`. | â€” | todo |
 | T-031 | Load-time validation: malformed tier ladder, missing required key, negative cooldown, or a tier threshold out of order fails the enable with a message naming the key. Never a silent default. | SB-011 | todo |
 | T-032 | Split text into per-language message files; every player-visible string configurable. | SB-062 | todo |
 | T-032a | Ship `messages_es.yml` and `messages_en.yml` with identical keys, both inside the jar and both written to the data folder on first run. A `language:` key in `config.yml` selects one. | SB-066, SB-067 | todo |
@@ -60,19 +94,19 @@ Codex before Claude commits.
 | T-033 | Colour parsing through Adventure's legacy serializer with `&` and hex. One interpretation only; never also MiniMessage. | SB-063 | todo |
 | T-034 | Atomic reload: replace the snapshot wholesale; nothing caches derived values across a reload. | SB-013 | todo |
 | T-035 | `/status config <key> [value]`: read and edit in-game through the same validation, persist, publish a new snapshot. | SB-062 | todo |
-| T-036 | Ship a `config.yml` whose tier ladder is correct — negative tiers carry negative thresholds. The baseline shipped positive ones. | SB-011 | todo |
+| T-036 | Ship a `config.yml` whose tier ladder is correct â€” negative tiers carry negative thresholds. The baseline shipped positive ones. | SB-011 | todo |
 
 **Gate:** a malformed ladder names its key and refuses to enable; an in-game colour edit applies with no restart; switching `language:` changes every player-visible string with no other edit.
 
 ---
 
-## P3 — Status, tiers, prefixes, chat
+## P3 â€” Status, tiers, prefixes, chat
 
 | id | task | spec | status |
 |---|---|---|---|
 | T-040 | Resolve the prefix per lookup from the current snapshot. No static caching at enable. | SB-013 | todo |
 | T-041 | Chat gradient from `#202020` to bright white by tier. Never absolute black, never hidden, truncated, delayed or blocked. | SB-020, SB-021 | todo |
-| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | — | todo |
+| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | â€” | todo |
 | T-043 | Name hover: status, tier, Confidence, Psychosis, count of distinct contributors. | SB-022 | todo |
 | T-044 | Coexist with other prefix plugins: never overwrite display, list or custom name unconditionally. | SB-014 | todo |
 | T-045 | `/status [player]` profile output, including offline targets. | SB-005 | todo |
@@ -81,7 +115,7 @@ Codex before Claude commits.
 
 ---
 
-## P4 — Commands and permissions
+## P4 â€” Commands and permissions
 
 | id | task | spec | status |
 |---|---|---|---|
@@ -99,20 +133,20 @@ Codex before Claude commits.
 
 ---
 
-## P5 — Duels
+## P5 â€” Duels
 
 | id | task | spec | status |
 |---|---|---|---|
 | T-060 | Duel lifecycle: challenge, accept, deny, leave, expiry. 1v1 and group. | SB-030 | todo |
 | T-061 | A kill inside an active duel affects neither status nor Psychosis. | SB-031 | todo |
-| T-062 | A kill outside a duel raises Psychosis and never changes status. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, §12 | todo |
+| T-062 | A kill outside a duel raises Psychosis and never changes status. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, Â§12 | todo |
 | T-063 | Configurable disconnect handling, distinguishing a combat log from a normal quit. | SB-033 | todo |
 
 **Gate:** duel kill changes neither metric; open-world kill changes only Psychosis.
 
 ---
 
-## P6 — Ambient effects
+## P6 â€” Ambient effects
 
 Parallel with P5.
 
@@ -122,14 +156,14 @@ Parallel with P5.
 | T-071 | Delivery to the affected player only. Nothing reaches other players, the real chat, or the server log. | SB-041 | todo |
 | T-072 | Speed III silverfish: no damage dealt or taken, no targeting, no loot, no XP, not persistent, removed on timer. | SB-042 | todo |
 | T-073 | Entity registry cleaned on despawn timer, quit, world change and disable. No entity survives any of them. | SB-042 | todo |
-| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements — all private. | SB-040 | todo |
+| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements â€” all private. | SB-040 | todo |
 | T-075 | `/status effects` per-player opt-out, persisted. Changes no metric and hides nothing from others. | SB-044 | todo |
 
 **Gate:** effects are private; no entity leaks; opt-out works.
 
 ---
 
-## P7 — Self-update
+## P7 â€” Self-update
 
 | id | task | spec | status |
 |---|---|---|---|
@@ -144,25 +178,25 @@ Parallel with P5.
 
 ---
 
-## P8 — Legacy import
+## P8 â€” Legacy import
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-090 | Read an old PlayerStatus `config.yml`; write one `legacy_import` event per player, no actor. | — | todo |
+| T-090 | Read an old PlayerStatus `config.yml`; write one `legacy_import` event per player, no actor. | â€” | todo |
 | T-091 | Legacy events contribute nothing to Reputation Confidence. | SB-003 | todo |
-| T-092 | Import is idempotent and reports what it did. | — | todo |
+| T-092 | Import is idempotent and reports what it did. | â€” | todo |
 
 **Gate:** a real old configuration imports with no score loss and invents no evidence.
 
 ---
 
-## P9 — Hardening
+## P9 â€” Hardening
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-100 | Walk every acceptance criterion in `docs/spec.md` §13 on a running Paper 26.3 server; record evidence per box. | §13 | todo |
-| T-101 | Confirm no file or database I/O happens on the main thread. | §13 | todo |
-| T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §13 | todo |
-| T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
+| T-100 | Walk every acceptance criterion in `docs/spec.md` Â§13 on a running Paper 26.3 server; record evidence per box. | Â§13 | todo |
+| T-101 | Confirm no file or database I/O happens on the main thread. | Â§13 | todo |
+| T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | Â§13 | todo |
+| T-103 | Codex reviews the full release diff, not phase by phase. | â€” | todo |
 
-**Gate:** every box in §13 ticked with evidence.
+**Gate:** every box in Â§13 ticked with evidence.
