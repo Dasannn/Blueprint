@@ -96,6 +96,9 @@ hard-won details:
   known yet.
 * `agy` prints nothing until it finishes, so its output file is no liveness
   signal. Watch the process and the worktree's file mtimes instead.
+* `agy` will background a long build and then idle waiting for it, until its
+  own 30 minute timeout cuts it off with no report. Briefs that end in a build
+  must say to run it in the foreground.
 
 ## Progress
 
