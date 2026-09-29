@@ -6,32 +6,52 @@ description: Social layer plugin for Paper
 api-version: '26.3'
 
 commands:
-  pstatus:
-    usage: /pstatus
-    description: PlayerStatus general command.
-  reputation:
-    usage: /reputation
-    description: Reputation general command.
+  status:
+    aliases: [pstatus, reputation]
+    usage: /status [args]
+    description: Social profile and actions
 
 permissions:
-  pstatus.addRemoveRep:
-    description: Permite al jugador añadir o quitar puntos de reputación
-    default: op
-  pstatus.setReputation:
-    description: Permite al administrador establecer valores específicos de reputación
-    default: op
-  pstatus.show:
+  socialblueprint.show:
     description: Permite al jugador ver su propio estatus social
     default: true
-  pstatus.showOtherPlayers:
+  socialblueprint.show.others:
     description: Permite al jugador ver el estatus social de otros jugadores
     default: true
-  pstatus.giveReputation:
-    description: Permite al jugador dar puntos de reputación a otros
+  socialblueprint.give:
+    description: Permite al jugador dar honor a otros
     default: true
-  pstatus.viewReputation:
+  socialblueprint.take:
+    description: Permite al jugador retirar honor a otros
+    default: true
+  socialblueprint.view:
     description: Permite al jugador ver la reputación de otros jugadores
     default: true
+  socialblueprint.admin.adjust:
+    description: Permite al administrador ajustar o restablecer el estatus
+    default: op
+  socialblueprint.admin.config:
+    description: Permite al administrador ver y editar la configuración
+    default: op
+
+  pstatus.show:
+    children:
+      socialblueprint.show: true
+  pstatus.showOtherPlayers:
+    children:
+      socialblueprint.show.others: true
+  pstatus.giveReputation:
+    children:
+      socialblueprint.give: true
+  pstatus.addRemoveRep:
+    children:
+      socialblueprint.admin.adjust: true
+  pstatus.setReputation:
+    children:
+      socialblueprint.admin.adjust: true
+  pstatus.viewReputation:
+    children:
+      socialblueprint.view: true
 
 libraries:
   - org.xerial:sqlite-jdbc:3.53.4.0

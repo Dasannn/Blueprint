@@ -1,42 +1,132 @@
-tier-4:
-    prefix: '&7[&4||||&7]'
-    name: 'Criminal'
-    repRequired: 30
-tier-3:
-    prefix: '&7[&c|||&7]'
-    name: 'Forajido'
-    repRequired: 20
-tier-2:
-    prefix: '&7[&c||&7]'
-    name: 'Delincuente'
-    repRequired: 10
-tier-1:
-    prefix: '&7[&c|&7]'
-    name: 'Temerario'
-    repRequired: 1
-tier0:
-    prefix: '&7[&f|&7]'
-    name: 'Particular'
-    repRequired: 0
-tier1:
-    prefix: '&7[&a|&7]'
-    name: 'Afable'
-    repRequired: 5
-tier2:
-    prefix: '&7[&a||&7]'
-    name: 'Honorable'
-    repRequired: 15
-tier3:
-    prefix: '&7[&a|||&7]'
-    name: 'Insigne'
-    repRequired: 30
-tier4:
-    prefix: '&7[&b||||&7]'
-    name: 'Ilustre'
-    repRequired: 50
+# ==============================================================================
+# SocialBlueprint Configuration
+# ==============================================================================
 
-defaultMessages:
-  weekBadPersonES: 'Los criminales de la semana son: '
-  weekGoodPersonES: 'Las buenas almas de la semana son: '
-  thereAreGoodPerson: 'No hay criminales conectados, disfruta tu estadia.'
-  thereAreBadPerson: 'No hay gente buena conectada, anda con cuidado.'
+# Active language (SB-066, T-032a). Supported: 'en', 'es'.
+# Loads messages_en.yml or messages_es.yml from the data folder.
+language: es
+
+# Chat prefix prepended to player-facing messages and notifications (SB-062).
+chat-prefix: '&8[&bSocialBlueprint&8]&r '
+
+# ==============================================================================
+# Reputation Tiers (SB-010, SB-011, SB-012, T-036)
+#
+# Nine visual tiers from baseline PlayerStatus, preserving visual tokens and colours.
+# Display names are localized and defined in the language files (messages_<lang>.yml).
+# Negative tiers must carry strictly negative thresholds (< 0) in ascending order.
+# Neutral tier (tier0) threshold must be exactly 0.
+# Positive tiers must carry strictly positive thresholds (> 0) in ascending order.
+# ==============================================================================
+tiers:
+  tier-4:
+    prefix: '&7[&4||||&7]'
+    threshold: -30
+  tier-3:
+    prefix: '&7[&c|||&7]'
+    threshold: -20
+  tier-2:
+    prefix: '&7[&c||&7]'
+    threshold: -10
+  tier-1:
+    prefix: '&7[&c|&7]'
+    threshold: -1
+  tier0:
+    prefix: '&7[&f|&7]'
+    threshold: 0
+  tier1:
+    prefix: '&7[&a|&7]'
+    threshold: 5
+  tier2:
+    prefix: '&7[&a||&7]'
+    threshold: 15
+  tier3:
+    prefix: '&7[&a|||&7]'
+    threshold: 30
+  tier4:
+    prefix: '&7[&b||||&7]'
+    threshold: 50
+
+# ==============================================================================
+# Reputation Confidence (SB-003, T-013)
+#
+# Confidence measures how much evidence stands behind a player's reputation score.
+# It is computed from the count of distinct players who have rated this player,
+# weighted by the age of those ratings using exponential decay.
+# Repeated ratings from the same actor do not raise confidence.
+# ==============================================================================
+confidence:
+  # Exponential decay half-life for rating age (default: 30 days).
+  # After this period, a rating's contribution to confidence is halved.
+  half-life: 30d
+
+  # Minimum effective rating weight for 'Low' confidence (default: 1.0).
+  # Requires at least 1 recent distinct player opinion.
+  low-threshold: 1.0
+
+  # Minimum effective rating weight for 'Established' confidence (default: 5.0).
+  # Requires opinions from approximately 5 recent distinct players.
+  established-threshold: 5.0
+
+  # Minimum effective rating weight for 'High' confidence (default: 15.0).
+  # Requires opinions from approximately 15 recent distinct players.
+  high-threshold: 15.0
+
+# ==============================================================================
+# Killing Psychosis (SB-004, T-014)
+#
+# Psychosis measures open-world PvP killing frequency over a rolling time window.
+# Kills inside consensual duels affect neither social status nor Killing Psychosis.
+# If these thresholds are too aggressive for an active PvP server, raise them below.
+# ==============================================================================
+psychosis:
+  # Rolling evaluation window for counting PvP kills (default: 24 hours).
+  window: 24h
+
+  # Kill count threshold to reach 'Medium' psychosis (default: 2 kills).
+  # Represents an occasional player-killer within the window.
+  medium-threshold: 2
+
+  # Kill count threshold to reach 'High' psychosis (default: 5 kills).
+  # Represents a frequent, dangerous PvP combatant within the window.
+  high-threshold: 5
+
+  # Kill count threshold to reach 'Extreme' psychosis (default: 10 kills).
+  # Represents a notorious, aggressive killer on a PvP rampage within the window.
+  extreme-threshold: 10
+
+# ==============================================================================
+# Honor Economy (SB-050, SB-054, Decision 0001)
+# ==============================================================================
+honor:
+  # Base monetary cost to give or remove honor (withdrawn via Vault economy).
+  cost: 500.0
+
+  # Progressive cost multiplier per rating issued by the actor within the window.
+  multipliers:
+    - 1.0
+    - 1.5
+    - 2.0
+    - 3.0
+
+  # Rolling window for the progressive multiplier and allowance reset.
+  window: 1h
+
+  # Cooldown between ratings between the same actor and target player.
+  cooldown-per-pair: 24h
+
+  # Maximum ratings per actor-target pair inside the window (positive and negative counted separately).
+  max-per-target: 3
+
+# ==============================================================================
+# Permission Nodes (SB-061, T-054)
+# Action-to-permission node mapping resolved at check time.
+# ==============================================================================
+permissions:
+  show: "socialblueprint.show"
+  show-others: "socialblueprint.show.others"
+  give-reputation: "socialblueprint.give"
+  take-reputation: "socialblueprint.take"
+  view-reputation: "socialblueprint.view"
+  admin-adjust: "socialblueprint.admin.adjust"
+  admin-config: "socialblueprint.admin.config"

@@ -1,0 +1,73 @@
+# ==============================================================================
+# Archivo de mensajes en Español - SocialBlueprint
+# ==============================================================================
+
+prefix: '&8[&bSocialBlueprint&8]&r '
+
+tiers:
+  tier-4: 'Criminal'
+  tier-3: 'Forajido'
+  tier-2: 'Delincuente'
+  tier-1: 'Temerario'
+  tier0: 'Particular'
+  tier1: 'Afable'
+  tier2: 'Honorable'
+  tier3: 'Insigne'
+  tier4: 'Ilustre'
+
+confidence:
+  unknown: 'Desconocida'
+  low: 'Baja'
+  established: 'Establecida'
+  high: 'Alta'
+
+psychosis:
+  low: 'Baja'
+  medium: 'Media'
+  high: 'Alta'
+  extreme: 'Extrema'
+
+commands:
+  no-permission: '&cNo tienes permiso para ejecutar este comando.'
+  player-only: '&cEste comando solo puede ser ejecutado por jugadores.'
+  config:
+    usage: '&eUso: &f/status config <clave> [valor]'
+    get: '&7La clave de configuración &b{key}&7 está establecida en: &f{value}'
+    set-success: '&aSe actualizó exitosamente &b{key}&a a: &f{value}'
+    set-failed: '&cError al actualizar &b{key}&c: {error}'
+    invalid-key: '&cClave de configuración desconocida o no editable: &f{key}'
+    reload-success: '&aConfiguración recargada exitosamente.'
+
+status:
+  not-found: '&cJugador no encontrado: &f{player}'
+  profile-header: '&8--- &bEstatus Social: &e{player} &8---'
+  profile-tier: '&7Rango: {prefix} &f{tier}'
+  profile-status: '&7Puntuación de Estatus: &f{status}'
+  profile-confidence: '&7Confianza: &f{confidence}'
+  profile-psychosis: '&7Psicosis: &f{psychosis}'
+  profile-contributors: '&7Colaboradores: &f{contributors}'
+
+honor:
+  cost-preview: '&7El costo para emitir esta opinión es &e${cost}&7. ¿Confirmar?'
+  cooldown: '&cDebes esperar &e{time}&c antes de calificar a este jugador de nuevo.'
+  cap-reached: '&cHas alcanzado el límite de evaluaciones para este jugador.'
+  given: '&aHas otorgado honor a &e{target}&a.'
+  removed: '&cHas retirado honor a &e{target}&c.'
+  reason-required: '&cSe requiere un motivo para retirar honor.'
+  insufficient-funds: '&cNo tienes suficiente dinero (${cost} requerido).'
+
+duel:
+  challenge-sent: '&7Has retado a &e{target}&7 a un duelo.'
+  challenge-received: '&e{challenger}&7 te ha retado a un duelo.'
+  accepted: '&aDuelo iniciado contra &e{opponent}&a.'
+  denied: '&cDuelo rechazado.'
+  expired: '&7El reto de duelo ha expirado.'
+
+effects:
+  opt-out-enabled: '&7Efectos ambientales desactivados para ti.'
+  opt-out-disabled: '&7Efectos ambientales activados para ti.'
+
+updater:
+  update-available: '&aNueva versión disponible: &f{version}'
+  downloading: '&7Descargando actualización...'
+  restart-required: '&aActualización completada. Reinicia el servidor para aplicarla.'

@@ -1,0 +1,73 @@
+# ==============================================================================
+# English messages file - SocialBlueprint
+# ==============================================================================
+
+prefix: '&8[&bSocialBlueprint&8]&r '
+
+tiers:
+  tier-4: 'Criminal'
+  tier-3: 'Outlaw'
+  tier-2: 'Delinquent'
+  tier-1: 'Reckless'
+  tier0: 'Citizen'
+  tier1: 'Affable'
+  tier2: 'Honorable'
+  tier3: 'Distinguished'
+  tier4: 'Illustrious'
+
+confidence:
+  unknown: 'Unknown'
+  low: 'Low'
+  established: 'Established'
+  high: 'High'
+
+psychosis:
+  low: 'Low'
+  medium: 'Medium'
+  high: 'High'
+  extreme: 'Extreme'
+
+commands:
+  no-permission: '&cYou do not have permission to execute this command.'
+  player-only: '&cThis command can only be executed by players.'
+  config:
+    usage: '&eUsage: &f/status config <key> [value]'
+    get: '&7Configuration key &b{key}&7 is set to: &f{value}'
+    set-success: '&aSuccessfully updated &b{key}&a to: &f{value}'
+    set-failed: '&cFailed to update &b{key}&c: {error}'
+    invalid-key: '&cUnknown or uneditable configuration key: &f{key}'
+    reload-success: '&aConfiguration reloaded successfully.'
+
+status:
+  not-found: '&cPlayer not found: &f{player}'
+  profile-header: '&8--- &bSocial Status: &e{player} &8---'
+  profile-tier: '&7Tier: {prefix} &f{tier}'
+  profile-status: '&7Status Score: &f{status}'
+  profile-confidence: '&7Confidence: &f{confidence}'
+  profile-psychosis: '&7Psychosis: &f{psychosis}'
+  profile-contributors: '&7Contributors: &f{contributors}'
+
+honor:
+  cost-preview: '&7The cost to issue this opinion is &e${cost}&7. Confirm?'
+  cooldown: '&cYou must wait &e{time}&c before rating this player again.'
+  cap-reached: '&cYou have reached the evaluation limit for this player.'
+  given: '&aYou have granted honor to &e{target}&a.'
+  removed: '&cYou have removed honor from &e{target}&c.'
+  reason-required: '&cA written reason is required to remove honor.'
+  insufficient-funds: '&cInsufficient funds (${cost} required).'
+
+duel:
+  challenge-sent: '&7You challenged &e{target}&7 to a duel.'
+  challenge-received: '&e{challenger}&7 challenged you to a duel.'
+  accepted: '&aDuel started against &e{opponent}&a.'
+  denied: '&cDuel denied.'
+  expired: '&7The duel challenge has expired.'
+
+effects:
+  opt-out-enabled: '&7Ambient effects disabled for you.'
+  opt-out-disabled: '&7Ambient effects enabled for you.'
+
+updater:
+  update-available: '&aNew version available: &f{version}'
+  downloading: '&7Downloading update...'
+  restart-required: '&aUpdate completed. Restart the server to apply.'

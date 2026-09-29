@@ -159,4 +159,16 @@ public final class TierLadder {
     public Map<Tier, Integer> thresholds() {
         return thresholds;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof TierLadder that)) return false;
+        return Objects.equals(thresholds, that.thresholds);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(thresholds);
+    }
 }

@@ -1,0 +1,168 @@
+package com.dasannn.socialblueprint.config;
+
+import com.dasannn.socialblueprint.domain.Tier;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.util.logging.Logger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class ConfigManagerTest {
+
+    @TempDir
+    File tempDir;
+
+    private File configFile;
+    private MessageRegistry messageRegistry;
+    private ConfigManager configManager;
+    private Logger logger;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        logger = Logger.getLogger("ConfigManagerTest-" + System.nanoTime());
+        configFile = new File(tempDir, "config.yml");
+
+        // Copy valid bundled config.yml to temp directory
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
+            assertThat(in).isNotNull();
+            Files.copy(in, configFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        messageRegistry = new MessageRegistry(tempDir, "en", logger);
+        configManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
+        configManager.initialize();
+    }
+
+    @Test
+    @DisplayName("T-034: Atomic reload replaces snapshot wholesale")
+    void atomicReloadReplacesSnapshotWholesale() {
+        PluginConfig before = configManager.config();
+        assertThat(before).isNotNull();
+
+        configManager.reload();
+
+        PluginConfig after = configManager.config();
+        assertThat(after).isNotNull();
+        // wholesale replacement: new object instance
+        assertThat(after).isNotSameAs(before);
+        assertThat(after.tiers()).isEqualTo(before.tiers());
+    }
+
+    @Test
+    @DisplayName("T-035: In-game reading via get(key)")
+    void inGameReadConfig() {
+        assertThat(configManager.get("language")).isEqualTo(configManager.config().language());
+        assertThat(configManager.get("language")).isIn("en", "es");
+        assertThat(configManager.get("honor.cost")).isEqualTo("500.0");
+        assertThat(configManager.get("psychosis.medium-threshold")).isEqualTo("2");
+        assertThat(configManager.get("tiers.tier-4.threshold")).isEqualTo("-30");
+        assertThat(configManager.get("tier-4.threshold")).isEqualTo("-30");
+    }
+
+    @Test
+    @DisplayName("T-035: In-game editing with valid value updates disk and snapshot atomically")
+    void inGameEditValidValue() {
+        PluginConfig before = configManager.config();
+
+        configManager.set("honor.cost", "750.0");
+
+        PluginConfig after = configManager.config();
+        assertThat(after).isNotSameAs(before);
+        assertThat(after.honor().cost()).isEqualTo(750.0);
+
+        // Verify disk file was updated
+        ConfigManager freshManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
+        freshManager.initialize();
+        assertThat(freshManager.config().honor().cost()).isEqualTo(750.0);
+    }
+
+    @Test
+    @DisplayName("T-035: In-game editing with invalid value refuses change, naming offending key, leaving disk and snapshot untouched")
+    void inGameEditInvalidValueRefused() {
+        PluginConfig before = configManager.config();
+        String diskBefore = readConfigFile();
+
+        // Attempt invalid edit: positive threshold on negative tier
+        assertThatThrownBy(() -> configManager.set("tiers.tier-1.threshold", "10"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("tiers.tier-1.threshold");
+
+        // Verify running snapshot was not modified
+        PluginConfig after = configManager.config();
+        assertThat(after).isSameAs(before);
+        assertThat(after.tiers().get(Tier.TEMERARIO).threshold()).isEqualTo(-1);
+
+        // Verify disk was not modified
+        String diskAfter = readConfigFile();
+        assertThat(diskAfter).isEqualTo(diskBefore);
+    }
+
+    @Test
+    @DisplayName("T-035: In-game editing with negative cooldown refuses change, naming offending key")
+    void inGameEditNegativeCooldownRefused() {
+        PluginConfig before = configManager.config();
+
+        assertThatThrownBy(() -> configManager.set("honor.cooldown-per-pair", "-12h"))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("honor.cooldown-per-pair");
+
+        assertThat(configManager.config()).isSameAs(before);
+    }
+
+    @Test
+    @DisplayName("T-035: In-game editing language immediately switches MessageRegistry language")
+    void inGameEditLanguageSwitchesMessageRegistry() {
+        // Pin explicitly to English first so the test is decoupled from shipped default
+        configManager.set("language", "en");
+        assertThat(messageRegistry.activeLanguage()).isEqualTo("en");
+        assertThat(messageRegistry.tierName(Tier.FORAJIDO)).isEqualTo("Outlaw");
+
+        configManager.set("language", "es");
+
+        assertThat(configManager.config().language()).isEqualTo("es");
+        assertThat(messageRegistry.activeLanguage()).isEqualTo("es");
+        assertThat(messageRegistry.tierName(Tier.FORAJIDO)).isEqualTo("Forajido");
+    }
+
+    @Test
+    @DisplayName("T-035: In-game editing tier prefix applies without restart (SB-013)")
+    void inGameEditPrefixAppliesImmediately() {
+        assertThat(configManager.config().tiers().prefix(Tier.CRIMINAL)).isEqualTo("&7[&4||||&7]");
+
+        configManager.set("tiers.tier-4.prefix", "&4[CRIMINAL]");
+
+        assertThat(configManager.config().tiers().prefix(Tier.CRIMINAL)).isEqualTo("&4[CRIMINAL]");
+    }
+
+    @Test
+    @DisplayName("T-031 / DoD 2: Initializing config with a malformed tier ladder fails enable, naming the offending key")
+    void initializeWithMalformedTierLadderFailsNamingKey() throws Exception {
+        File badConfigFile = new File(tempDir, "bad-config.yml");
+        // Write config with positive threshold on negative tier
+        String badYaml = Files.readString(configFile.toPath())
+                .replace("threshold: -30", "threshold: 30");
+        Files.writeString(badConfigFile.toPath(), badYaml);
+
+        ConfigManager badManager = new ConfigManager(badConfigFile, messageRegistry, Runnable::run, logger);
+        assertThatThrownBy(badManager::initialize)
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("tiers.tier-4.threshold")
+                .matches(e -> ((ConfigValidationException) e).key().equals("tiers.tier-4.threshold"));
+    }
+
+    private String readConfigFile() {
+        try {
+            return Files.readString(configFile.toPath());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
