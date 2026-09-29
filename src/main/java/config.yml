@@ -1,0 +1,53 @@
+tier-4:
+    prefix: '&7[&4||||&7]'
+    name: 'Criminal'
+    repRequired: 30
+tier-3:
+    prefix: '&7[&c|||&7]'
+    name: 'Forajido'
+    repRequired: 20
+tier-2:
+    prefix: '&7[&c||&7]'
+    name: 'Delincuente'
+    repRequired: 10
+tier-1:
+    prefix: '&7[&c|&7]'
+    name: 'Temerario'
+    repRequired: 1
+tier0:
+    prefix: '&7[&f|&7]'
+    name: 'Particular'
+    repRequired: 0
+tier1:
+    prefix: '&7[&a|&7]'
+    name: 'Afable'
+    repRequired: 5
+tier2:
+    prefix: '&7[&a||&7]'
+    name: 'Honorable'
+    repRequired: 15
+tier3:
+    prefix: '&7[&a|||&7]'
+    name: 'Insigne'
+    repRequired: 30
+tier4:
+    prefix: '&7[&b||||&7]'
+    name: 'Ilustre'
+    repRequired: 50
+
+defaultMessages:
+  weekBadPersonES: 'Los criminales de la semana son: '
+  weekGoodPersonES: 'Las buenas almas de la semana son: '
+  thereAreGoodPerson: 'No hay criminales conectados, disfruta tu estadia.'
+  thereAreBadPerson: 'No hay gente buena conectada, anda con cuidado.'
+
+defaultCodes:
+  deathPlayer:
+    badPerson:
+      command:
+        - 'give ?playername? minecraft:lantern 25'
+        - 'give ?playername? minecraft:lantern'
+    goodPerson:
+      command:
+        - 'give ?playername? minecraft:lantern'
+        - 'give ?playername? minecraft:lantern 13'

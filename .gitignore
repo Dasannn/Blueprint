@@ -1,0 +1,29 @@
+# Build output
+target/
+build/
+out/
+*.jar
+!**/gradle/wrapper/*.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# Agent scratch space (AGENTS.md: never commit)
+.agent/
+
+# Worktrees
+.claude/worktrees/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Legacy import staging (pending manual removal)
+playerstatus-ImprovementsBranch1/
