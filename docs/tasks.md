@@ -19,8 +19,8 @@ second place where progress is recorded.
 | P0 Build foundation | `feat/p0-build-foundation` | **done** — gate met on Paper 26.3 build 135 with LuckPerms, Vault, EssentialsX, WorldEdit and WorldGuard loaded |
 | P1 Storage and domain | `feat/p1-storage-domain` | **done** — 86 tests green; eleven review findings closed, six accepted with reasons recorded in the commit |
 | P2 Configuration | `feat/p2-configuration` | **done** — 157 tests green in both languages; thirteen review findings closed across three rounds |
-| P3 Status, tiers, chat | — | next |
-| P4 Commands, permissions | — | not started |
+| P3 Status, tiers, chat | `feat/p3-status-chat` | **done** — 200 tests green in both languages; eighteen review findings closed across two rounds, one rejected by decision |
+| P4 Commands, permissions | — | next |
 | P5 Duels | — | not started |
 | P6 Ambient effects | — | not started |
 | P7 Self-update | — | not started |
@@ -104,12 +104,12 @@ Neither blocks current work; both land in `config.yml` during P2.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-040 | Resolve the prefix per lookup from the current snapshot. No static caching at enable. | SB-013 | todo |
-| T-041 | Chat gradient from `#202020` to bright white by tier. Never absolute black, never hidden, truncated, delayed or blocked. | SB-020, SB-021 | todo |
-| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | — | todo |
-| T-043 | Name hover: status, tier, Confidence, Psychosis, count of distinct contributors. | SB-022 | todo |
-| T-044 | Coexist with other prefix plugins: never overwrite display, list or custom name unconditionally. | SB-014 | todo |
-| T-045 | `/status [player]` profile output, including offline targets. | SB-005 | todo |
+| T-040 | Resolve the prefix per lookup from the current snapshot. No static caching at enable. | SB-013 | done |
+| T-041 | Chat gradient from `#202020` to bright white by tier. Never absolute black, never hidden, truncated, delayed or blocked. | SB-020, SB-021 | done |
+| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | — | done |
+| T-043 | Name hover: status, tier, Confidence, Psychosis, count of distinct contributors. | SB-022 | done |
+| T-044 | Coexist with other prefix plugins: never overwrite display, list or custom name unconditionally. | SB-014 | done |
+| T-045 | `/status [player]` profile output, including offline targets. | SB-005 | done |
 
 **Gate:** nine tiers resolve across the full range; minimum-status messages are near-black, readable and never blocked.
 
