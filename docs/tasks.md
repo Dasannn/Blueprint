@@ -17,8 +17,8 @@ second place where progress is recorded.
 | phase | branch | state |
 |---|---|---|
 | P0 Build foundation | `feat/p0-build-foundation` | **done** — gate met on Paper 26.3 build 135 with LuckPerms, Vault, EssentialsX, WorldEdit and WorldGuard loaded |
-| P1 Storage and domain | `feat/p1-storage-domain` | **in review** — 63 tests green, eight blocking review findings being fixed |
-| P2 Configuration | — | not started |
+| P1 Storage and domain | `feat/p1-storage-domain` | **done** — 86 tests green; eleven review findings closed, six accepted with reasons recorded in the commit |
+| P2 Configuration | — | next |
 | P3 Status, tiers, chat | — | not started |
 | P4 Commands, permissions | — | not started |
 | P5 Duels | — | not started |
@@ -63,18 +63,18 @@ Neither blocks current work; both land in `config.yml` during P2.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-010 | Domain value types: `PlayerId` (UUID), `Status`, `Tier`, `ConfidenceLevel`, `PsychosisLevel`, `ReputationEvent`, `HonorKind`. Pure Java, no Bukkit import. | SB-001, SB-060 | review |
-| T-011 | Tier ladder resolution over signed, strictly ordered thresholds. Nine tiers. Exactly `0` resolves to the neutral tier. | SB-010, SB-011, SB-012 | review |
-| T-012 | Derive status from an event list. No standalone authoritative integer. | SB-002 | review |
-| T-013 | Reputation Confidence from the count of distinct actors, weighted by rating age. Repeated ratings from one actor do not raise it. | SB-003 | review |
-| T-014 | Killing Psychosis over a rolling window. Never reads or writes social status. | SB-004 | review |
-| T-015 | Honor cost: fixed base times the progressive multiplier for the actor's ratings inside the window. | SB-050 | review |
-| T-016 | Per-pair allowance: at most three positive and three negative per actor-target pair inside the window; independent counts; the window expiring restores it. | SB-054 | review |
-| T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` Â§4. | â€” | review |
-| T-018 | Repositories over a single-threaded executor; one connection; no pool. | â€” | review |
-| T-019 | In-memory status cache, invalidated on write, rebuildable from events. | â€” | review |
-| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | Â§13 | review |
-| T-021 | Storage tests against an in-memory database, including the full migration chain. | â€” | review |
+| T-010 | Domain value types: `PlayerId` (UUID), `Status`, `Tier`, `ConfidenceLevel`, `PsychosisLevel`, `ReputationEvent`, `HonorKind`. Pure Java, no Bukkit import. | SB-001, SB-060 | done |
+| T-011 | Tier ladder resolution over signed, strictly ordered thresholds. Nine tiers. Exactly `0` resolves to the neutral tier. | SB-010, SB-011, SB-012 | done |
+| T-012 | Derive status from an event list. No standalone authoritative integer. | SB-002 | done |
+| T-013 | Reputation Confidence from the count of distinct actors, weighted by rating age. Repeated ratings from one actor do not raise it. | SB-003 | done |
+| T-014 | Killing Psychosis over a rolling window. Never reads or writes social status. | SB-004 | done |
+| T-015 | Honor cost: fixed base times the progressive multiplier for the actor's ratings inside the window. | SB-050 | done |
+| T-016 | Per-pair allowance: at most three positive and three negative per actor-target pair inside the window; independent counts; the window expiring restores it. | SB-054 | done |
+| T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` Â§4. | â€” | done |
+| T-018 | Repositories over a single-threaded executor; one connection; no pool. | â€” | done |
+| T-019 | In-memory status cache, invalidated on write, rebuildable from events. | â€” | done |
+| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | Â§13 | done |
+| T-021 | Storage tests against an in-memory database, including the full migration chain. | â€” | done |
 
 **Gate:** T-020 and T-021 pass.
 
