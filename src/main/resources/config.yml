@@ -40,14 +40,3 @@ defaultMessages:
   weekGoodPersonES: 'Las buenas almas de la semana son: '
   thereAreGoodPerson: 'No hay criminales conectados, disfruta tu estadia.'
   thereAreBadPerson: 'No hay gente buena conectada, anda con cuidado.'
-
-defaultCodes:
-  deathPlayer:
-    badPerson:
-      command:
-        - 'give ?playername? minecraft:lantern 25'
-        - 'give ?playername? minecraft:lantern'
-    goodPerson:
-      command:
-        - 'give ?playername? minecraft:lantern'
-        - 'give ?playername? minecraft:lantern 13'

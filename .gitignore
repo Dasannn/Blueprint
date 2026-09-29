@@ -4,6 +4,7 @@ build/
 out/
 *.jar
 !**/gradle/wrapper/*.jar
+!**/.mvn/wrapper/*.jar
 
 # IDE
 .idea/
