@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,6 +60,8 @@ class StatusCommandTest {
     private StatusCommandExecutor commandExecutor;
 
     private final Map<String, PlayerLookup.KnownPlayer> onlineLookupMap = new HashMap<>();
+
+    private final AtomicReference<Thread> lastLookupThread = new AtomicReference<>();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -83,6 +86,7 @@ class StatusCommandTest {
         profileRepo = new ProfileRepository(storage);
 
         PlayerLookup testLookup = nameOrUuid -> {
+            lastLookupThread.set(Thread.currentThread());
             if (Thread.currentThread().getName().contains("socialblueprint-db")) {
                 throw new IllegalStateException("Bukkit lookup must not be called from the storage executor thread!");
             }
@@ -302,9 +306,14 @@ class StatusCommandTest {
         List<Component> consoleComponents = new ArrayList<>();
         CommandSender console = mockConsole(consoleMessages, consoleComponents);
 
+        Thread commandThread = Thread.currentThread();
         boolean result = commandExecutor.onCommand(console, null, "status", new String[]{"Alex"});
         assertThat(result).isTrue();
         commandExecutor.lastExecution().join();
+
+        assertThat(lastLookupThread.get())
+                .as("Bukkit player lookup must be executed on the command thread, never on the storage thread")
+                .isSameAs(commandThread);
 
         assertThat(consoleMessages).hasSize(6);
         assertThat(consoleMessages.get(0)).contains("&8--- &bSocial Status: &eAlex &8---");

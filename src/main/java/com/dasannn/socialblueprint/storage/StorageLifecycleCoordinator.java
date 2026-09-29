@@ -3,6 +3,7 @@ package com.dasannn.socialblueprint.storage;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -18,15 +19,26 @@ public final class StorageLifecycleCoordinator {
     private final Logger logger;
     private final Consumer<Runnable> mainThreadRunner;
     private final Runnable disableAction;
+    private final BooleanSupplier isEnabledSupplier;
 
     public StorageLifecycleCoordinator(
             Logger logger,
             Consumer<Runnable> mainThreadRunner,
             Runnable disableAction
     ) {
+        this(logger, mainThreadRunner, disableAction, () -> true);
+    }
+
+    public StorageLifecycleCoordinator(
+            Logger logger,
+            Consumer<Runnable> mainThreadRunner,
+            Runnable disableAction,
+            BooleanSupplier isEnabledSupplier
+    ) {
         this.logger = logger != null ? logger : Logger.getLogger(StorageLifecycleCoordinator.class.getName());
         this.mainThreadRunner = Objects.requireNonNull(mainThreadRunner, "mainThreadRunner must not be null");
         this.disableAction = Objects.requireNonNull(disableAction, "disableAction must not be null");
+        this.isEnabledSupplier = Objects.requireNonNull(isEnabledSupplier, "isEnabledSupplier must not be null");
     }
 
     /**
@@ -36,15 +48,34 @@ public final class StorageLifecycleCoordinator {
     public CompletableFuture<StorageEngine> start(
             String jdbcUrl,
             ExecutorService customExecutor,
+            MigrationRunner migrationRunner,
             Consumer<StorageEngine> onSuccess
     ) {
         Objects.requireNonNull(jdbcUrl, "jdbcUrl must not be null");
         Objects.requireNonNull(onSuccess, "onSuccess must not be null");
+        MigrationRunner runner = migrationRunner != null ? migrationRunner : MigrationRunner.withDefaultMigrations();
 
         return StorageEngine.openAsync(jdbcUrl, customExecutor)
-                .thenCompose(engine -> engine.runMigrationsAsync().thenApply(count -> engine))
+                .thenCompose(engine -> engine.runMigrationsAsync(runner)
+                        .thenApply(count -> engine)
+                        .exceptionallyCompose(migrationError -> {
+                            engine.close();
+                            return CompletableFuture.failedFuture(migrationError);
+                        }))
                 .whenComplete((engine, error) -> {
+                    if (!isEnabledSupplier.getAsBoolean()) {
+                        if (engine != null) {
+                            engine.close();
+                        }
+                        return;
+                    }
                     mainThreadRunner.accept(() -> {
+                        if (!isEnabledSupplier.getAsBoolean()) {
+                            if (engine != null) {
+                                engine.close();
+                            }
+                            return;
+                        }
                         if (error != null) {
                             logger.severe("Failed to initialize database: " + error.getMessage());
                             disableAction.run();
@@ -63,7 +94,15 @@ public final class StorageLifecycleCoordinator {
                 });
     }
 
+    public CompletableFuture<StorageEngine> start(
+            String jdbcUrl,
+            ExecutorService customExecutor,
+            Consumer<StorageEngine> onSuccess
+    ) {
+        return start(jdbcUrl, customExecutor, null, onSuccess);
+    }
+
     public CompletableFuture<StorageEngine> start(String jdbcUrl, Consumer<StorageEngine> onSuccess) {
-        return start(jdbcUrl, null, onSuccess);
+        return start(jdbcUrl, null, null, onSuccess);
     }
 }

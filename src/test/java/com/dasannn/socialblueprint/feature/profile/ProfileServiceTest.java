@@ -29,8 +29,11 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -317,6 +320,88 @@ class ProfileServiceTest {
     }
 
     @Test
+    @DisplayName("Round 2 Finding 5: Two pending loads across a quit are both rejected and do not republish")
+    void twoPendingLoadsAcrossQuitDoNotRepublish() throws Exception {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        java.util.concurrent.CountDownLatch holdLatch = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        // Queue two distinct pending loads for the same player while executor is held
+        // 1. warmUp queues a profile save + loadViewInternal
+        profileService.warmUp(target, "Quitter", snapshot);
+        // 2. resolvePlayerAsync queues a second loadViewInternal
+        CompletableFuture<Optional<PlayerSocialView>> secondLoad =
+                profileService.resolvePlayerAsync(target.value().toString(), snapshot);
+
+        // Player quits while both loads are queued
+        profileService.evict(target);
+        assertThat(profileService.isCached(target)).isFalse();
+
+        // Release executor to let both loads process
+        holdLatch.countDown();
+        secondLoad.get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        // Both loads must be rejected; neither must republish into the cache
+        assertThat(profileService.isCached(target))
+                .as("Neither stale load may republish the player profile after quit")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("Round 2 Finding 4: In-flight cap admission and reservation is atomic under concurrency")
+    void concurrentDistinctLoadsRespectAtomicCap() throws Exception {
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        java.util.concurrent.CountDownLatch holdLatch = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        try {
+            int threads = 8;
+            int loadsPerThread = 150;
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+            java.util.concurrent.CountDownLatch startGate = new java.util.concurrent.CountDownLatch(1);
+            List<CompletableFuture<Void>> submissions = new ArrayList<>();
+
+            for (int t = 0; t < threads; t++) {
+                submissions.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        startGate.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    for (int i = 0; i < loadsPerThread; i++) {
+                        PlayerId id = PlayerId.of(UUID.randomUUID());
+                        profileService.loadViewAsync(id, "P", snapshot);
+                    }
+                }, pool));
+            }
+
+            startGate.countDown();
+            CompletableFuture.allOf(submissions.toArray(new CompletableFuture[0])).join();
+            pool.shutdown();
+
+            assertThat(profileService.inFlightCount())
+                    .as("In-flight count must strictly respect MAX_PENDING_LOADS cap")
+                    .isLessThanOrEqualTo(ProfileService.MAX_PENDING_LOADS);
+        } finally {
+            holdLatch.countDown();
+        }
+    }
+
+    @Test
     @DisplayName("Finding 8: View cache is bounded to MAX_VIEW_CACHE_SIZE")
     void viewCacheIsBounded() {
         assertThat(profileService.cacheSize()).isLessThanOrEqualTo(ProfileService.MAX_VIEW_CACHE_SIZE);
@@ -330,13 +415,34 @@ class ProfileServiceTest {
         reputationRepo.save(new ReputationEvent(actor, target, 5, HonorKind.POSITIVE, 500.0, null, Instant.now()));
 
         RuntimeSnapshot snapshot1 = configManager.snapshot();
+        assertThat(snapshot1.config().tiers().ladder().resolve(5)).isEqualTo(Tier.AFABLE);
 
-        configManager.set("tiers.tier0.prefix", "&c[MODIFIED]");
-        RuntimeSnapshot snapshot2 = configManager.snapshot();
-        assertThat(snapshot2.config().tiers().prefix(Tier.PARTICULAR)).isEqualTo("&c[MODIFIED]");
+        // Hold the storage executor so the load is enqueued before execution
+        java.util.concurrent.CountDownLatch holdLatch = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
 
-        PlayerSocialView view1 = profileService.loadViewAsync(target, "Player", snapshot1).get();
-        Tier tier1 = snapshot1.config().tiers().ladder().resolve(view1.status());
-        assertThat(tier1).isEqualTo(view1.tier());
+        // Enqueue load with captured snapshot1
+        CompletableFuture<PlayerSocialView> future = profileService.loadViewAsync(target, "Player", snapshot1);
+
+        try {
+            // Mutate a value the load actually reads (tier1 threshold raised from 5 to 10) between enqueue and execution
+            configManager.set("tiers.tier1.threshold", "10");
+            RuntimeSnapshot snapshot2 = configManager.snapshot();
+            assertThat(snapshot2.config().tiers().ladder().resolve(5)).isEqualTo(Tier.PARTICULAR);
+        } finally {
+            // Release executor to let the load execute
+            holdLatch.countDown();
+        }
+
+        PlayerSocialView view1 = future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(view1.tier())
+                .as("Tier must be resolved from captured snapshot1 (AFABLE), not from reloaded config (PARTICULAR)")
+                .isEqualTo(Tier.AFABLE);
     }
 }

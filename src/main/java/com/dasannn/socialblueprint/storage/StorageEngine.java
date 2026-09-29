@@ -7,13 +7,17 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Storage engine managing the single-threaded executor and single SQLite connection per T-018 and ARCHITECTURE.md §5.
@@ -23,6 +27,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * - Raw connection access is package-private to storage and guarded against off-thread access.
  */
 public final class StorageEngine implements Closeable {
+
+    public static final long DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5;
+    private static final Logger LOGGER = Logger.getLogger(StorageEngine.class.getName());
 
     @FunctionalInterface
     interface ConnectionFunction<T> {
@@ -247,6 +254,11 @@ public final class StorageEngine implements Closeable {
 
     @Override
     public void close() {
+        close(DEFAULT_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    public void close(long timeout, TimeUnit unit) {
+        Objects.requireNonNull(unit, "TimeUnit must not be null");
         if (closed.compareAndSet(false, true)) {
             if (Thread.currentThread() == dbThread) {
                 // Called from DB thread: close directly to prevent self-deadlock
@@ -260,29 +272,24 @@ public final class StorageEngine implements Closeable {
                     executor.shutdown();
                 }
             } else {
-                // Called from another thread: submit to executor to drain queued work first
+                executor.shutdown();
+                boolean terminated = false;
                 try {
-                    executor.submit(() -> {
-                        try {
-                            if (connection != null && !connection.isClosed()) {
-                                connection.close();
-                            }
-                        } catch (SQLException e) {
-                            throw new StorageException("Failed to close SQLite connection", e);
-                        }
-                        return null;
-                    }).get();
+                    terminated = executor.awaitTermination(timeout, unit);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new StorageException("Interrupted while closing StorageEngine", e);
-                } catch (ExecutionException e) {
-                    Throwable cause = e.getCause();
-                    if (cause instanceof RuntimeException re) {
-                        throw re;
+                }
+                if (!terminated) {
+                    List<Runnable> dropped = executor.shutdownNow();
+                    LOGGER.warning("StorageEngine shutdown timed out after " + timeout + " " + unit
+                            + ". Dropped " + dropped.size() + " queued database tasks.");
+                }
+                try {
+                    if (connection != null && !connection.isClosed()) {
+                        connection.close();
                     }
-                    throw new StorageException("Failed to close SQLite connection", cause);
-                } finally {
-                    executor.shutdown();
+                } catch (SQLException e) {
+                    LOGGER.log(Level.WARNING, "Failed to close SQLite connection during shutdown", e);
                 }
             }
         }

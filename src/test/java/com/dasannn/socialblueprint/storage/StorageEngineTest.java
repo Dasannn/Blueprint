@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -303,5 +305,28 @@ class StorageEngineTest {
     void constructionFailureCleansUpResources() {
         assertThatThrownBy(() -> StorageEngine.open("jdbc:unsupported-driver:test"))
                 .isInstanceOf(StorageException.class);
+    }
+
+    @Test
+    @DisplayName("Round 2 Finding 1: Held database task does not hold close() past the bounded timeout")
+    void heldTaskDoesNotHoldClosePastBound() {
+        CountDownLatch holdLatch = new CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        long start = System.currentTimeMillis();
+        // Bounded close with 250ms
+        storage.close(250, TimeUnit.MILLISECONDS);
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertThat(elapsed)
+                .as("close() must return within bounded time and not block indefinitely on held task")
+                .isLessThan(1500);
+        assertThat(storage.isClosed()).isTrue();
     }
 }

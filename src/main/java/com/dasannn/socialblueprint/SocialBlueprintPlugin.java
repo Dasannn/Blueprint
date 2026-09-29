@@ -75,17 +75,26 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 runnable -> {
                     if (isEnabled()) {
                         getServer().getScheduler().runTask(this, runnable);
-                    } else {
-                        runnable.run();
                     }
                 },
-                () -> getServer().getPluginManager().disablePlugin(this)
+                () -> {
+                    if (isEnabled()) {
+                        getServer().getPluginManager().disablePlugin(this);
+                    }
+                },
+                this::isEnabled
         );
 
         coordinator.start(jdbcUrl, this::completeInitialization);
     }
 
     void completeInitialization(StorageEngine engine) {
+        if (!isEnabled()) {
+            if (engine != null) {
+                engine.close();
+            }
+            return;
+        }
         this.storageEngine = engine;
         this.statusCache = new StatusCache();
         this.reputationRepository = new ReputationRepository(storageEngine, statusCache);

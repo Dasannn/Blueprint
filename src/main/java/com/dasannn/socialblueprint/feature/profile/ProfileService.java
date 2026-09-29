@@ -66,7 +66,8 @@ public class ProfileService {
     );
 
     private final ConcurrentMap<PlayerId, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
-    private final Set<PlayerId> evictedPlayers = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<PlayerId, Integer> playerGenerations = new ConcurrentHashMap<>();
+    private final Object loadLock = new Object();
 
     public ProfileService(
             StorageEngine storageEngine,
@@ -112,10 +113,8 @@ public class ProfileService {
         // Neutral default per SB-005 and T-042
         PlayerSocialView neutral = PlayerSocialView.neutral(id, id.toString(), snapshot.config().tiers().ladder());
 
-        // Queue background fetch only if not already in flight and pending queue is not full
-        if (!inFlightLoads.containsKey(id) && inFlightLoads.size() < MAX_PENDING_LOADS) {
-            loadViewAsync(id, id.toString(), snapshot);
-        }
+        // Queue background fetch if not already in flight or capped
+        loadViewAsync(id, id.toString(), snapshot);
 
         return neutral;
     }
@@ -137,21 +136,33 @@ public class ProfileService {
             return existing;
         }
 
-        if (inFlightLoads.size() >= MAX_PENDING_LOADS) {
-            return CompletableFuture.completedFuture(
-                    PlayerSocialView.neutral(id, fallbackName != null ? fallbackName : id.toString(), snapshot.config().tiers().ladder())
-            );
+        CompletableFuture<PlayerSocialView> future;
+        int loadGen;
+        synchronized (loadLock) {
+            existing = inFlightLoads.get(id);
+            if (existing != null) {
+                return existing;
+            }
+
+            if (inFlightLoads.size() >= MAX_PENDING_LOADS) {
+                return CompletableFuture.completedFuture(
+                        PlayerSocialView.neutral(id, fallbackName != null ? fallbackName : id.toString(), snapshot.config().tiers().ladder())
+                );
+            }
+
+            future = new CompletableFuture<>();
+            inFlightLoads.put(id, future);
+            loadGen = playerGenerations.getOrDefault(id, 0);
         }
 
-        CompletableFuture<PlayerSocialView> future = new CompletableFuture<>();
-        CompletableFuture<PlayerSocialView> previous = inFlightLoads.putIfAbsent(id, future);
-        if (previous != null) {
-            return previous;
-        }
-
-        storageEngine.supplyAsync(() -> loadViewInternal(id, fallbackName, snapshot))
+        storageEngine.supplyAsync(() -> loadViewInternal(id, fallbackName, snapshot, loadGen))
                 .whenComplete((view, ex) -> {
-                    inFlightLoads.remove(id, future);
+                    synchronized (loadLock) {
+                        inFlightLoads.remove(id, future);
+                        if (!inFlightLoads.containsKey(id)) {
+                            playerGenerations.remove(id);
+                        }
+                    }
                     if (ex != null) {
                         future.completeExceptionally(ex);
                     } else {
@@ -166,7 +177,7 @@ public class ProfileService {
         return loadViewAsync(id, fallbackName, configManager.snapshot());
     }
 
-    private PlayerSocialView loadViewInternal(PlayerId id, String fallbackName, RuntimeSnapshot snapshot) {
+    private PlayerSocialView loadViewInternal(PlayerId id, String fallbackName, RuntimeSnapshot snapshot, int loadGeneration) {
         List<ReputationEvent> repEvents = reputationRepository.findByTarget(id);
         Status status = Status.fromEvents(repEvents);
 
@@ -188,9 +199,9 @@ public class ProfileService {
         Tier tier = ladder.resolve(status.value());
         PlayerSocialView view = new PlayerSocialView(id, name, status.value(), tier, conf, psych, contributors);
 
-        // If the player quit while this load was in-flight, do not republish into viewCache
-        boolean wasEvicted = evictedPlayers.remove(id);
-        if (!wasEvicted) {
+        // If the player quit while this load was in-flight, its generation will not match
+        int currentGen = playerGenerations.getOrDefault(id, 0);
+        if (currentGen == loadGeneration) {
             viewCache.put(id, view);
         }
         statusCache.put(id, status);
@@ -236,18 +247,20 @@ public class ProfileService {
 
         final PlayerId targetId = resolvedId;
         final String targetName = resolvedName;
+        final int gen = targetId != null ? playerGenerations.getOrDefault(targetId, 0) : 0;
 
         // 2. Submit database work to the storage executor with plain values (no Bukkit calls off-thread)
         return storageEngine.supplyAsync(() -> {
             if (targetId != null) {
-                return Optional.of(loadViewInternal(targetId, targetName, snapshot));
+                return Optional.of(loadViewInternal(targetId, targetName, snapshot, gen));
             }
 
             // Fallback for offline player by username: query profileRepository on storage executor
             Optional<PlayerProfile> profile = profileRepository.findByName(trimmed);
             if (profile.isPresent()) {
                 PlayerProfile p = profile.get();
-                return Optional.of(loadViewInternal(p.id(), p.lastKnownName(), snapshot));
+                int pGen = playerGenerations.getOrDefault(p.id(), 0);
+                return Optional.of(loadViewInternal(p.id(), p.lastKnownName(), snapshot, pGen));
             }
 
             return Optional.empty();
@@ -265,12 +278,15 @@ public class ProfileService {
         Objects.requireNonNull(id, "PlayerId must not be null");
         Objects.requireNonNull(snapshot, "RuntimeSnapshot must not be null");
 
-        evictedPlayers.remove(id);
+        int gen;
+        synchronized (loadLock) {
+            gen = playerGenerations.getOrDefault(id, 0);
+        }
         storageEngine.submitAsync(() -> {
             Instant now = Instant.now();
             PlayerProfile profile = PlayerProfile.create(id, name, now);
             profileRepository.save(profile);
-            loadViewInternal(id, name, snapshot);
+            loadViewInternal(id, name, snapshot, gen);
         });
     }
 
@@ -292,8 +308,23 @@ public class ProfileService {
 
     public void evict(PlayerId id) {
         if (id != null) {
-            viewCache.remove(id);
-            evictedPlayers.add(id);
+            synchronized (loadLock) {
+                viewCache.remove(id);
+                playerGenerations.compute(id, (k, g) -> (g == null ? 0 : g) + 1);
+            }
+            if (!storageEngine.isClosed()) {
+                try {
+                    storageEngine.submitAsync(() -> {
+                        synchronized (loadLock) {
+                            playerGenerations.remove(id);
+                        }
+                    });
+                } catch (Exception ignored) {
+                    playerGenerations.remove(id);
+                }
+            } else {
+                playerGenerations.remove(id);
+            }
         }
     }
 

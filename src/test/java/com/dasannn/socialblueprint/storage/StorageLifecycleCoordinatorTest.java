@@ -3,6 +3,7 @@ package com.dasannn.socialblueprint.storage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -156,5 +157,101 @@ class StorageLifecycleCoordinatorTest {
         assertThat(capturedEngine.get().isClosed())
                 .as("StorageEngine must be closed if component registration fails")
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("Round 2 Finding 3: Failed migration disables plugin and closes the opened storage engine")
+    void failedMigrationClosesEngineAndDisablesPlugin() throws Exception {
+        AtomicBoolean disabled = new AtomicBoolean(false);
+        AtomicReference<java.sql.Connection> connectionRef = new AtomicReference<>();
+
+        StorageLifecycleCoordinator coordinator = new StorageLifecycleCoordinator(
+                logger,
+                Runnable::run,
+                () -> disabled.set(true)
+        );
+
+        Migration failingMigration = new Migration() {
+            @Override
+            public int version() { return 1; }
+            @Override
+            public String description() { return "Failing migration"; }
+            @Override
+            public void apply(java.sql.Connection conn) throws java.sql.SQLException {
+                java.sql.Connection raw = conn;
+                if (java.lang.reflect.Proxy.isProxyClass(conn.getClass())) {
+                    java.lang.reflect.InvocationHandler ih = java.lang.reflect.Proxy.getInvocationHandler(conn);
+                    for (java.lang.reflect.Field f : ih.getClass().getDeclaredFields()) {
+                        f.setAccessible(true);
+                        try {
+                            Object val = f.get(ih);
+                            if (val instanceof java.sql.Connection c && !java.lang.reflect.Proxy.isProxyClass(c.getClass())) {
+                                raw = c;
+                                break;
+                            }
+                        } catch (IllegalAccessException ignored) {
+                        }
+                    }
+                }
+                connectionRef.set(raw);
+                throw new java.sql.SQLException("Simulated migration failure");
+            }
+        };
+        MigrationRunner failingRunner = new MigrationRunner(List.of(failingMigration));
+
+        CompletableFuture<StorageEngine> future = coordinator.start(
+                "jdbc:sqlite::memory:",
+                null,
+                failingRunner,
+                engine -> {}
+        );
+
+        future.handle((res, err) -> null).join();
+
+        assertThat(disabled.get()).isTrue();
+        assertThat(connectionRef.get()).isNotNull();
+        assertThat(connectionRef.get().isClosed())
+                .as("StorageEngine SQLite connection must be closed when migrations fail")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("Round 2 Finding 2: When plugin is already disabled, coordinator runs no callbacks and closes engine")
+    void disabledPluginDoesNotRunLifecycleCallbacksAndClosesEngine() {
+        AtomicBoolean mainThreadInvoked = new AtomicBoolean(false);
+        AtomicBoolean disabledActionInvoked = new AtomicBoolean(false);
+        AtomicBoolean successInvoked = new AtomicBoolean(false);
+        AtomicReference<StorageEngine> engineRef = new AtomicReference<>();
+
+        StorageLifecycleCoordinator coordinator = new StorageLifecycleCoordinator(
+                logger,
+                runnable -> {
+                    mainThreadInvoked.set(true);
+                    runnable.run();
+                },
+                () -> disabledActionInvoked.set(true),
+                () -> false // Plugin is already disabled!
+        );
+
+        CompletableFuture<StorageEngine> future = coordinator.start(
+                "jdbc:sqlite::memory:",
+                null,
+                engine -> {
+                    successInvoked.set(true);
+                    engineRef.set(engine);
+                }
+        );
+
+        future.handle((res, err) -> null).join();
+
+        assertThat(mainThreadInvoked.get())
+                .as("Main thread runner must not be invoked if plugin is already disabled")
+                .isFalse();
+        assertThat(disabledActionInvoked.get())
+                .as("Disable action must not be invoked if plugin is already disabled")
+                .isFalse();
+        assertThat(successInvoked.get())
+                .as("Success callback must not be invoked if plugin is already disabled")
+                .isFalse();
     }
 }
