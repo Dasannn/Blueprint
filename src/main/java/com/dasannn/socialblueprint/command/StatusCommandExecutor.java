@@ -2,6 +2,7 @@ package com.dasannn.socialblueprint.command;
 
 import com.dasannn.socialblueprint.config.ConfigManager;
 import com.dasannn.socialblueprint.config.MessageRegistry;
+import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -18,29 +19,32 @@ import java.util.Objects;
  */
 public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
+    private final ConfigManager configManager;
     private final StatusConfigCommand configCommand;
     private final MessageRegistry messageRegistry;
 
     public StatusCommandExecutor(ConfigManager configManager, MessageRegistry messageRegistry) {
-        Objects.requireNonNull(configManager, "configManager must not be null");
+        this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
         this.configCommand = new StatusConfigCommand(configManager, messageRegistry);
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        RuntimeSnapshot snapshot = configManager.snapshot();
         if (args.length > 0 && "config".equalsIgnoreCase(args[0])) {
             String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
-            return configCommand.execute(sender, subArgs);
+            return configCommand.execute(sender, subArgs, snapshot);
         }
 
         // For P2, only /status config is implemented. Prompt usage.
-        sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.usage"));
+        sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.usage"));
         return true;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        RuntimeSnapshot snapshot = configManager.snapshot();
         if (args.length == 1) {
             if ("config".startsWith(args[0].toLowerCase())) {
                 return List.of("config");
@@ -50,7 +54,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
         if (args.length > 1 && "config".equalsIgnoreCase(args[0])) {
             String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
-            return configCommand.tabComplete(sender, subArgs);
+            return configCommand.tabComplete(sender, subArgs, snapshot);
         }
 
         return Collections.emptyList();

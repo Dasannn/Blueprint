@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -170,5 +171,68 @@ class MessageRegistryTest {
 
         // Uses the chat-prefix from configuration snapshot (&8[&bSocialBlueprint&8]&r )
         assertThat(serialized).startsWith("&8[&bSocialBlueprint&8]&r ");
+    }
+
+    @Test
+    @DisplayName("Fix 1: Reload forced between prefix and body rendering produces wholly old output, never mixed")
+    void reloadInterleavedBetweenPrefixAndBodyNeverMixes() {
+        // Initial state: English with prefix "[OLD_PREFIX] "
+        Map<String, String> initialActive = Map.of(
+                "commands.config.usage", "Usage: /status config <key> [value]"
+        );
+        // Base valid config
+        MessageRegistry base = new MessageRegistry(tempDir, "en", testLogger);
+        PluginConfig oldConfig = base.snapshot().config().withLanguage("en").withChatPrefix("[OLD_PREFIX] ");
+        PluginConfig newConfig = oldConfig.withLanguage("es").withChatPrefix("[NEW_PREFIX] ");
+
+        Map<String, String> newActive = Map.of(
+                "commands.config.usage", "Uso: /status config <clave> [valor]"
+        );
+        MessagesSnapshot oldMessages = new MessagesSnapshot("en", "es", initialActive, Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap());
+        MessagesSnapshot newMessages = new MessagesSnapshot("es", "en", newActive, Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap());
+        RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages);
+
+        AtomicBoolean reloadedDuringRender = new AtomicBoolean(false);
+
+        MessageRegistry registry = new MessageRegistry(tempDir, "en", testLogger) {
+            @Override
+            protected void onBetweenPrefixAndBody() {
+                // Force reload strictly between prefix retrieval and message body resolution
+                snapshotReference().set(newSnapshot);
+                reloadedDuringRender.set(true);
+            }
+        };
+        registry.snapshotReference().set(new RuntimeSnapshot(oldConfig, oldMessages));
+
+        // Execute rendering of single request
+        Component rendered = registry.renderWithPrefix("commands.config.usage");
+        String output = ColorParser.serialize(rendered);
+
+        assertThat(reloadedDuringRender).isTrue();
+        // The output must be wholly old: OLD prefix AND OLD message body. Never mixed!
+        assertThat(output).isEqualTo("[OLD_PREFIX] Usage: /status config <key> [value]");
+        assertThat(output).doesNotContain("[NEW_PREFIX]");
+        assertThat(output).doesNotContain("Uso:");
+
+        // A subsequent request captures the newly published snapshot and is wholly new
+        Component subsequentRendered = registry.renderWithPrefix("commands.config.usage");
+        String subsequentOutput = ColorParser.serialize(subsequentRendered);
+        assertThat(subsequentOutput).isEqualTo("[NEW_PREFIX] Uso: /status config <clave> [valor]");
+    }
+
+    @Test
+    @DisplayName("Fix 1: MessageRegistry.setLanguage updates both config language and translations snapshot")
+    void setLanguageUpdatesBothConfigLanguageAndTranslations() {
+        MessageRegistry registry = new MessageRegistry(tempDir, "en", testLogger);
+        assertThat(registry.snapshot().config().language()).isEqualTo("en");
+        assertThat(registry.snapshot().messages().activeLanguage()).isEqualTo("en");
+
+        registry.setLanguage("es");
+        assertThat(registry.snapshot().config().language()).isEqualTo("es");
+        assertThat(registry.snapshot().messages().activeLanguage()).isEqualTo("es");
+
+        registry.setLanguage("en");
+        assertThat(registry.snapshot().config().language()).isEqualTo("en");
+        assertThat(registry.snapshot().messages().activeLanguage()).isEqualTo("en");
     }
 }

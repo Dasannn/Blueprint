@@ -3,6 +3,7 @@ package com.dasannn.socialblueprint.command;
 import com.dasannn.socialblueprint.config.ConfigManager;
 import com.dasannn.socialblueprint.config.ConfigValidationException;
 import com.dasannn.socialblueprint.config.MessageRegistry;
+import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import org.bukkit.command.CommandSender;
 
 import java.util.ArrayList;
@@ -64,18 +65,21 @@ public class StatusConfigCommand {
     }
 
     public boolean execute(CommandSender sender, String[] args) {
-        // Capture snapshot once per request
-        var snapshot = configManager.snapshot();
+        return execute(sender, args, configManager.snapshot());
+    }
+
+    public boolean execute(CommandSender sender, String[] args, RuntimeSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
 
         // Permission check
         String requiredPermission = snapshot.config().permissions().node("admin-config");
         if (requiredPermission != null && !sender.hasPermission(requiredPermission)) {
-            sender.sendMessage(messageRegistry.renderWithPrefix("commands.no-permission"));
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
             return true;
         }
 
         if (args.length == 0 || args.length > 2) {
-            sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.usage"));
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.usage"));
             return true;
         }
 
@@ -84,13 +88,13 @@ public class StatusConfigCommand {
         // Reload command: /status config reload
         if (args.length == 1 && "reload".equalsIgnoreCase(key)) {
             try {
-                configManager.reload();
-                sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.reload-success"));
+                RuntimeSnapshot reloadedSnapshot = configManager.reload();
+                sender.sendMessage(messageRegistry.renderWithPrefix(reloadedSnapshot, "commands.config.reload-success"));
             } catch (ConfigValidationException e) {
-                sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.set-failed",
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
                         Map.of("key", e.key(), "error", e.getMessage())));
             } catch (Exception e) {
-                sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.set-failed",
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
                         Map.of("key", "reload", "error", e.getMessage() != null ? e.getMessage() : "")));
             }
             return true;
@@ -99,33 +103,33 @@ public class StatusConfigCommand {
         // Get key value: /status config <key>
         if (args.length == 1) {
             try {
-                String value = configManager.get(key);
-                sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.get",
+                String value = configManager.get(snapshot, key);
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.get",
                         Map.of("key", key, "value", value)));
             } catch (ConfigValidationException e) {
-                sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.invalid-key",
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.invalid-key",
                         Map.of("key", key)));
             }
             return true;
         }
 
         // Set key value: /status config <key> <value>
-        if (!configManager.isEditableKey(key)) {
-            sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.invalid-key",
+        if (!configManager.isEditableKey(snapshot, key)) {
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.invalid-key",
                     Map.of("key", key)));
             return true;
         }
 
         String rawValue = args[1];
         try {
-            configManager.set(key, rawValue);
-            sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.set-success",
+            RuntimeSnapshot updatedSnapshot = configManager.set(key, rawValue);
+            sender.sendMessage(messageRegistry.renderWithPrefix(updatedSnapshot, "commands.config.set-success",
                     Map.of("key", key, "value", rawValue)));
         } catch (ConfigValidationException e) {
-            sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.set-failed",
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
                     Map.of("key", e.key(), "error", e.getMessage())));
         } catch (Exception e) {
-            sender.sendMessage(messageRegistry.renderWithPrefix("commands.config.set-failed",
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
                     Map.of("key", key, "error", e.getMessage() != null ? e.getMessage() : "")));
         }
 
@@ -133,7 +137,12 @@ public class StatusConfigCommand {
     }
 
     public List<String> tabComplete(CommandSender sender, String[] args) {
-        String requiredPermission = configManager.config().permissions().node("admin-config");
+        return tabComplete(sender, args, configManager.snapshot());
+    }
+
+    public List<String> tabComplete(CommandSender sender, String[] args, RuntimeSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
+        String requiredPermission = snapshot.config().permissions().node("admin-config");
         if (requiredPermission != null && !sender.hasPermission(requiredPermission)) {
             return List.of();
         }

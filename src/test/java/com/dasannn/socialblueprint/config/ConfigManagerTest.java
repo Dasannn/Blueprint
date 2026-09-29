@@ -231,6 +231,15 @@ class ConfigManagerTest {
         assertThat(snap2.messages().activeLanguage()).isEqualTo("es");
     }
 
+    @Test
+    @DisplayName("Fix 2: Root 'prefix' key is not an editable key and cannot be set")
+    void rootPrefixIsNotEditable() {
+        assertThat(configManager.isEditableKey("prefix")).isFalse();
+        assertThatThrownBy(() -> configManager.set("prefix", "&4[TEST]&r "))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("prefix");
+    }
+
     private String readConfigFile() {
         try {
             return Files.readString(configFile.toPath());

@@ -48,12 +48,15 @@ public record PluginConfig(
                     "Unsupported language '" + langRaw + "'. Supported languages: " + SUPPORTED_LANGUAGES);
         }
 
-        // Validate chat prefix (SB-062)
-        String prefixKey = root.contains("chat-prefix") ? "chat-prefix" : "prefix";
-        if (!root.contains(prefixKey)) {
+        // Validate chat prefix (SB-062): exactly one accepted key: 'chat-prefix'
+        if (root.contains("prefix")) {
+            throw new ConfigValidationException("prefix",
+                    "Configuration key 'prefix' is not supported; use 'chat-prefix' instead");
+        }
+        if (!root.contains("chat-prefix")) {
             throw new ConfigValidationException("chat-prefix", "Missing required configuration key: 'chat-prefix'");
         }
-        String chatPrefix = root.getString(prefixKey);
+        String chatPrefix = root.getString("chat-prefix");
         if (chatPrefix == null || chatPrefix.isBlank()) {
             throw new ConfigValidationException("chat-prefix", "Configuration key 'chat-prefix' must not be blank");
         }
@@ -67,5 +70,29 @@ public record PluginConfig(
         PermissionsConfig permissions = PermissionsConfig.load(root);
 
         return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions);
+    }
+
+    public PluginConfig withLanguage(String newLanguage) {
+        return new PluginConfig(
+                Objects.requireNonNull(newLanguage, "language must not be null"),
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions
+        );
+    }
+
+    public PluginConfig withChatPrefix(String newChatPrefix) {
+        return new PluginConfig(
+                language,
+                Objects.requireNonNull(newChatPrefix, "chatPrefix must not be null"),
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions
+        );
     }
 }

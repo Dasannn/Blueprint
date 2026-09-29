@@ -96,8 +96,8 @@ class NoHardcodedPlayerStringsTest {
         Map<String, String> keys = MessageRegistry.flattenKeys(enYaml);
         Set<String> validKeys = keys.keySet();
 
-        // Pattern finding render calls: render("key") or renderWithPrefix("key")
-        Pattern renderPattern = Pattern.compile("render(?:WithPrefix)?\\s*\\(\\s*\"([^\"]+)\"");
+        // Pattern finding render calls: render("key"), renderWithPrefix("key"), or renderWithPrefix(snapshot, "key")
+        Pattern renderPattern = Pattern.compile("render(?:WithPrefix)?\\s*\\(\\s*(?:[a-zA-Z0-9_]+,\\s*)?\"([^\"]+)\"");
 
         Path srcRoot = Path.of("src", "main", "java");
         List<String> missingKeys = new ArrayList<>();

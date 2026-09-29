@@ -398,6 +398,32 @@ class ConfigValidationTest {
                 .matches(e -> ((ConfigValidationException) e).key().equals("tiers.tier0.prefix"));
     }
 
+    @Test
+    @DisplayName("Fix 2: Root 'prefix' key fails loading naming 'prefix' and saying to use 'chat-prefix'")
+    void rootPrefixKeyRejectedNamingPrefixAndDirectingToChatPrefix() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("chat-prefix", null);
+        yaml.set("prefix", "&8[&bSocialBlueprint&8]&r ");
+
+        assertThatThrownBy(() -> PluginConfig.load(yaml))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("chat-prefix")
+                .matches(e -> ((ConfigValidationException) e).key().equals("prefix"));
+    }
+
+    @Test
+    @DisplayName("Fix 2: When both 'prefix' and 'chat-prefix' are present, root 'prefix' is rejected naming 'prefix'")
+    void bothPrefixAndChatPrefixPresentRejectsRootPrefix() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("chat-prefix", "&8[&bSocialBlueprint&8]&r ");
+        yaml.set("prefix", "&8[&bLegacy&8]&r ");
+
+        assertThatThrownBy(() -> PluginConfig.load(yaml))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("chat-prefix")
+                .matches(e -> ((ConfigValidationException) e).key().equals("prefix"));
+    }
+
     private static YamlConfiguration loadValidYaml() {
         InputStream stream = ConfigValidationTest.class.getClassLoader().getResourceAsStream("config.yml");
         assertThat(stream).isNotNull();

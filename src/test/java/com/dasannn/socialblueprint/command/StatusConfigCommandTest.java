@@ -3,6 +3,9 @@ package com.dasannn.socialblueprint.command;
 import com.dasannn.socialblueprint.config.ColorParser;
 import com.dasannn.socialblueprint.config.ConfigManager;
 import com.dasannn.socialblueprint.config.MessageRegistry;
+import com.dasannn.socialblueprint.config.MessagesSnapshot;
+import com.dasannn.socialblueprint.config.PluginConfig;
+import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Server;
 import org.bukkit.command.CommandSender;
@@ -27,6 +30,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Logger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -288,6 +293,76 @@ class StatusConfigCommandTest {
         assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "tiers.tier0.typo");
     }
 
+    @Test
+    @DisplayName("Fix 2: Setting legacy prefix key is rejected with invalid-key before mutation")
+    void legacyPrefixKeyIsRejectedWithInvalidKey() {
+        setLanguage("es");
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+
+        boolean result = command.execute(admin, new String[]{"prefix", "&4[TEST]&r "});
+        assertThat(result).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.invalid-key");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "prefix");
+    }
+
+    @Test
+    @DisplayName("Fix 1: Command request capturing snapshot once never mixes output when reload intervenes during execution")
+    void commandExecutionNeverMixesWhenReloadIntervenes() {
+        setLanguage("en");
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+
+        // Prepare new snapshot for reload: Spanish + new prefix
+        Map<String, String> esMessages = Map.of(
+                "commands.config.usage", "Uso: /status config <clave> [valor]"
+        );
+        PluginConfig esConfig = configManager.config()
+                .withLanguage("es")
+                .withChatPrefix("&4[NEW]&r ");
+        MessagesSnapshot esMs = new MessagesSnapshot("es", "en", esMessages, Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap());
+        RuntimeSnapshot esSnapshot = new RuntimeSnapshot(esConfig, esMs);
+
+        AtomicReference<RuntimeSnapshot> sharedRef = new AtomicReference<>();
+        AtomicBoolean interleaved = new AtomicBoolean(false);
+
+        // Subclass MessageRegistry to force a reload strictly between prefix and body rendering
+        MessageRegistry interleavingRegistry = new MessageRegistry(tempDir, "en", Logger.getLogger("test")) {
+            @Override
+            public AtomicReference<RuntimeSnapshot> snapshotReference() {
+                return sharedRef;
+            }
+
+            @Override
+            public RuntimeSnapshot snapshot() {
+                return sharedRef.get();
+            }
+
+            @Override
+            protected void onBetweenPrefixAndBody() {
+                sharedRef.set(esSnapshot);
+                interleaved.set(true);
+            }
+        };
+        ConfigManager testConfigManager = new ConfigManager(new File(tempDir, "config.yml"), interleavingRegistry, Runnable::run, Logger.getLogger("test"));
+        testConfigManager.initialize();
+        sharedRef.set(testConfigManager.snapshot());
+
+        StatusConfigCommand testCommand = new StatusConfigCommand(testConfigManager, interleavingRegistry);
+
+        boolean result = testCommand.execute(admin, new String[]{});
+        assertThat(result).isTrue();
+        assertThat(interleaved).isTrue();
+
+        assertThat(admin.sentMessages()).hasSize(1);
+        String sent = admin.sentMessages().getFirst();
+
+        // The sent component must be wholly old (English usage with original chat prefix)
+        // It must NEVER be a mix of old prefix with Spanish text or new prefix with English text
+        assertThat(sent).startsWith("&8[&bSocialBlueprint&8]&r ");
+        assertThat(sent).contains("Usage:");
+        assertThat(sent).doesNotContain("&4[NEW]");
+        assertThat(sent).doesNotContain("Uso:");
+    }
+
     private static class MockSender implements CommandSender {
         private final String name;
         private final Set<String> permissions = new HashSet<>();
@@ -422,6 +497,17 @@ class StatusConfigCommandTest {
         }
 
         @Override
+        public Component renderWithPrefix(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true));
+            return super.renderWithPrefix(snapshot, key, placeholders);
+        }
+
+        @Override
+        public Component renderWithPrefix(RuntimeSnapshot snapshot, String key) {
+            return renderWithPrefix(snapshot, key, Collections.emptyMap());
+        }
+
+        @Override
         public Component renderWithPrefix(String key, Map<String, String> placeholders) {
             renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true));
             return super.renderWithPrefix(key, placeholders);
@@ -431,6 +517,17 @@ class StatusConfigCommandTest {
         public Component renderWithPrefix(String key) {
             renderedCalls.add(new RenderCall(key, Map.of(), true));
             return super.renderWithPrefix(key);
+        }
+
+        @Override
+        public Component render(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), false));
+            return super.render(snapshot, key, placeholders);
+        }
+
+        @Override
+        public Component render(RuntimeSnapshot snapshot, String key) {
+            return render(snapshot, key, Collections.emptyMap());
         }
 
         @Override

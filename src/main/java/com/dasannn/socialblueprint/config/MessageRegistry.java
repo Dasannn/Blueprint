@@ -57,19 +57,27 @@ public class MessageRegistry {
      * Changes the active language, reloading message maps from disk/bundled files
      * and atomically updating the runtime snapshot.
      */
+    /**
+     * Changes the active language, reloading message maps from disk/bundled files
+     * and atomically updating the runtime snapshot, keeping config language in sync.
+     */
     public synchronized void setLanguage(String language) {
         String newLang = (language != null && !language.isBlank())
                 ? language.trim().toLowerCase(Locale.ROOT)
                 : "en";
         RuntimeSnapshot current = snapshotRef.get();
-        PluginConfig cfg = current != null ? current.config() : loadBundledConfig(newLang);
+        PluginConfig baseCfg = current != null ? current.config() : loadBundledConfig(newLang);
+        PluginConfig updatedCfg = baseCfg.withLanguage(newLang);
         MessagesSnapshot newMessages = loadMessagesSnapshot(dataFolder, newLang, logger);
-        snapshotRef.set(new RuntimeSnapshot(cfg, newMessages));
+        snapshotRef.set(new RuntimeSnapshot(updatedCfg, newMessages));
     }
 
     public String activeLanguage() {
-        RuntimeSnapshot snap = snapshotRef.get();
-        return snap != null ? snap.messages().activeLanguage() : "en";
+        return activeLanguage(snapshot());
+    }
+
+    public String activeLanguage(RuntimeSnapshot snapshot) {
+        return snapshot != null ? snapshot.messages().activeLanguage() : "en";
     }
 
     /**
@@ -77,19 +85,24 @@ public class MessageRegistry {
      * Logs a warning naming the key ONCE on fallback.
      * Never returns the raw key if completely missing (T-032b).
      */
+    public String getRaw(RuntimeSnapshot snapshot, String key) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
+        return snapshot.messages().resolveRaw(key, warnedKeys, logger);
+    }
+
     public String getRaw(String key) {
-        RuntimeSnapshot snap = snapshotRef.get();
-        if (snap == null) {
-            return "";
-        }
-        return snap.messages().resolveRaw(key, warnedKeys, logger);
+        return getRaw(snapshot(), key);
     }
 
     /**
      * Renders a message key as an Adventure Component with legacy '&' and hex color formatting.
      */
+    public Component render(RuntimeSnapshot snapshot, String key) {
+        return render(snapshot, key, Collections.emptyMap());
+    }
+
     public Component render(String key) {
-        return render(key, Collections.emptyMap());
+        return render(snapshot(), key, Collections.emptyMap());
     }
 
     /**
@@ -97,38 +110,69 @@ public class MessageRegistry {
      * Fixed template spans are parsed for formatting while placeholder values are appended
      * as literal {@link Component#text(String)}, preventing player input from recolouring messages.
      */
-    public Component render(String key, Map<String, String> placeholders) {
-        String template = getRaw(key);
+    public Component render(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
+        String template = getRaw(snapshot, key);
         if (template.isEmpty()) {
             return Component.empty();
         }
         return ColorParser.renderTemplate(template, placeholders);
     }
 
+    public Component render(String key, Map<String, String> placeholders) {
+        return render(snapshot(), key, placeholders);
+    }
+
     /**
      * Renders a message key prefixed by the authoritative chat prefix from configuration.
      */
+    public Component renderWithPrefix(RuntimeSnapshot snapshot, String key) {
+        return renderWithPrefix(snapshot, key, Collections.emptyMap());
+    }
+
     public Component renderWithPrefix(String key) {
-        return renderWithPrefix(key, Collections.emptyMap());
+        return renderWithPrefix(snapshot(), key, Collections.emptyMap());
     }
 
     /**
      * Renders a message key with placeholder replacements prefixed by the authoritative
-     * chat prefix from the current runtime snapshot.
+     * chat prefix from the runtime snapshot. Threads the exact snapshot instance through
+     * both prefix evaluation and message body rendering.
      */
-    public Component renderWithPrefix(String key, Map<String, String> placeholders) {
-        RuntimeSnapshot snap = snapshotRef.get();
-        Component prefix = snap != null ? snap.chatPrefixComponent() : Component.empty();
-        Component message = render(key, placeholders);
+    public Component renderWithPrefix(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
+        Component prefix = snapshot.chatPrefixComponent();
+        onBetweenPrefixAndBody();
+        Component message = render(snapshot, key, placeholders);
         return prefix.append(message);
+    }
+
+    public Component renderWithPrefix(String key, Map<String, String> placeholders) {
+        return renderWithPrefix(snapshot(), key, placeholders);
     }
 
     /**
      * Returns the localized display name for a tier per SB-070i and T-032d.
      */
-    public String tierName(Tier tier) {
+    public String tierName(RuntimeSnapshot snapshot, Tier tier) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
         Objects.requireNonNull(tier, "Tier must not be null");
-        return getRaw("tiers." + tier.configKey());
+        return getRaw(snapshot, "tiers." + tier.configKey());
+    }
+
+    public String tierName(Tier tier) {
+        return tierName(snapshot(), tier);
+    }
+
+    /**
+     * Test seam hook called between prefix rendering and body rendering in {@link #renderWithPrefix}.
+     */
+    protected void onBetweenPrefixAndBody() {
+        // No-op in production
+    }
+
+    public Set<String> warnedKeys() {
+        return warnedKeys;
     }
 
     /**
@@ -223,7 +267,8 @@ public class MessageRegistry {
             if (in != null) {
                 try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
                     YamlConfiguration yaml = YamlConfiguration.loadConfiguration(reader);
-                    return PluginConfig.load(yaml);
+                    PluginConfig cfg = PluginConfig.load(yaml);
+                    return cfg.withLanguage(language);
                 }
             }
         } catch (Exception ignored) {

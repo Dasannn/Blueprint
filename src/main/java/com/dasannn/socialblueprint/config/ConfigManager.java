@@ -12,6 +12,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
@@ -58,7 +59,7 @@ public class ConfigManager {
      * Validates through {@link PluginConfig#load(org.bukkit.configuration.ConfigurationSection)}
      * and loads matching {@link MessagesSnapshot}, publishing one combined {@link RuntimeSnapshot}.
      */
-    public void reload() {
+    public RuntimeSnapshot reload() {
         synchronized (writeLock) {
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
             PluginConfig newConfig = PluginConfig.load(yaml);
@@ -66,7 +67,12 @@ public class ConfigManager {
             MessagesSnapshot newMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
             RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages);
             snapshotRef.set(newSnapshot);
+            return newSnapshot;
         }
+    }
+
+    public AtomicReference<RuntimeSnapshot> snapshotReference() {
+        return snapshotRef;
     }
 
     /**
@@ -95,6 +101,10 @@ public class ConfigManager {
      * Returns whether a path is a supported editable leaf (either in config.yml or messages).
      */
     public boolean isEditableKey(String path) {
+        return isEditableKey(snapshot(), path);
+    }
+
+    public boolean isEditableKey(RuntimeSnapshot snapshot, String path) {
         if (path == null || path.isBlank()) {
             return false;
         }
@@ -102,20 +112,24 @@ public class ConfigManager {
         if (SUPPORTED_CONFIG_LEAVES.contains(resolved)) {
             return true;
         }
-        RuntimeSnapshot snap = snapshotRef.get();
-        return snap != null && snap.messages().isKnownKey(path);
+        return snapshot != null && snapshot.messages().isKnownKey(path);
     }
 
     /**
      * Reads the current string representation of a configuration key or message key (T-035).
      */
     public String get(String path) {
+        return get(snapshot(), path);
+    }
+
+    public String get(RuntimeSnapshot snapshot, String path) {
         Objects.requireNonNull(path, "Configuration path must not be null");
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
 
         // 1. Check if it's a message key
-        RuntimeSnapshot snap = snapshotRef.get();
-        if (snap != null && snap.messages().isKnownKey(path)) {
-            return snap.messages().resolveRaw(path, Collections.emptySet(), logger);
+        if (snapshot.messages().isKnownKey(path)) {
+            Set<String> warned = messageRegistry != null ? messageRegistry.warnedKeys() : Collections.newSetFromMap(new ConcurrentHashMap<>());
+            return snapshot.messages().resolveRaw(path, warned, logger);
         }
 
         // 2. Check if it's a config.yml leaf
@@ -136,7 +150,7 @@ public class ConfigManager {
      * persists to disk atomically preserving comments and formatting, and publishes a new snapshot.
      * Rejects invalid values and unknown keys without modifying disk or running snapshot.
      */
-    public void set(String path, String rawValue) {
+    public RuntimeSnapshot set(String path, String rawValue) {
         Objects.requireNonNull(path, "Configuration path must not be null");
         Objects.requireNonNull(rawValue, "Value must not be null");
 
@@ -166,8 +180,9 @@ public class ConfigManager {
                         ? current.messages()
                         : MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
 
-                snapshotRef.set(new RuntimeSnapshot(newConfig, messages));
-                return;
+                RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, messages);
+                snapshotRef.set(newSnapshot);
+                return newSnapshot;
             }
 
             // Handle message leaf edit (SB-062, constitution §2.8)
@@ -194,8 +209,9 @@ public class ConfigManager {
 
                 // Reload messages and publish updated snapshot
                 MessagesSnapshot updatedMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, activeLang, logger);
-                snapshotRef.set(new RuntimeSnapshot(current.config(), updatedMessages));
-                return;
+                RuntimeSnapshot newSnapshot = new RuntimeSnapshot(current.config(), updatedMessages);
+                snapshotRef.set(newSnapshot);
+                return newSnapshot;
             }
 
             // Unknown or uneditable key
@@ -251,7 +267,6 @@ public class ConfigManager {
         Set<String> set = new HashSet<>();
         set.add("language");
         set.add("chat-prefix");
-        set.add("prefix");
 
         for (Tier tier : Tier.values()) {
             String tk = tier.configKey();
