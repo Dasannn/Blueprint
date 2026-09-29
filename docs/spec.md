@@ -118,17 +118,30 @@ moves or any event is written.
 
 **SB-053.** A cooldown applies per actor-target pair.
 
-**SB-054.** An actor may hold at most three positive and three negative honors
-against one target inside the window; the two counts are independent.
+**SB-054.** Inside the rolling window, one actor may give at most three positive
+and three negative honors to one target. The two counts are independent, and the
+cap is per actor-target pair: every other player has their own allowance against
+the same target. The window expiring restores the allowance.
 
-**SB-055.** Removing honor means withdrawing an honor the actor previously gave.
-Giving negative honor is a distinct action. Both are charged.
+**SB-055.** There are exactly two honor actions available to players: **giving**
+honor (positive) and **removing** honor (negative). Removing honor lowers the
+target's status directly; it is not the withdrawal of something the actor gave
+earlier. A player cannot undo an honor they have issued — only an administrator
+can, under SB-058.
 
 **SB-056.** Negative honor requires a written reason. Positive honor may carry
 one.
 
 **SB-057.** The charge and the reputation event commit together. A failed charge
 writes no event; a failed event write refunds.
+
+**SB-058.** Administrators can give honor, remove honor and reset a player's
+honor to neutral, through dedicated commands. These operations are free, ignore
+the cooldown and the cap, and exist to correct mistakes and reverse coordinated
+abuse. Every one of them writes an audit record naming the administrator, the
+target, the change and the time. A reset does not erase the underlying
+reputation events; it writes a compensating event, so the history stays
+reconstructible under constitution §2.5.
 
 ## 8. Identity, permissions and configuration
 
@@ -160,14 +173,16 @@ removed.
 | Command | Purpose |
 |---|---|
 | `/status [player]` | Show a social profile |
-| `/status trust <player>` | Give positive honor |
-| `/status distrust <player>` | Give negative honor, with a reason |
-| `/status revoke <player>` | Withdraw an honor previously given |
+| `/status trust <player>` | Give honor |
+| `/status distrust <player>` | Remove honor, with a reason |
 | `/status psychosis [player]` | Show Killing Psychosis detail |
 | `/status duel <player>` / `accept` / `deny` / `leave` | Duels |
 | `/status effects` | Toggle one's own ambient effects |
 | `/status config <key> [value]` | Read or edit configuration in-game |
-| `/status admin ...` | Audited administrative operations |
+| `/status admin give <player> [amount]` | Add honor, free, no cooldown, audited |
+| `/status admin take <player> [amount]` | Remove honor, free, no cooldown, audited |
+| `/status admin reset <player>` | Return a player to neutral, audited |
+| `/status admin ...` | Other audited administrative operations |
 | `/status version` | Show the running version and whether it is current |
 | `/status update` | Download the latest release |
 

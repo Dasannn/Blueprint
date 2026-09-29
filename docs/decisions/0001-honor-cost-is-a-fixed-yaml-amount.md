@@ -64,5 +64,10 @@ honor:
 ```
 
 - `max-per-target` counts positive and negative honors **separately**, per
-  actor-target pair, within the rolling window.
+  actor-target pair, within the rolling window. Every other player keeps their
+  own allowance against the same target, so a busy target can still accumulate
+  ratings from many distinct actors — which is what Reputation Confidence
+  measures.
+- Administrators bypass the cost, the cooldown and the cap (SB-058), and every
+  such action is audited.
 - Revisiting this requires a superseding decision file, not an edit here.
