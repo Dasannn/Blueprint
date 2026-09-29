@@ -56,6 +56,7 @@ Codex before Claude commits.
 | T-032a | Ship `messages_es.yml` and `messages_en.yml` with identical keys, both inside the jar and both written to the data folder on first run. A `language:` key in `config.yml` selects one. | SB-066, SB-067 | todo |
 | T-032b | Missing-key fallback to the other language, with a one-time warning naming the key. A raw key must never reach a player. | SB-068 | todo |
 | T-032c | A test that fails when the two language files' key sets diverge, and one that fails when a player-visible string is hardcoded in Java. | SB-069 | todo |
+| T-032d | Move the nine tier display names out of `config.yml` into the language files, keyed by tier. `config.yml` keeps each tier's prefix token and threshold. Supply the English names. | SB-070i | todo |
 | T-033 | Colour parsing through Adventure's legacy serializer with `&` and hex. One interpretation only; never also MiniMessage. | SB-063 | todo |
 | T-034 | Atomic reload: replace the snapshot wholesale; nothing caches derived values across a reload. | SB-013 | todo |
 | T-035 | `/status config <key> [value]`: read and edit in-game through the same validation, persist, publish a new snapshot. | SB-062 | todo |

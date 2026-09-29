@@ -169,6 +169,12 @@ once. A missing translation must never reach a player as `messages.honor.cost`.
 goes through the message layer, so adding a third language later is a new file
 and nothing else.
 
+**SB-070i.** The nine tier names are translated too. A tier's **prefix token**
+(`&7[&a||&7]`) and its **threshold** stay in `config.yml`, because they are
+structure; its **display name** lives in the language files, keyed by tier, so
+an English player reads `Honourable` where a Spanish player reads `Honorable`.
+Editing a name in either language file is the supported way to rename a tier.
+
 **SB-063.** Colours accept Essentials-style `&` codes, including hex, in every
 configurable string.
 
