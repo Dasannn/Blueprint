@@ -1,6 +1,8 @@
 package com.dasannn.socialblueprint.storage;
 
 import java.io.Closeable;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -18,21 +20,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * - Exactly one connection to the SQLite database.
  * - All database access is submitted to a single-threaded executor.
  * - Writes and reads serialise; SQLite never sees concurrent writers.
+ * - Raw connection access is package-private to storage and guarded against off-thread access.
  */
 public final class StorageEngine implements Closeable {
 
     @FunctionalInterface
-    public interface ConnectionFunction<T> {
+    interface ConnectionFunction<T> {
         T apply(Connection conn) throws SQLException;
     }
 
     @FunctionalInterface
-    public interface ConnectionConsumer {
+    interface ConnectionConsumer {
         void accept(Connection conn) throws SQLException;
     }
 
     private final ExecutorService executor;
     private final Connection connection;
+    private final Connection guardedConnection;
     private final Thread dbThread;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -51,26 +55,73 @@ public final class StorageEngine implements Closeable {
             }
         });
 
-        // Initialize connection on the executor thread
+        // Initialize connection on the executor thread with resource cleanup on failure
+        Connection rawConnection = null;
         try {
-            this.connection = executor.submit(() -> {
+            rawConnection = executor.submit(() -> {
                 Connection conn = DriverManager.getConnection(jdbcUrl);
                 try (Statement stmt = conn.createStatement()) {
                     stmt.execute("PRAGMA foreign_keys = ON;");
                     if (!jdbcUrl.contains(":memory:")) {
                         stmt.execute("PRAGMA journal_mode = WAL;");
                     }
+                } catch (Throwable t) {
+                    try {
+                        conn.close();
+                    } catch (Throwable ignored) {
+                    }
+                    throw t;
                 }
                 return conn;
             }).get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new StorageException("Interrupted while opening SQLite connection", e);
-        } catch (ExecutionException e) {
-            throw new StorageException("Failed to open SQLite connection to " + jdbcUrl, e.getCause());
+            this.connection = rawConnection;
+        } catch (Throwable t) {
+            executor.shutdownNow();
+            if (rawConnection != null) {
+                try {
+                    rawConnection.close();
+                } catch (Throwable ignored) {
+                }
+            }
+            if (t instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw new StorageException("Interrupted while opening SQLite connection", t);
+            } else if (t instanceof ExecutionException ee) {
+                throw new StorageException("Failed to open SQLite connection to " + jdbcUrl, ee.getCause());
+            } else if (t instanceof RuntimeException re) {
+                throw re;
+            } else {
+                throw new StorageException("Failed to open SQLite connection to " + jdbcUrl, t);
+            }
         }
 
         this.dbThread = threadHolder[0];
+        this.guardedConnection = createGuardedConnection(this.connection, this.dbThread);
+    }
+
+    private static Connection createGuardedConnection(Connection delegate, Thread allowedThread) {
+        return (Connection) Proxy.newProxyInstance(
+                Connection.class.getClassLoader(),
+                new Class<?>[]{Connection.class},
+                (proxy, method, args) -> {
+                    if (Thread.currentThread() != allowedThread) {
+                        throw new IllegalStateException("Connection cannot be accessed off the database executor thread: "
+                                + Thread.currentThread().getName());
+                    }
+                    try {
+                        return method.invoke(delegate, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                }
+        );
+    }
+
+    private static <T> T sanitizeResult(T result) {
+        if (result instanceof Connection) {
+            throw new IllegalStateException("Connection must not escape the database executor thread");
+        }
+        return result;
     }
 
     public static StorageEngine inMemory() {
@@ -92,11 +143,11 @@ public final class StorageEngine implements Closeable {
     /**
      * Executes a function against the SQLite connection synchronously on the executor thread.
      */
-    public <T> T execute(ConnectionFunction<T> function) {
+    <T> T execute(ConnectionFunction<T> function) {
         checkNotClosed();
         if (Thread.currentThread() == dbThread) {
             try {
-                return function.apply(connection);
+                return sanitizeResult(function.apply(guardedConnection));
             } catch (SQLException e) {
                 throw new StorageException("Database query failed", e);
             }
@@ -118,7 +169,7 @@ public final class StorageEngine implements Closeable {
     /**
      * Executes a consumer against the SQLite connection synchronously on the executor thread.
      */
-    public void run(ConnectionConsumer consumer) {
+    void run(ConnectionConsumer consumer) {
         execute(conn -> {
             consumer.accept(conn);
             return null;
@@ -128,11 +179,11 @@ public final class StorageEngine implements Closeable {
     /**
      * Executes a function against the SQLite connection asynchronously on the executor thread.
      */
-    public <T> CompletableFuture<T> executeAsync(ConnectionFunction<T> function) {
+    <T> CompletableFuture<T> executeAsync(ConnectionFunction<T> function) {
         checkNotClosed();
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return function.apply(connection);
+                return sanitizeResult(function.apply(guardedConnection));
             } catch (SQLException e) {
                 throw new StorageException("Database query failed", e);
             }
@@ -142,7 +193,7 @@ public final class StorageEngine implements Closeable {
     /**
      * Executes a consumer against the SQLite connection asynchronously on the executor thread.
      */
-    public CompletableFuture<Void> runAsync(ConnectionConsumer consumer) {
+    CompletableFuture<Void> runAsync(ConnectionConsumer consumer) {
         return executeAsync(conn -> {
             consumer.accept(conn);
             return null;
@@ -158,19 +209,42 @@ public final class StorageEngine implements Closeable {
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
-            try {
-                executor.submit(() -> {
-                    try {
-                        if (connection != null && !connection.isClosed()) {
-                            connection.close();
-                        }
-                    } catch (SQLException ignored) {
+            if (Thread.currentThread() == dbThread) {
+                // Called from DB thread: close directly to prevent self-deadlock
+                try {
+                    if (connection != null && !connection.isClosed()) {
+                        connection.close();
                     }
-                }).get();
-            } catch (Exception ignored) {
-                // Best effort closing
-            } finally {
-                executor.shutdown();
+                } catch (SQLException e) {
+                    throw new StorageException("Failed to close SQLite connection", e);
+                } finally {
+                    executor.shutdown();
+                }
+            } else {
+                // Called from another thread: submit to executor to drain queued work first
+                try {
+                    executor.submit(() -> {
+                        try {
+                            if (connection != null && !connection.isClosed()) {
+                                connection.close();
+                            }
+                        } catch (SQLException e) {
+                            throw new StorageException("Failed to close SQLite connection", e);
+                        }
+                        return null;
+                    }).get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new StorageException("Interrupted while closing StorageEngine", e);
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof RuntimeException re) {
+                        throw re;
+                    }
+                    throw new StorageException("Failed to close SQLite connection", cause);
+                } finally {
+                    executor.shutdown();
+                }
             }
         }
     }

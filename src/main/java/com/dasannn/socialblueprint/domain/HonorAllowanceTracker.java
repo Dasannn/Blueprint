@@ -70,7 +70,7 @@ public final class HonorAllowanceTracker {
             if (actor.equals(event.actor())
                     && target.equals(event.target())
                     && matchesSign(kind, event.kind())
-                    && !event.createdAt().isBefore(windowStart)
+                    && event.createdAt().isAfter(windowStart)
                     && !event.createdAt().isAfter(now)) {
                 count++;
             }
@@ -79,9 +79,9 @@ public final class HonorAllowanceTracker {
     }
 
     private static boolean matchesSign(HonorKind requested, HonorKind eventKind) {
-        if (requested.isPositive() && eventKind.isPositive()) {
+        if (requested == HonorKind.POSITIVE && eventKind == HonorKind.POSITIVE) {
             return true;
         }
-        return requested.isNegative() && eventKind.isNegative();
+        return requested == HonorKind.NEGATIVE && eventKind == HonorKind.NEGATIVE;
     }
 }

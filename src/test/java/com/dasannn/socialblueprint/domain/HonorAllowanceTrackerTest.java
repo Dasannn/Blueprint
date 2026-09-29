@@ -115,4 +115,64 @@ class HonorAllowanceTrackerTest {
         assertThat(tracker.canIssue(actor, target, HonorKind.POSITIVE, events, at61Min)).isTrue();
         assertThat(tracker.remainingAllowance(actor, target, HonorKind.POSITIVE, events, at61Min)).isEqualTo(3);
     }
+
+    @Test
+    @DisplayName("Finding 4: Rolling window uses half-open interval (now - window, now]")
+    void windowEdgeHalfOpenBoundary() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Event issued at baseTime
+        List<ReputationEvent> events = List.of(
+                new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, baseTime)
+        );
+
+        // At exactly one window (baseTime + 1 hour): now - window == baseTime
+        // Event is excluded under (now - window, now], so allowance is fully restored (remaining = 3, count = 0)
+        Instant exactOneWindow = baseTime.plus(Duration.ofHours(1));
+        assertThat(tracker.countInWindow(actor, target, HonorKind.POSITIVE, events, exactOneWindow)).isZero();
+        assertThat(tracker.remainingAllowance(actor, target, HonorKind.POSITIVE, events, exactOneWindow)).isEqualTo(3);
+
+        // At one nanosecond before 1 hour has elapsed: now - window < baseTime
+        // Event is still inside the rolling window (count = 1, remaining = 2)
+        Instant justBeforeExpiry = exactOneWindow.minusNanos(1);
+        assertThat(tracker.countInWindow(actor, target, HonorKind.POSITIVE, events, justBeforeExpiry)).isEqualTo(1);
+        assertThat(tracker.remainingAllowance(actor, target, HonorKind.POSITIVE, events, justBeforeExpiry)).isEqualTo(2);
+
+        // An event at one nanosecond after (now - window) is inside the window
+        Instant now = baseTime.plus(Duration.ofHours(2));
+        List<ReputationEvent> eventJustAfterWindowEdge = List.of(
+                new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, now.minus(Duration.ofHours(1)).plusNanos(1))
+        );
+        assertThat(tracker.countInWindow(actor, target, HonorKind.POSITIVE, eventJustAfterWindowEdge, now)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Finding 5, SB-058: Administrative events are exempt from cap and do not consume allowance")
+    void adminActionsDoNotConsumeAllowance() {
+        PlayerId admin = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        List<ReputationEvent> events = new ArrayList<>();
+
+        // Admin issues ADMIN_GIVE (+5) and ADMIN_TAKE (-3)
+        events.add(new ReputationEvent(admin, target, 5, HonorKind.ADMIN_GIVE, 0.0, "Admin bonus", baseTime));
+        events.add(new ReputationEvent(admin, target, -3, HonorKind.ADMIN_TAKE, 0.0, "Admin penalty", baseTime.plusSeconds(5)));
+        events.add(new ReputationEvent(admin, target, -2, HonorKind.ADMIN_RESET, 0.0, "Reset", baseTime.plusSeconds(10)));
+
+        // Admin actions do NOT consume allowance for positive or negative ratings
+        assertThat(tracker.countInWindow(admin, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(15))).isZero();
+        assertThat(tracker.remainingAllowance(admin, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(15))).isEqualTo(3);
+        assertThat(tracker.countInWindow(admin, target, HonorKind.NEGATIVE, events, baseTime.plusSeconds(15))).isZero();
+        assertThat(tracker.remainingAllowance(admin, target, HonorKind.NEGATIVE, events, baseTime.plusSeconds(15))).isEqualTo(3);
+
+        // Three ordinary ratings must all be allowed
+        for (int i = 0; i < 3; i++) {
+            assertThat(tracker.canIssue(admin, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(20 + i * 5))).isTrue();
+            events.add(new ReputationEvent(admin, target, 1, HonorKind.POSITIVE, 500.0, null, baseTime.plusSeconds(20 + i * 5)));
+        }
+
+        // 4th rating is refused
+        assertThat(tracker.canIssue(admin, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(40))).isFalse();
+    }
 }

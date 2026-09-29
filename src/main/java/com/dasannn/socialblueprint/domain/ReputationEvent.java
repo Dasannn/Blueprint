@@ -23,8 +23,8 @@ public record ReputationEvent(
         Objects.requireNonNull(kind, "Kind must not be null");
         Objects.requireNonNull(createdAt, "CreatedAt must not be null");
 
-        if (cost < 0.0) {
-            throw new IllegalArgumentException("Cost cannot be negative, got " + cost);
+        if (!Double.isFinite(cost) || cost < 0.0) {
+            throw new IllegalArgumentException("Cost cannot be negative and must be finite, got " + cost);
         }
 
         if (actor != null && actor.equals(target)) {

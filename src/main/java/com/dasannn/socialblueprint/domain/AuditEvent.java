@@ -9,7 +9,7 @@ import java.util.Objects;
  */
 public record AuditEvent(
         long id,
-        String actor,
+        PlayerId actor,
         String operation,
         String target,
         String before,
@@ -24,7 +24,7 @@ public record AuditEvent(
     }
 
     public AuditEvent(
-            String actor,
+            PlayerId actor,
             String operation,
             String target,
             String before,
@@ -32,5 +32,16 @@ public record AuditEvent(
             Instant createdAt
     ) {
         this(0L, actor, operation, target, before, after, createdAt);
+    }
+
+    public AuditEvent(
+            PlayerId actor,
+            String operation,
+            PlayerId targetPlayer,
+            String before,
+            String after,
+            Instant createdAt
+    ) {
+        this(0L, actor, operation, Objects.requireNonNull(targetPlayer, "targetPlayer must not be null").toString(), before, after, createdAt);
     }
 }

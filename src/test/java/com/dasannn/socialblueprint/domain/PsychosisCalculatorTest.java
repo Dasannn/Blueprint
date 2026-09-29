@@ -90,4 +90,24 @@ class PsychosisCalculatorTest {
         assertThat(calculator.countQualifyingKills(killer, events, after25Hours)).isZero();
         assertThat(calculator.calculate(killer, events, after25Hours)).isEqualTo(PsychosisLevel.LOW);
     }
+
+    @Test
+    @DisplayName("Finding 4: Psychosis rolling window uses half-open interval (now - window, now]")
+    void windowEdgeHalfOpenBoundary() {
+        PlayerId killer = PlayerId.of(UUID.randomUUID());
+        PlayerId victim = PlayerId.of(UUID.randomUUID());
+
+        List<PsychosisEvent> events = List.of(
+                new PsychosisEvent(killer, victim, CombatContext.OPEN, baseTime)
+        );
+
+        // Window is 24 hours. At exactly 24 hours after baseTime: now - window == baseTime -> excluded
+        Instant exactOneWindow = baseTime.plus(Duration.ofHours(24));
+        assertThat(calculator.countQualifyingKills(killer, events, exactOneWindow)).isZero();
+        assertThat(calculator.calculate(killer, events, exactOneWindow)).isEqualTo(PsychosisLevel.LOW);
+
+        // At 1 nanosecond before 24 hours: inside window -> included
+        Instant justBefore = exactOneWindow.minusNanos(1);
+        assertThat(calculator.countQualifyingKills(killer, events, justBefore)).isEqualTo(1);
+    }
 }

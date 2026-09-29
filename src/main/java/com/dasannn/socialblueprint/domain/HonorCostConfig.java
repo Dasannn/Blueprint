@@ -13,8 +13,8 @@ public record HonorCostConfig(
         Duration window
 ) {
     public HonorCostConfig {
-        if (baseCost < 0.0) {
-            throw new IllegalArgumentException("Base cost cannot be negative, got " + baseCost);
+        if (!Double.isFinite(baseCost) || baseCost <= 0.0) {
+            throw new IllegalArgumentException("Base cost must be finite and strictly positive (> 0), got " + baseCost);
         }
         Objects.requireNonNull(multipliers, "Multipliers list must not be null");
         if (multipliers.isEmpty()) {
@@ -22,8 +22,8 @@ public record HonorCostConfig(
         }
         for (int i = 0; i < multipliers.size(); i++) {
             Double m = multipliers.get(i);
-            if (m == null || m < 0.0) {
-                throw new IllegalArgumentException("Multiplier at index " + i + " must be non-negative");
+            if (m == null || !Double.isFinite(m) || m <= 0.0) {
+                throw new IllegalArgumentException("Multiplier at index " + i + " must be finite and strictly positive (> 0), got " + m);
             }
             if (i > 0 && m < multipliers.get(i - 1)) {
                 throw new IllegalArgumentException("Multipliers must be non-decreasing: index " + i + " (" + m

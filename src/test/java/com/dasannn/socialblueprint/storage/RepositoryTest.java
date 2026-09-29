@@ -160,18 +160,135 @@ class RepositoryTest {
     }
 
     @Test
-    @DisplayName("T-018: AuditRepository persists and retrieves audit trail per SB-058 and SB-064")
+    @DisplayName("T-018: AuditRepository persists and retrieves audit trail per SB-058, SB-060 and SB-064")
     void auditRepositoryOperations() {
-        AuditEvent event = new AuditEvent("AdminAlex", "status_reset", "TargetBob", "+10", "0", baseTime);
+        PlayerId admin = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Admin player auditing an action against target player (SB-058, SB-060)
+        AuditEvent event = new AuditEvent(admin, "status_reset", target, "+10", "0", baseTime);
         AuditEvent saved = auditRepo.save(event);
 
         assertThat(saved.id()).isPositive();
-        assertThat(saved.actor()).isEqualTo("AdminAlex");
+        assertThat(saved.actor()).isEqualTo(admin);
 
-        List<AuditEvent> targetAudits = auditRepo.findByTarget("TargetBob");
+        List<AuditEvent> targetAudits = auditRepo.findByTarget(target);
         assertThat(targetAudits).hasSize(1);
         assertThat(targetAudits.get(0).operation()).isEqualTo("status_reset");
         assertThat(targetAudits.get(0).before()).isEqualTo("+10");
         assertThat(targetAudits.get(0).after()).isEqualTo("0");
+
+        // Console actor auditing a non-player action like config edit (SB-064, SB-065)
+        AuditEvent consoleEvent = new AuditEvent(PlayerId.CONSOLE, "config_edit", "honor.cost", "500", "600", baseTime.plusSeconds(5));
+        AuditEvent savedConsole = auditRepo.save(consoleEvent);
+        assertThat(savedConsole.actor()).isEqualTo(PlayerId.CONSOLE);
+        assertThat(savedConsole.actor().isConsole()).isTrue();
+
+        List<AuditEvent> configAudits = auditRepo.findByTarget("honor.cost");
+        assertThat(configAudits).hasSize(1);
+        assertThat(configAudits.get(0).actor()).isEqualTo(PlayerId.CONSOLE);
+    }
+
+    @Test
+    @DisplayName("Finding 2: Same-second boundary tests for every 'Since' query")
+    void sameSecondBoundaryTestsForSinceQueries() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        Instant t0 = Instant.parse("2026-09-29T12:00:00.000000000Z");
+        Instant tMid = Instant.parse("2026-09-29T12:00:00.500000000Z");
+        Instant tLate = Instant.parse("2026-09-29T12:00:00.800000000Z");
+
+        // 1. Reputation countActorRatingsSince
+        reputationRepo.save(new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, t0));
+        reputationRepo.save(new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, tMid));
+        reputationRepo.save(new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, tLate));
+
+        // Cutoff at tMid: t0 (before) and tMid (equal) must be excluded; only tLate (> tMid) included
+        int actorCount = reputationRepo.countActorRatingsSince(actor, tMid);
+        assertThat(actorCount).isEqualTo(1);
+
+        // 2. Reputation countPairRatingsSince
+        int pairCount = reputationRepo.countPairRatingsSince(actor, target, HonorKind.POSITIVE, tMid);
+        assertThat(pairCount).isEqualTo(1);
+
+        // 3. Psychosis findKillsByKillerSince and countOpenKillsSince
+        PlayerId killer = PlayerId.of(UUID.randomUUID());
+        PlayerId victim = PlayerId.of(UUID.randomUUID());
+
+        psychosisRepo.save(new PsychosisEvent(killer, victim, CombatContext.OPEN, t0));
+        psychosisRepo.save(new PsychosisEvent(killer, victim, CombatContext.OPEN, tMid));
+        psychosisRepo.save(new PsychosisEvent(killer, victim, CombatContext.OPEN, tLate));
+
+        List<PsychosisEvent> kills = psychosisRepo.findKillsByKillerSince(killer, tMid);
+        assertThat(kills).hasSize(1);
+        assertThat(kills.get(0).createdAt()).isEqualTo(tLate);
+
+        int openKills = psychosisRepo.countOpenKillsSince(killer, tMid);
+        assertThat(openKills).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Finding 3: StatusCache prevents stale cache after concurrent invalidation")
+    void statusCachePreventsStalePublishAfterInvalidation() throws Exception {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        reputationRepo.save(new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, baseTime));
+
+        java.util.concurrent.CountDownLatch readerStarted = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch writerFinished = new java.util.concurrent.CountDownLatch(1);
+
+        // Reader starts rebuilding with status 1, but pauses before returning events
+        java.util.concurrent.Future<Status> readerFuture = java.util.concurrent.Executors.newSingleThreadExecutor().submit(() -> {
+            return statusCache.getOrRebuild(target, () -> {
+                List<ReputationEvent> oldEvents = reputationRepo.findByTarget(target);
+                readerStarted.countDown();
+                try {
+                    writerFinished.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return oldEvents;
+            });
+        });
+
+        // Wait for reader to start loading old events
+        readerStarted.await();
+
+        // Concurrent write: saves event (+5) and invalidates target cache
+        reputationRepo.save(new ReputationEvent(actor, target, 5, HonorKind.POSITIVE, 500.0, null, baseTime.plusSeconds(5)));
+
+        // Unblock reader to complete its rebuild
+        writerFinished.countDown();
+        Status staleDerived = readerFuture.get();
+        assertThat(staleDerived.value()).isEqualTo(1);
+
+        // The cache must NOT contain the stale value 1 because an invalidation happened during rebuild
+        assertThat(statusCache.get(target)).isEmpty();
+
+        // Fresh getStatus rebuilds with the latest events -> total 6
+        Status freshStatus = reputationRepo.getStatus(target);
+        assertThat(freshStatus.value()).isEqualTo(6);
+        assertThat(statusCache.get(target)).contains(Status.of(6));
+    }
+
+    @Test
+    @DisplayName("Finding 4: Storage queries at exactly one window vs one nanosecond after")
+    void storageQueriesWindowEdgeHalfOpen() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        Instant eventTime = Instant.parse("2026-09-29T12:00:00.000000000Z");
+        reputationRepo.save(new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, eventTime));
+
+        // Cutoff at exactly eventTime: event is excluded by half-open (now - window, now]
+        assertThat(reputationRepo.countActorRatingsSince(actor, eventTime)).isZero();
+        assertThat(reputationRepo.countPairRatingsSince(actor, target, HonorKind.POSITIVE, eventTime)).isZero();
+
+        // Cutoff at 1 nanosecond before eventTime: event is included
+        Instant justBefore = eventTime.minusNanos(1);
+        assertThat(reputationRepo.countActorRatingsSince(actor, justBefore)).isEqualTo(1);
+        assertThat(reputationRepo.countPairRatingsSince(actor, target, HonorKind.POSITIVE, justBefore)).isEqualTo(1);
     }
 }

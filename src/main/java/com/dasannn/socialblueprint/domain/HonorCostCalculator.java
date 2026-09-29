@@ -71,7 +71,7 @@ public final class HonorCostCalculator {
             if (event == null) continue;
             if (actor.equals(event.actor())
                     && event.kind().isPlayerHonor()
-                    && !event.createdAt().isBefore(windowStart)
+                    && event.createdAt().isAfter(windowStart)
                     && !event.createdAt().isAfter(now)) {
                 count++;
             }

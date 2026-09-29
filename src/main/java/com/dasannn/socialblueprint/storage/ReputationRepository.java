@@ -75,7 +75,7 @@ public final class ReputationRepository {
             } else {
                 ps.setNull(6, Types.VARCHAR);
             }
-            ps.setString(7, event.createdAt().toString());
+            ps.setString(7, StorageTimestamps.format(event.createdAt()));
 
             ps.executeUpdate();
             long generatedId = 0L;
@@ -179,11 +179,11 @@ public final class ReputationRepository {
                 SELECT COUNT(*) FROM reputation_event
                 WHERE actor_uuid = ?
                   AND (kind = 'positive' OR kind = 'negative')
-                  AND created_at >= ?;
+                  AND created_at > ?;
             """;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, actor.toString());
-                ps.setString(2, since.toString());
+                ps.setString(2, StorageTimestamps.format(since));
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
                         return rs.getInt(1);
@@ -207,16 +207,14 @@ public final class ReputationRepository {
                 SELECT COUNT(*) FROM reputation_event
                 WHERE actor_uuid = ?
                   AND target_uuid = ?
-                  AND (kind = ? OR (kind = 'positive' AND ? = 'positive') OR (kind = 'negative' AND ? = 'negative'))
-                  AND created_at >= ?;
+                  AND kind = ?
+                  AND created_at > ?;
             """;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, actor.toString());
                 ps.setString(2, target.toString());
                 ps.setString(3, dbKind);
-                ps.setString(4, dbKind);
-                ps.setString(5, dbKind);
-                ps.setString(6, since.toString());
+                ps.setString(4, StorageTimestamps.format(since));
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
                         return rs.getInt(1);
@@ -236,7 +234,7 @@ public final class ReputationRepository {
         HonorKind kind = HonorKind.fromDbValue(rs.getString("kind"));
         double cost = rs.getDouble("cost");
         String reason = rs.getString("reason");
-        Instant createdAt = Instant.parse(rs.getString("created_at"));
+        Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
 
         return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt);
     }

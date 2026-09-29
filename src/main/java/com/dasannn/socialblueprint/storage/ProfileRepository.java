@@ -47,8 +47,8 @@ public final class ProfileRepository {
             ps.setString(1, profile.id().toString());
             ps.setString(2, profile.lastKnownName());
             ps.setInt(3, profile.effectsOptOut() ? 1 : 0);
-            ps.setString(4, profile.createdAt().toString());
-            ps.setString(5, profile.updatedAt().toString());
+            ps.setString(4, StorageTimestamps.format(profile.createdAt()));
+            ps.setString(5, StorageTimestamps.format(profile.updatedAt()));
             ps.executeUpdate();
         }
     }
@@ -98,8 +98,8 @@ public final class ProfileRepository {
         PlayerId id = PlayerId.fromString(rs.getString("uuid"));
         String lastKnownName = rs.getString("last_known_name");
         boolean effectsOptOut = rs.getInt("effects_opt_out") != 0;
-        Instant createdAt = Instant.parse(rs.getString("created_at"));
-        Instant updatedAt = Instant.parse(rs.getString("updated_at"));
+        Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
+        Instant updatedAt = StorageTimestamps.parse(rs.getString("updated_at"));
 
         return new PlayerProfile(id, lastKnownName, effectsOptOut, createdAt, updatedAt);
     }

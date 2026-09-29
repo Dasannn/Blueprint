@@ -9,17 +9,29 @@ import java.util.UUID;
  */
 public record PlayerId(UUID value) implements Comparable<PlayerId> {
 
+    public static final PlayerId CONSOLE = new PlayerId(new UUID(0L, 0L));
+
     public PlayerId {
         Objects.requireNonNull(value, "UUID must not be null");
     }
 
     public static PlayerId of(UUID uuid) {
-        return new PlayerId(uuid);
+        Objects.requireNonNull(uuid, "UUID must not be null");
+        return uuid.equals(CONSOLE.value()) ? CONSOLE : new PlayerId(uuid);
     }
 
     public static PlayerId fromString(String uuidString) {
         Objects.requireNonNull(uuidString, "UUID string must not be null");
-        return new PlayerId(UUID.fromString(uuidString));
+        String trimmed = uuidString.trim();
+        if ("CONSOLE".equalsIgnoreCase(trimmed)) {
+            return CONSOLE;
+        }
+        UUID uuid = UUID.fromString(trimmed);
+        return uuid.equals(CONSOLE.value()) ? CONSOLE : new PlayerId(uuid);
+    }
+
+    public boolean isConsole() {
+        return this.equals(CONSOLE);
     }
 
     public UUID uuid() {
@@ -33,6 +45,6 @@ public record PlayerId(UUID value) implements Comparable<PlayerId> {
 
     @Override
     public String toString() {
-        return value.toString();
+        return isConsole() ? "CONSOLE" : value.toString();
     }
 }

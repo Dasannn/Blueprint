@@ -25,14 +25,14 @@ public record Status(int value) implements Comparable<Status> {
         int total = 0;
         for (ReputationEvent event : events) {
             if (event != null) {
-                total += event.delta();
+                total = Math.addExact(total, event.delta());
             }
         }
         return Status.of(total);
     }
 
     public Status plus(int delta) {
-        return Status.of(this.value + delta);
+        return Status.of(Math.addExact(this.value, delta));
     }
 
     public boolean isPositive() {

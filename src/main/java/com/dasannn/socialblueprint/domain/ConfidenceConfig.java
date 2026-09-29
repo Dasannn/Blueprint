@@ -14,15 +14,15 @@ public record ConfidenceConfig(
         Duration halfLife
 ) {
     public ConfidenceConfig {
-        if (lowThreshold <= 0.0) {
-            throw new IllegalArgumentException("lowThreshold must be strictly positive (> 0), got " + lowThreshold);
+        if (!Double.isFinite(lowThreshold) || lowThreshold <= 0.0) {
+            throw new IllegalArgumentException("lowThreshold must be finite and strictly positive (> 0), got " + lowThreshold);
         }
-        if (establishedThreshold <= lowThreshold) {
-            throw new IllegalArgumentException("establishedThreshold must be greater than lowThreshold, got "
+        if (!Double.isFinite(establishedThreshold) || establishedThreshold <= lowThreshold) {
+            throw new IllegalArgumentException("establishedThreshold must be finite and greater than lowThreshold, got "
                     + establishedThreshold + " <= " + lowThreshold);
         }
-        if (highThreshold <= establishedThreshold) {
-            throw new IllegalArgumentException("highThreshold must be greater than establishedThreshold, got "
+        if (!Double.isFinite(highThreshold) || highThreshold <= establishedThreshold) {
+            throw new IllegalArgumentException("highThreshold must be finite and greater than establishedThreshold, got "
                     + highThreshold + " <= " + establishedThreshold);
         }
         Objects.requireNonNull(halfLife, "halfLife must not be null");

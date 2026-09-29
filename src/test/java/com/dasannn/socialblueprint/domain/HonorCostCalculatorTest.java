@@ -74,4 +74,25 @@ class HonorCostCalculatorTest {
         assertThat(calculator.countActorRatingsInWindow(actor, events, at65Min)).isZero();
         assertThat(calculator.calculateCost(actor, events, at65Min)).isEqualTo(500.0);
     }
+
+    @Test
+    @DisplayName("Finding 4: Cost calculator rolling window uses half-open interval (now - window, now]")
+    void windowEdgeHalfOpenBoundary() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        List<ReputationEvent> events = List.of(
+                new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, baseTime)
+        );
+
+        // At exactly one window (baseTime + 1 hour): now - window == baseTime -> excluded
+        Instant exactOneWindow = baseTime.plus(Duration.ofHours(1));
+        assertThat(calculator.countActorRatingsInWindow(actor, events, exactOneWindow)).isZero();
+        assertThat(calculator.calculateCost(actor, events, exactOneWindow)).isEqualTo(500.0);
+
+        // At 1 nanosecond before 1 hour has elapsed: inside window
+        Instant justBefore = exactOneWindow.minusNanos(1);
+        assertThat(calculator.countActorRatingsInWindow(actor, events, justBefore)).isEqualTo(1);
+        assertThat(calculator.calculateCost(actor, events, justBefore)).isEqualTo(750.0);
+    }
 }

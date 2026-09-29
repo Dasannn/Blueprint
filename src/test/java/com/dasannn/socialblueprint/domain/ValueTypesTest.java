@@ -137,5 +137,85 @@ class ValueTypesTest {
         ReputationEvent validPositive = new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, now);
         assertThat(validPositive.reason()).isNull();
         assertThat(validPositive.delta()).isEqualTo(1);
+
+        // Finding 6: Non-finite cost is rejected, zero cost is allowed (SB-058 admin actions)
+        assertThatThrownBy(() -> new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, Double.NaN, null, now))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, Double.POSITIVE_INFINITY, null, now))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        ReputationEvent freeAdminEvent = new ReputationEvent(0L, actor, target, 5, HonorKind.ADMIN_GIVE, 0.0, "bonus", now);
+        assertThat(freeAdminEvent.cost()).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("Finding 7: PlayerId represents CONSOLE as explicit non-player actor")
+    void playerIdConsoleActor() {
+        PlayerId console = PlayerId.CONSOLE;
+        assertThat(console.isConsole()).isTrue();
+        assertThat(console.toString()).isEqualTo("CONSOLE");
+        assertThat(PlayerId.fromString("CONSOLE")).isEqualTo(console);
+        assertThat(PlayerId.fromString("console")).isEqualTo(console);
+        assertThat(PlayerId.of(new UUID(0L, 0L))).isEqualTo(console);
+
+        PlayerId player = PlayerId.of(UUID.randomUUID());
+        assertThat(player.isConsole()).isFalse();
+        assertThat(player.toString()).isEqualTo(player.uuid().toString());
+    }
+
+    @Test
+    @DisplayName("Finding 6: HonorCostConfig rejects free, negative, and non-finite charges per Constitution §2.4")
+    void honorCostConfigValidation() {
+        java.time.Duration window = java.time.Duration.ofHours(1);
+
+        // Base cost cannot be 0.0, negative, NaN or Infinity
+        assertThatThrownBy(() -> new HonorCostConfig(0.0, java.util.List.of(1.0), window))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HonorCostConfig(-100.0, java.util.List.of(1.0), window))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HonorCostConfig(Double.NaN, java.util.List.of(1.0), window))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HonorCostConfig(Double.POSITIVE_INFINITY, java.util.List.of(1.0), window))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Multipliers cannot contain 0.0, negative, NaN or Infinity
+        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(0.0), window))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(-1.0), window))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(Double.NaN), window))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(Double.POSITIVE_INFINITY), window))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("Finding 11: ConfidenceConfig rejects non-finite thresholds and non-positive half-life")
+    void confidenceConfigValidation() {
+        java.time.Duration halfLife = java.time.Duration.ofDays(30);
+
+        // NaN / Infinity lowThreshold
+        assertThatThrownBy(() -> new ConfidenceConfig(Double.NaN, 5.0, 15.0, halfLife))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ConfidenceConfig(Double.POSITIVE_INFINITY, 5.0, 15.0, halfLife))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // NaN / Infinity establishedThreshold
+        assertThatThrownBy(() -> new ConfidenceConfig(1.0, Double.NaN, 15.0, halfLife))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ConfidenceConfig(1.0, Double.POSITIVE_INFINITY, 15.0, halfLife))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // NaN / Infinity highThreshold
+        assertThatThrownBy(() -> new ConfidenceConfig(1.0, 5.0, Double.NaN, halfLife))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ConfidenceConfig(1.0, 5.0, Double.POSITIVE_INFINITY, halfLife))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Non-positive half-life
+        assertThatThrownBy(() -> new ConfidenceConfig(1.0, 5.0, 15.0, java.time.Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ConfidenceConfig(1.0, 5.0, 15.0, java.time.Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -60,7 +60,7 @@ public final class PsychosisCalculator {
             if (event == null) continue;
             if (event.killer().equals(player)
                     && event.context() == CombatContext.OPEN
-                    && !event.createdAt().isBefore(windowStart)
+                    && event.createdAt().isAfter(windowStart)
                     && !event.createdAt().isAfter(now)) {
                 count++;
             }

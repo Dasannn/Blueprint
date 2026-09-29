@@ -78,16 +78,16 @@ public final class ConfidenceCalculator {
             return 0.0;
         }
 
-        double halfLifeSeconds = config.halfLife().toSeconds();
-        if (halfLifeSeconds <= 0) {
-            halfLifeSeconds = 1.0;
+        double halfLifeNanos = (double) config.halfLife().toNanos();
+        if (halfLifeNanos <= 0.0) {
+            throw new IllegalStateException("Half-life duration must be positive in nanoseconds: " + config.halfLife());
         }
 
         double totalWeightedScore = 0.0;
         for (Instant eventTime : mostRecentByActor.values()) {
-            long ageSeconds = Math.max(0L, Duration.between(eventTime, now).toSeconds());
+            double ageNanos = Math.max(0.0, (double) Duration.between(eventTime, now).toNanos());
             // Exponential decay: weight = 2^(-age / halfLife)
-            double weight = Math.pow(2.0, -((double) ageSeconds / halfLifeSeconds));
+            double weight = Math.pow(2.0, -(ageNanos / halfLifeNanos));
             totalWeightedScore += weight;
         }
 

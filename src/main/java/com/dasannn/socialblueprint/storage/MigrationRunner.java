@@ -22,6 +22,17 @@ public final class MigrationRunner {
         this.migrations = migrations.stream()
                 .sorted(Comparator.comparingInt(Migration::version))
                 .toList();
+
+        for (int i = 0; i < this.migrations.size(); i++) {
+            int expected = i + 1;
+            int actual = this.migrations.get(i).version();
+            if (actual != expected) {
+                if (i > 0 && actual == this.migrations.get(i - 1).version()) {
+                    throw new IllegalArgumentException("Duplicate migration version: " + actual);
+                }
+                throw new IllegalArgumentException("Non-consecutive migration version: expected " + expected + ", got " + actual);
+            }
+        }
     }
 
     public static MigrationRunner withDefaultMigrations() {
@@ -91,7 +102,7 @@ public final class MigrationRunner {
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO schema_version (version, applied_at) VALUES (?, ?);")) {
             ps.setInt(1, newVersion);
-            ps.setString(2, Instant.now().toString());
+            ps.setString(2, StorageTimestamps.format(Instant.now()));
             ps.executeUpdate();
         }
     }

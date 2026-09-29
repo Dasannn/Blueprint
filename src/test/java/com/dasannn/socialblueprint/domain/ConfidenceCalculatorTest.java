@@ -126,4 +126,31 @@ class ConfidenceCalculatorTest {
         assertThat(calculator.calculateScore(events, baseTime)).isEqualTo(0.0);
         assertThat(calculator.calculate(events, baseTime)).isEqualTo(ConfidenceLevel.UNKNOWN);
     }
+
+    @Test
+    @DisplayName("Finding 11: Half-life boundary test with nanosecond precision")
+    void halfLifeBoundaryNanosecondPrecision() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Sub-second half-life: 500 milliseconds
+        Duration halfLife = Duration.ofMillis(500);
+        ConfidenceConfig subSecConfig = new ConfidenceConfig(0.5, 1.0, 2.0, halfLife);
+        ConfidenceCalculator subSecCalc = new ConfidenceCalculator(subSecConfig);
+
+        List<ReputationEvent> events = List.of(
+                new ReputationEvent(actor, target, 1, HonorKind.POSITIVE, 500.0, null, baseTime)
+        );
+
+        // At exact half-life (baseTime + 500ms): score must be exactly 0.5 (weight = 2^(-1) = 0.5)
+        Instant exactHalfLife = baseTime.plus(halfLife);
+        double scoreAtHalfLife = subSecCalc.calculateScore(events, exactHalfLife);
+        org.assertj.core.data.Offset<Double> tolerance = org.assertj.core.data.Offset.offset(1e-9);
+        assertThat(scoreAtHalfLife).isCloseTo(0.5, tolerance);
+
+        // At half of the half-life (250ms): score must be 2^(-0.5) ≈ 0.70710678
+        Instant quarterSecond = baseTime.plus(Duration.ofMillis(250));
+        double scoreAtQuarterSec = subSecCalc.calculateScore(events, quarterSecond);
+        assertThat(scoreAtQuarterSec).isCloseTo(Math.pow(2.0, -0.5), tolerance);
+    }
 }

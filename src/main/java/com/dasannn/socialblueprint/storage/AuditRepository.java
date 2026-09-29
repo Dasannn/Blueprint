@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.storage;
 
 import com.dasannn.socialblueprint.domain.AuditEvent;
+import com.dasannn.socialblueprint.domain.PlayerId;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -41,7 +42,7 @@ public final class AuditRepository {
             VALUES (?, ?, ?, ?, ?, ?);
         """;
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, event.actor());
+            ps.setString(1, event.actor().toString());
             ps.setString(2, event.operation());
             ps.setString(3, event.target());
             if (event.before() != null) {
@@ -54,7 +55,7 @@ public final class AuditRepository {
             } else {
                 ps.setNull(5, Types.VARCHAR);
             }
-            ps.setString(6, event.createdAt().toString());
+            ps.setString(6, StorageTimestamps.format(event.createdAt()));
 
             ps.executeUpdate();
             long generatedId = 0L;
@@ -73,6 +74,11 @@ public final class AuditRepository {
                     event.createdAt()
             );
         }
+    }
+
+    public List<AuditEvent> findByTarget(PlayerId targetPlayer) {
+        Objects.requireNonNull(targetPlayer, "targetPlayer must not be null");
+        return findByTarget(targetPlayer.toString());
     }
 
     public List<AuditEvent> findByTarget(String target) {
@@ -99,12 +105,12 @@ public final class AuditRepository {
 
     private static AuditEvent mapRow(ResultSet rs) throws SQLException {
         long id = rs.getLong("id");
-        String actor = rs.getString("actor");
+        PlayerId actor = PlayerId.fromString(rs.getString("actor"));
         String operation = rs.getString("operation");
         String target = rs.getString("target");
         String before = rs.getString("before");
         String after = rs.getString("after");
-        Instant createdAt = Instant.parse(rs.getString("created_at"));
+        Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
 
         return new AuditEvent(id, actor, operation, target, before, after, createdAt);
     }

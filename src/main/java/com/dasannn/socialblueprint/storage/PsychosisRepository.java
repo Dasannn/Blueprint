@@ -46,7 +46,7 @@ public final class PsychosisRepository {
             ps.setString(1, event.killer().toString());
             ps.setString(2, event.victim().toString());
             ps.setString(3, event.context().dbValue());
-            ps.setString(4, event.createdAt().toString());
+            ps.setString(4, StorageTimestamps.format(event.createdAt()));
 
             ps.executeUpdate();
             long generatedId = 0L;
@@ -72,12 +72,12 @@ public final class PsychosisRepository {
             String sql = """
                 SELECT id, killer_uuid, victim_uuid, context, created_at
                 FROM psychosis_event
-                WHERE killer_uuid = ? AND created_at >= ?
+                WHERE killer_uuid = ? AND created_at > ?
                 ORDER BY id ASC;
             """;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, killer.toString());
-                ps.setString(2, since.toString());
+                ps.setString(2, StorageTimestamps.format(since));
                 try (ResultSet rs = ps.executeQuery()) {
                     List<PsychosisEvent> list = new ArrayList<>();
                     while (rs.next()) {
@@ -95,11 +95,11 @@ public final class PsychosisRepository {
         return engine.execute(conn -> {
             String sql = """
                 SELECT COUNT(*) FROM psychosis_event
-                WHERE killer_uuid = ? AND context = 'open' AND created_at >= ?;
+                WHERE killer_uuid = ? AND context = 'open' AND created_at > ?;
             """;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, killer.toString());
-                ps.setString(2, since.toString());
+                ps.setString(2, StorageTimestamps.format(since));
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
                         return rs.getInt(1);
@@ -115,7 +115,7 @@ public final class PsychosisRepository {
         PlayerId killer = PlayerId.fromString(rs.getString("killer_uuid"));
         PlayerId victim = PlayerId.fromString(rs.getString("victim_uuid"));
         CombatContext context = CombatContext.fromDbValue(rs.getString("context"));
-        Instant createdAt = Instant.parse(rs.getString("created_at"));
+        Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
 
         return new PsychosisEvent(id, killer, victim, context, createdAt);
     }
