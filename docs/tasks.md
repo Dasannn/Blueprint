@@ -52,13 +52,16 @@ Codex before Claude commits.
 |---|---|---|---|
 | T-030 | Typed immutable config records for every section; one load, no scattered `getString`. | — | todo |
 | T-031 | Load-time validation: malformed tier ladder, missing required key, negative cooldown, or a tier threshold out of order fails the enable with a message naming the key. Never a silent default. | SB-011 | todo |
-| T-032 | Split text into `messages.yml`; every player-visible string configurable. | SB-062 | todo |
+| T-032 | Split text into per-language message files; every player-visible string configurable. | SB-062 | todo |
+| T-032a | Ship `messages_es.yml` and `messages_en.yml` with identical keys, both inside the jar and both written to the data folder on first run. A `language:` key in `config.yml` selects one. | SB-066, SB-067 | todo |
+| T-032b | Missing-key fallback to the other language, with a one-time warning naming the key. A raw key must never reach a player. | SB-068 | todo |
+| T-032c | A test that fails when the two language files' key sets diverge, and one that fails when a player-visible string is hardcoded in Java. | SB-069 | todo |
 | T-033 | Colour parsing through Adventure's legacy serializer with `&` and hex. One interpretation only; never also MiniMessage. | SB-063 | todo |
 | T-034 | Atomic reload: replace the snapshot wholesale; nothing caches derived values across a reload. | SB-013 | todo |
 | T-035 | `/status config <key> [value]`: read and edit in-game through the same validation, persist, publish a new snapshot. | SB-062 | todo |
 | T-036 | Ship a `config.yml` whose tier ladder is correct — negative tiers carry negative thresholds. The baseline shipped positive ones. | SB-011 | todo |
 
-**Gate:** a malformed ladder names its key and refuses to enable; an in-game colour edit applies with no restart.
+**Gate:** a malformed ladder names its key and refuses to enable; an in-game colour edit applies with no restart; switching `language:` changes every player-visible string with no other edit.
 
 ---
 
