@@ -28,6 +28,13 @@ client-side packets. No other player sees the silverfish, hears the sound, reads
 the messages or sees the fake join. Nothing is written to the real chat or to
 the server log.
 
+The silverfish is therefore a **packet-only fake, not a real entity hidden from
+other players**. Paper's entity visibility API hides an entity from a client, but
+the mob still exists server-side: it still occupies space, still ticks, still
+participates in collision and targeting, and a bug in the hiding leaks it to
+everyone. A hidden real mob cannot deliver the guarantee this decision makes.
+See `docs/reference/paper-26.3-notes.md` §6 and §7.
+
 **Harmless.** The silverfish cannot deal damage, cannot be damaged, cannot push
 the player, cannot target anything, drop no loot and no XP, are not persistent,
 and are removed on a fixed timer whether or not the player interacts with them.
