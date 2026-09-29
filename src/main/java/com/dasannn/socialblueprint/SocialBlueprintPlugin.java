@@ -16,7 +16,10 @@ import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
 import com.dasannn.socialblueprint.storage.StorageLifecycleCoordinator;
+import com.dasannn.socialblueprint.feature.honor.HonorService;
+import net.milkbowl.vault.economy.Economy;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -32,6 +35,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private PsychosisRepository psychosisRepository;
     private AuditRepository auditRepository;
     private ProfileService profileService;
+    private HonorService honorService;
+    private Economy economy;
 
     @Override
     public void onEnable() {
@@ -66,6 +71,16 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             throw new IllegalStateException("Failed to enable SocialBlueprint due to invalid configuration: " + e.getMessage(), e);
         }
 
+        // Resolve Vault Economy provider per SB-051 and T-057
+        if (economy == null) {
+            setupEconomy();
+        }
+        if (economy == null) {
+            getLogger().severe("Failed to enable SocialBlueprint: No Vault economy provider was found. SocialBlueprint requires Vault and an economy plugin (SB-051).");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
         // Initialize StorageEngine and run SQLite migrations on storage executor (T-018, ARCHITECTURE.md §4, §5)
         File dbFile = new File(getDataFolder(), "socialblueprint.db");
         String jdbcUrl = "jdbc:sqlite:" + dbFile.getAbsolutePath();
@@ -86,6 +101,18 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         );
 
         coordinator.start(jdbcUrl, this::completeInitialization);
+    }
+
+    private void setupEconomy() {
+        if (getServer().getPluginManager() == null || getServer().getPluginManager().getPlugin("Vault") == null) {
+            return;
+        }
+        if (getServer().getServicesManager() != null) {
+            RegisteredServiceProvider<Economy> rsp = getServer().getServicesManager().getRegistration(Economy.class);
+            if (rsp != null) {
+                this.economy = rsp.getProvider();
+            }
+        }
     }
 
     void completeInitialization(StorageEngine engine) {
@@ -114,6 +141,22 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 getLogger()
         );
 
+        this.honorService = new HonorService(
+                configManager,
+                messageRegistry,
+                reputationRepository,
+                auditRepository,
+                profileService,
+                economy,
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    } else {
+                        runnable.run();
+                    }
+                }
+        );
+
         getServer().getPluginManager().registerEvents(
                 new AsyncChatListener(profileService, configManager, messageRegistry),
                 this
@@ -129,6 +172,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     configManager,
                     messageRegistry,
                     profileService,
+                    honorService,
                     this
             );
             statusCmd.setExecutor(executor);
@@ -184,5 +228,17 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     public StatusCache getStatusCache() {
         return statusCache;
+    }
+
+    public HonorService getHonorService() {
+        return honorService;
+    }
+
+    public Economy getEconomy() {
+        return economy;
+    }
+
+    public void setEconomy(Economy economy) {
+        this.economy = economy;
     }
 }

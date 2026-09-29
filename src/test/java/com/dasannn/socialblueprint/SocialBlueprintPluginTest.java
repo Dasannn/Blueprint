@@ -14,6 +14,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import net.milkbowl.vault.economy.Economy;
+import org.bukkit.plugin.RegisteredServiceProvider;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.ServicesManager;
+
 import java.io.File;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
@@ -21,11 +26,15 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,6 +48,9 @@ class SocialBlueprintPluginTest {
     private Server mockServer;
     private final Queue<Runnable> scheduledMainTasks = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean disabledCalled = new AtomicBoolean(false);
+    private boolean vaultPluginPresent = true;
+    private boolean economyServiceRegistered = true;
+    private final List<LogRecord> loggedRecords = new ArrayList<>();
 
     @BeforeEach
     @SuppressWarnings({"sunapi", "removal"})
@@ -68,6 +80,25 @@ class SocialBlueprintPluginTest {
                 }
         );
 
+        Plugin mockVaultPlugin = (Plugin) Proxy.newProxyInstance(
+                Plugin.class.getClassLoader(),
+                new Class<?>[]{Plugin.class},
+                (proxy, method, args) -> defaultValue(method.getReturnType())
+        );
+
+        Economy mockEconomy = (Economy) Proxy.newProxyInstance(
+                Economy.class.getClassLoader(),
+                new Class<?>[]{Economy.class},
+                (proxy, method, args) -> defaultValue(method.getReturnType())
+        );
+
+        RegisteredServiceProvider<Economy> rsp = new RegisteredServiceProvider<>(
+                Economy.class,
+                mockEconomy,
+                ServicePriority.Normal,
+                mockVaultPlugin
+        );
+
         // Create PluginManager proxy
         PluginManager pluginManager = (PluginManager) Proxy.newProxyInstance(
                 PluginManager.class.getClassLoader(),
@@ -85,6 +116,22 @@ class SocialBlueprintPluginTest {
                     if ("registerEvents".equals(name)) {
                         return null;
                     }
+                    if ("getPlugin".equals(name) && args.length >= 1 && "Vault".equals(args[0])) {
+                        return vaultPluginPresent ? mockVaultPlugin : null;
+                    }
+                    return defaultValue(method.getReturnType());
+                }
+        );
+
+        // Create ServicesManager proxy
+        ServicesManager servicesManager = (ServicesManager) Proxy.newProxyInstance(
+                ServicesManager.class.getClassLoader(),
+                new Class<?>[]{ServicesManager.class},
+                (proxy, method, args) -> {
+                    String name = method.getName();
+                    if ("getRegistration".equals(name) && args.length >= 1 && Economy.class.equals(args[0])) {
+                        return economyServiceRegistered ? rsp : null;
+                    }
                     return defaultValue(method.getReturnType());
                 }
         );
@@ -101,6 +148,9 @@ class SocialBlueprintPluginTest {
                     if ("getPluginManager".equals(name)) {
                         return pluginManager;
                     }
+                    if ("getServicesManager".equals(name)) {
+                        return servicesManager;
+                    }
                     if ("getLogger".equals(name)) {
                         return Logger.getLogger("MockServer");
                     }
@@ -111,14 +161,26 @@ class SocialBlueprintPluginTest {
                 }
         );
 
-
         Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
         unsafeField.setAccessible(true);
         sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
         plugin = (SocialBlueprintPlugin) unsafe.allocateInstance(SocialBlueprintPlugin.class);
         setField(plugin, JavaPlugin.class, "server", mockServer);
         setField(plugin, JavaPlugin.class, "dataFolder", tempDir);
-        setField(plugin, JavaPlugin.class, "logger", Logger.getLogger("SocialBlueprintPluginTest"));
+
+        Logger logger = Logger.getLogger("SocialBlueprintPluginTest-" + System.nanoTime());
+        logger.addHandler(new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                loggedRecords.add(record);
+            }
+            @Override
+            public void flush() {}
+            @Override
+            public void close() throws SecurityException {}
+        });
+        setField(plugin, JavaPlugin.class, "logger", logger);
+
         PluginDescriptionFile desc = new PluginDescriptionFile("SocialBlueprint", "1.0", SocialBlueprintPlugin.class.getName());
         setField(plugin, JavaPlugin.class, "description", desc);
         setField(plugin, JavaPlugin.class, "pluginMeta", desc);
@@ -130,6 +192,32 @@ class SocialBlueprintPluginTest {
         if (plugin != null && plugin.getStorageEngine() != null) {
             plugin.getStorageEngine().close();
         }
+    }
+
+    @Test
+    @DisplayName("T-057 / SB-051: onEnable disables cleanly naming Vault when Vault plugin is absent")
+    void onEnableDisablesPluginCleanlyWhenVaultPluginMissing() {
+        vaultPluginPresent = false;
+        plugin.onEnable();
+
+        assertThat(disabledCalled.get()).isTrue();
+        assertThat(loggedRecords)
+                .extracting(LogRecord::getMessage)
+                .anyMatch(msg -> msg.contains("Vault") && msg.contains("economy"));
+        assertThat(plugin.getStorageEngine()).isNull();
+    }
+
+    @Test
+    @DisplayName("T-057 / SB-051: onEnable disables cleanly naming Vault when Economy provider registration is absent")
+    void onEnableDisablesPluginCleanlyWhenEconomyServiceMissing() {
+        economyServiceRegistered = false;
+        plugin.onEnable();
+
+        assertThat(disabledCalled.get()).isTrue();
+        assertThat(loggedRecords)
+                .extracting(LogRecord::getMessage)
+                .anyMatch(msg -> msg.contains("Vault") && msg.contains("economy"));
+        assertThat(plugin.getStorageEngine()).isNull();
     }
 
     @Test

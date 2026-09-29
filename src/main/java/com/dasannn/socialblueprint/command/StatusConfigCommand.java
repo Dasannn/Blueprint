@@ -58,10 +58,16 @@ public class StatusConfigCommand {
 
     private final ConfigManager configManager;
     private final MessageRegistry messageRegistry;
+    private final com.dasannn.socialblueprint.storage.AuditRepository auditRepository;
 
-    public StatusConfigCommand(ConfigManager configManager, MessageRegistry messageRegistry) {
+    public StatusConfigCommand(ConfigManager configManager, MessageRegistry messageRegistry, com.dasannn.socialblueprint.storage.AuditRepository auditRepository) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
+        this.auditRepository = auditRepository;
+    }
+
+    public StatusConfigCommand(ConfigManager configManager, MessageRegistry messageRegistry) {
+        this(configManager, messageRegistry, null);
     }
 
     public boolean execute(CommandSender sender, String[] args) {
@@ -122,7 +128,20 @@ public class StatusConfigCommand {
 
         String rawValue = args[1];
         try {
+            String oldValue = "";
+            try {
+                oldValue = configManager.get(snapshot, key);
+            } catch (Exception ignored) {
+            }
             RuntimeSnapshot updatedSnapshot = configManager.set(key, rawValue);
+            if (auditRepository != null) {
+                com.dasannn.socialblueprint.domain.PlayerId actor = (sender instanceof org.bukkit.entity.Player p)
+                        ? com.dasannn.socialblueprint.domain.PlayerId.of(p.getUniqueId())
+                        : com.dasannn.socialblueprint.domain.PlayerId.CONSOLE;
+                auditRepository.saveAsync(com.dasannn.socialblueprint.domain.AuditEvent.forConfigKey(
+                        actor, "config_set", key, oldValue, rawValue, java.time.Instant.now()
+                ));
+            }
             sender.sendMessage(messageRegistry.renderWithPrefix(updatedSnapshot, "commands.config.set-success",
                     Map.of("key", key, "value", rawValue)));
         } catch (ConfigValidationException e) {

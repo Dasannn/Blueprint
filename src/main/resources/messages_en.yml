@@ -29,6 +29,9 @@ psychosis:
 commands:
   no-permission: '&cYou do not have permission to execute this command.'
   player-only: '&cThis command can only be executed by players.'
+  invalid-integer: '&cInvalid number: &f{value}'
+  invalid-amount: '&cAmount must be a positive integer between 1 and {max}.'
+  unknown-subcommand: '&cUnknown subcommand: &f{command}'
   config:
     usage: '&eUsage: &f/status config <key> [value]'
     get: '&7Configuration key &b{key}&7 is set to: &f{value}'
@@ -36,6 +39,11 @@ commands:
     set-failed: '&cFailed to update &b{key}&c: {error}'
     invalid-key: '&cUnknown or uneditable configuration key: &f{key}'
     reload-success: '&aConfiguration reloaded successfully.'
+  admin:
+    usage: '&eUsage: &f/status admin <give|take|reset> <player> [amount]'
+    give-success: '&aSuccessfully added &e{amount}&a honor to &e{target}&a. New status: &f{status}'
+    take-success: '&aSuccessfully removed &e{amount}&a honor from &e{target}&a. New status: &f{status}'
+    reset-success: '&aSuccessfully reset status for &e{target}&a to neutral (0).'
 
 chat:
   hover-status: '&7Status: &f{status}'
@@ -54,13 +62,19 @@ status:
   profile-contributors: '&7Contributors: &f{contributors}'
 
 honor:
-  cost-preview: '&7The cost to issue this opinion is &e${cost}&7. Confirm?'
+  cost-preview: '&7The cost to issue this opinion is &e${cost}&7. Type &b/status confirm&7 to confirm.'
   cooldown: '&cYou must wait &e{time}&c before rating this player again.'
   cap-reached: '&cYou have reached the evaluation limit for this player.'
   given: '&aYou have granted honor to &e{target}&a.'
   removed: '&cYou have removed honor from &e{target}&c.'
   reason-required: '&cA written reason is required to remove honor.'
   insufficient-funds: '&cInsufficient funds (${cost} required).'
+  cannot-rate-self: '&cYou cannot rate yourself.'
+  no-pending: '&cYou have no pending rating to confirm.'
+  action-cancelled: '&cPending action has expired.'
+  write-failed: '&cFailed to record rating. Your funds were refunded.'
+  trust-usage: '&eUsage: &f/status trust <player> [reason]'
+  distrust-usage: '&eUsage: &f/status distrust <player> <reason>'
 
 duel:
   challenge-sent: '&7You challenged &e{target}&7 to a duel.'

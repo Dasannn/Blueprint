@@ -29,6 +29,9 @@ psychosis:
 commands:
   no-permission: '&cNo tienes permiso para ejecutar este comando.'
   player-only: '&cEste comando solo puede ser ejecutado por jugadores.'
+  invalid-integer: '&cNúmero no válido: &f{value}'
+  invalid-amount: '&cLa cantidad debe ser un entero positivo entre 1 y {max}.'
+  unknown-subcommand: '&cSubcomando desconocido: &f{command}'
   config:
     usage: '&eUso: &f/status config <clave> [valor]'
     get: '&7La clave de configuración &b{key}&7 está establecida en: &f{value}'
@@ -36,6 +39,11 @@ commands:
     set-failed: '&cError al actualizar &b{key}&c: {error}'
     invalid-key: '&cClave de configuración desconocida o no editable: &f{key}'
     reload-success: '&aConfiguración recargada exitosamente.'
+  admin:
+    usage: '&eUso: &f/status admin <give|take|reset> <jugador> [cantidad]'
+    give-success: '&aSe añadieron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
+    take-success: '&aSe retiraron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
+    reset-success: '&aSe restableció el estatus de &e{target}&a a neutral (0).'
 
 chat:
   hover-status: '&7Estatus: &f{status}'
@@ -54,13 +62,19 @@ status:
   profile-contributors: '&7Colaboradores: &f{contributors}'
 
 honor:
-  cost-preview: '&7El costo para emitir esta opinión es &e${cost}&7. ¿Confirmar?'
+  cost-preview: '&7El costo para emitir esta opinión es &e${cost}&7. Escribe &b/status confirm&7 para confirmar.'
   cooldown: '&cDebes esperar &e{time}&c antes de calificar a este jugador de nuevo.'
   cap-reached: '&cHas alcanzado el límite de evaluaciones para este jugador.'
   given: '&aHas otorgado honor a &e{target}&a.'
   removed: '&cHas retirado honor a &e{target}&c.'
   reason-required: '&cSe requiere un motivo para retirar honor.'
   insufficient-funds: '&cNo tienes suficiente dinero (${cost} requerido).'
+  cannot-rate-self: '&cNo puedes calificarte a ti mismo.'
+  no-pending: '&cNo tienes ninguna calificación pendiente por confirmar.'
+  action-cancelled: '&cLa acción pendiente ha expirado.'
+  write-failed: '&cError al registrar la calificación. Tu dinero fue reembolsado.'
+  trust-usage: '&eUso: &f/status trust <jugador> [motivo]'
+  distrust-usage: '&eUso: &f/status distrust <jugador> <motivo>'
 
 duel:
   challenge-sent: '&7Has retado a &e{target}&7 a un duelo.'

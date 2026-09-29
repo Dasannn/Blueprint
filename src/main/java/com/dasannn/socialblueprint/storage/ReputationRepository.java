@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -172,6 +173,79 @@ public final class ReputationRepository {
                         list.add(mapRow(rs));
                     }
                     return list;
+                }
+            }
+        });
+    }
+
+    public CompletableFuture<List<ReputationEvent>> findByActorAsync(PlayerId actor) {
+        Objects.requireNonNull(actor, "Actor must not be null");
+        return engine.executeAsync(conn -> {
+            String sql = """
+                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+                FROM reputation_event
+                WHERE actor_uuid = ?
+                ORDER BY id ASC;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, actor.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    List<ReputationEvent> list = new ArrayList<>();
+                    while (rs.next()) {
+                        list.add(mapRow(rs));
+                    }
+                    return list;
+                }
+            }
+        });
+    }
+
+    public CompletableFuture<List<ReputationEvent>> findByActorSinceAsync(PlayerId actor, Instant since) {
+        Objects.requireNonNull(actor, "Actor must not be null");
+        Objects.requireNonNull(since, "Instant since must not be null");
+        return engine.executeAsync(conn -> {
+            String sql = """
+                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+                FROM reputation_event
+                WHERE actor_uuid = ?
+                  AND created_at > ?
+                ORDER BY id ASC;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, actor.toString());
+                ps.setString(2, StorageTimestamps.format(since));
+                try (ResultSet rs = ps.executeQuery()) {
+                    List<ReputationEvent> list = new ArrayList<>();
+                    while (rs.next()) {
+                        list.add(mapRow(rs));
+                    }
+                    return list;
+                }
+            }
+        });
+    }
+
+    public CompletableFuture<Optional<ReputationEvent>> findLastRatingBetweenAsync(PlayerId actor, PlayerId target) {
+        Objects.requireNonNull(actor, "Actor must not be null");
+        Objects.requireNonNull(target, "Target must not be null");
+        return engine.executeAsync(conn -> {
+            String sql = """
+                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+                FROM reputation_event
+                WHERE actor_uuid = ?
+                  AND target_uuid = ?
+                  AND (kind = 'positive' OR kind = 'negative')
+                ORDER BY id DESC
+                LIMIT 1;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, actor.toString());
+                ps.setString(2, target.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return Optional.of(mapRow(rs));
+                    }
+                    return Optional.empty();
                 }
             }
         });

@@ -43,8 +43,10 @@ permissions:
   pstatus.giveReputation:
     children:
       socialblueprint.give: true
+      socialblueprint.take: true
   pstatus.addRemoveRep:
     children:
+      socialblueprint.take: true
       socialblueprint.admin.adjust: true
   pstatus.setReputation:
     children:

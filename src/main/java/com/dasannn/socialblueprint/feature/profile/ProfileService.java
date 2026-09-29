@@ -214,6 +214,90 @@ public class ProfileService {
      * Works for offline players by name or UUID per T-045 and SB-065.
      * A player with no record reads status 0, Confidence Unknown, Psychosis Low (SB-005).
      */
+    public record TargetIdentity(PlayerId id, String name) {
+        public TargetIdentity {
+            Objects.requireNonNull(id, "id must not be null");
+            Objects.requireNonNull(name, "name must not be null");
+        }
+    }
+
+    /**
+     * Resolves a target player identity (PlayerId and last known name) asynchronously per T-052.
+     * Offline targets resolve by UUID from player_profile first, falling back to Bukkit offline lookup.
+     * Bukkit identity calls happen on the calling (command) thread, never the storage executor.
+     */
+    public CompletableFuture<Optional<TargetIdentity>> resolveTargetIdentityAsync(String input) {
+        Objects.requireNonNull(input, "input must not be null");
+        String trimmed = input.trim();
+        if (trimmed.isEmpty()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+
+        // 1. Resolve online Bukkit identity on the calling (command) thread
+        PlayerId onlineId = null;
+        String onlineName = null;
+        UUID parsedUuid = null;
+        try {
+            parsedUuid = UUID.fromString(trimmed);
+        } catch (IllegalArgumentException ignored) {
+        }
+
+        Optional<PlayerLookup.KnownPlayer> knownOnCallingThread = (playerLookup != null)
+                ? playerLookup.lookup(trimmed)
+                : Optional.empty();
+
+        if (knownOnCallingThread.isPresent() && knownOnCallingThread.get().isOnline()) {
+            onlineId = knownOnCallingThread.get().id();
+            onlineName = knownOnCallingThread.get().name();
+        }
+
+        final PlayerId finalOnlineId = onlineId;
+        final String finalOnlineName = onlineName;
+        final UUID finalUuid = parsedUuid;
+        final Optional<PlayerLookup.KnownPlayer> fallbackLookup = (finalOnlineId == null)
+                ? knownOnCallingThread
+                : Optional.empty();
+
+        // 2. Submit storage resolution to the database executor
+        return storageEngine.supplyAsync(() -> {
+            if (finalOnlineId != null) {
+                return Optional.of(new TargetIdentity(finalOnlineId, finalOnlineName));
+            }
+
+            // T-052: Resolve from player_profile first
+            if (finalUuid != null) {
+                PlayerId id = PlayerId.of(finalUuid);
+                Optional<PlayerProfile> profile = profileRepository.findById(id);
+                if (profile.isPresent()) {
+                    return Optional.of(new TargetIdentity(profile.get().id(), profile.get().lastKnownName()));
+                }
+            } else {
+                Optional<PlayerProfile> profile = profileRepository.findByName(trimmed);
+                if (profile.isPresent()) {
+                    return Optional.of(new TargetIdentity(profile.get().id(), profile.get().lastKnownName()));
+                }
+            }
+
+            // Fallback to Bukkit's offline lookup captured on the command thread
+            if (fallbackLookup.isPresent()) {
+                PlayerLookup.KnownPlayer fallback = fallbackLookup.get();
+                return Optional.of(new TargetIdentity(fallback.id(), fallback.name()));
+            }
+
+            if (finalUuid != null) {
+                return Optional.of(new TargetIdentity(PlayerId.of(finalUuid), finalUuid.toString()));
+            }
+
+            return Optional.empty();
+        });
+    }
+
+    /**
+     * Resolves a player by username or UUID and loads their {@link PlayerSocialView} asynchronously.
+     * Resolves Bukkit identity on the calling (main) thread and passes plain values to the storage executor.
+     * Works for offline players by name or UUID per T-045, T-052, and SB-065.
+     * A player with no record reads status 0, Confidence Unknown, Psychosis Low (SB-005).
+     */
     public CompletableFuture<Optional<PlayerSocialView>> resolvePlayerAsync(String input, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(input, "input must not be null");
         Objects.requireNonNull(snapshot, "RuntimeSnapshot must not be null");
@@ -223,48 +307,17 @@ public class ProfileService {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
-        // 1. Resolve Bukkit identity on the calling thread (main thread) per ARCHITECTURE.md §5
-        PlayerId resolvedId = null;
-        String resolvedName = null;
-
-        if (playerLookup != null) {
-            Optional<PlayerLookup.KnownPlayer> known = playerLookup.lookup(trimmed);
-            if (known.isPresent()) {
-                resolvedId = known.get().id();
-                resolvedName = known.get().name();
-            }
-        }
-
-        if (resolvedId == null) {
-            try {
-                UUID uuid = UUID.fromString(trimmed);
-                resolvedId = PlayerId.of(uuid);
-                resolvedName = trimmed;
-            } catch (IllegalArgumentException ignored) {
-                // Not a UUID string
-            }
-        }
-
-        final PlayerId targetId = resolvedId;
-        final String targetName = resolvedName;
-        final int gen = targetId != null ? playerGenerations.getOrDefault(targetId, 0) : 0;
-
-        // 2. Submit database work to the storage executor with plain values (no Bukkit calls off-thread)
-        return storageEngine.supplyAsync(() -> {
-            if (targetId != null) {
-                return Optional.of(loadViewInternal(targetId, targetName, snapshot, gen));
-            }
-
-            // Fallback for offline player by username: query profileRepository on storage executor
-            Optional<PlayerProfile> profile = profileRepository.findByName(trimmed);
-            if (profile.isPresent()) {
-                PlayerProfile p = profile.get();
-                int pGen = playerGenerations.getOrDefault(p.id(), 0);
-                return Optional.of(loadViewInternal(p.id(), p.lastKnownName(), snapshot, pGen));
-            }
-
-            return Optional.empty();
-        });
+        return resolveTargetIdentityAsync(trimmed)
+                .thenCompose(optIdentity -> {
+                    if (optIdentity.isEmpty()) {
+                        return CompletableFuture.completedFuture(Optional.empty());
+                    }
+                    TargetIdentity target = optIdentity.get();
+                    int gen = playerGenerations.getOrDefault(target.id(), 0);
+                    return storageEngine.supplyAsync(() ->
+                            Optional.of(loadViewInternal(target.id(), target.name(), snapshot, gen))
+                    );
+                });
     }
 
     public CompletableFuture<Optional<PlayerSocialView>> resolvePlayerAsync(String input, TierLadder ladder) {
