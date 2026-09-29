@@ -122,7 +122,7 @@ Neither blocks current work; both land in `config.yml` during P2.
 | T-050 | `/status` dispatcher with `/pstatus` and `/reputation` aliases. Sender resolved before dispatch, so the console never reaches player-only code. | SB-065 | todo |
 | T-051 | Centralised argument parsing. No subcommand calls `Integer.parseInt` on raw input. | SB-065 | todo |
 | T-052 | Offline target resolution by UUID from `player_profile`, falling back to Bukkit's offline lookup. | SB-060, SB-065 | todo |
-| T-053 | Declare `socialblueprint.*` nodes with explicit defaults; register `pstatus.*` as children so existing LuckPerms grants keep working. Drop `pstatus.evaluate`. | SB-061 | todo |
+| T-053 | Declare `socialblueprint.*` nodes with explicit defaults. Keep existing `pstatus.*` grants working — children flow parent → child, so the legacy node is the parent or the check consults both (ARCHITECTURE §7). Verify against a real LuckPerms grant. Drop `pstatus.evaluate`. | SB-061 | todo |
 | T-054 | Configurable action-to-node mapping, resolved at check time. Nodes are not invented at runtime. | SB-061 | todo |
 | T-055 | `/status admin give|take|reset`: free, no cooldown, no cap, audited. Reset writes a compensating event, never a delete. | SB-058 | todo |
 | T-056 | Audit rows for every administrative action: actor, operation, target, before, after, time. | SB-064 | todo |
