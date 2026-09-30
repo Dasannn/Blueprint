@@ -56,6 +56,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final StatusDuelCommand duelCommand;
     private final StatusVersionCommand versionCommand;
     private final StatusUpdateCommand updateCommand;
+    private final StatusHistoryCommand historyCommand;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
     private final Consumer<UUID> optOutCleaner;
@@ -89,6 +90,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.duelCommand = duelService != null ? new StatusDuelCommand(duelService, messageRegistry, onlinePlayersSupplier) : null;
         this.versionCommand = updateService != null ? new StatusVersionCommand(updateService, messageRegistry) : null;
         this.updateCommand = updateService != null ? new StatusUpdateCommand(updateService, messageRegistry) : null;
+        this.historyCommand = (profileService != null && profileService.reputationRepository() != null)
+                ? new StatusHistoryCommand(profileService, profileService.reputationRepository(), messageRegistry, this.mainThreadRunner)
+                : null;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
         this.optOutCleaner = optOutCleaner;
     }
@@ -441,6 +445,16 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // 8a. Subcommand: /status history [player] (T-134)
+        if ("history".equals(sub)) {
+            if (historyCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = historyCommand.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
         // 7. Legacy syntax: /status info <player> or /pstatus info <player>
         if ("info".equals(sub) && subArgs.length >= 1) {
             if (!PermissionChecker.hasPermission(sender, "show-others", snapshot)) {
@@ -594,6 +608,13 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 suggestions.add("update");
             }
 
+            if ((PermissionChecker.hasPermission(sender, "show", snapshot)
+                    || PermissionChecker.hasPermission(sender, "show-others", snapshot)
+                    || PermissionChecker.hasPermission(sender, "view-reputation", snapshot))
+                    && "history".startsWith(current)) {
+                suggestions.add("history");
+            }
+
             if (sender instanceof Player) {
                 if (PermissionChecker.hasPermission(sender, "give-reputation", snapshot)) {
                     if ("trust".startsWith(current)) suggestions.add("trust");
@@ -629,6 +650,20 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         if (args.length > 1) {
             String sub = args[0].toLowerCase(Locale.ROOT);
             String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
+
+            if ("history".equals(sub)) {
+                if (subArgs.length == 1) {
+                    String current = subArgs[0].toLowerCase(Locale.ROOT);
+                    List<String> playerMatches = new ArrayList<>();
+                    for (Player player : onlinePlayersSupplier.get()) {
+                        if (player.getName().toLowerCase(Locale.ROOT).startsWith(current)) {
+                            playerMatches.add(player.getName());
+                        }
+                    }
+                    return playerMatches;
+                }
+                return Collections.emptyList();
+            }
 
             if ("config".equals(sub)) {
                 return configCommand.tabComplete(sender, subArgs, snapshot);

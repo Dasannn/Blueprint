@@ -60,6 +60,10 @@ status:
   profile-confidence: '&7Confidence: &f{confidence}'
   profile-psychosis: '&7Psychosis: &f{psychosis}'
   profile-contributors: '&7Contributors: &f{contributors}'
+  history-header: '&8--- &bReputation History: &e{player} &8---'
+  history-empty: '&7No reputation events recorded.'
+  history-entry: '&7[{time}] {delta} &7by &e{actor}&7: &f{reason}'
+  system-actor: 'System'
 
 honor:
   cost-preview: '&7The cost to issue this opinion is &e${cost}&7. Type &b/status confirm&7 to confirm.'
@@ -121,3 +125,7 @@ updater:
   checksum-mismatch: '&cUpdate failed: Checksum mismatch. Download was rejected for security.'
   failed: '&cUpdate check or download failed: &f{error}'
   no-update: '&7SocialBlueprint is already up to date (&b{current}&7).'
+
+kill-penalty:
+  reason: 'Open-world kill penalty'
+

@@ -128,6 +128,20 @@ class ConfidenceCalculatorTest {
     }
 
     @Test
+    @DisplayName("T-131, SB-003: System kill events contribute nothing to Confidence")
+    void systemKillsContributeNothingToConfidence() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        List<ReputationEvent> events = List.of(
+                new ReputationEvent(0L, null, target, -1, HonorKind.SYSTEM_KILL, 0.0, "kill-penalty.reason", baseTime)
+        );
+
+        assertThat(calculator.countDistinctActors(events)).isZero();
+        assertThat(calculator.calculateScore(events, baseTime)).isEqualTo(0.0);
+        assertThat(calculator.calculate(events, baseTime)).isEqualTo(ConfidenceLevel.UNKNOWN);
+    }
+
+    @Test
     @DisplayName("Finding 11: Half-life boundary test with nanosecond precision")
     void halfLifeBoundaryNanosecondPrecision() {
         PlayerId actor = PlayerId.of(UUID.randomUUID());

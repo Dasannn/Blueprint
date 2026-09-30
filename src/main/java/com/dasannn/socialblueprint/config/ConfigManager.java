@@ -373,6 +373,16 @@ public class ConfigManager {
         set.add("update.api-url");
         set.add("update.max-download-bytes");
 
+        set.add("kill-penalty.delta");
+        set.add("kill-penalty.pair-cooldown");
+        set.add("kill-penalty.cap-window");
+        set.add("kill-penalty.max-loss");
+
+        set.add("sounds.creeper-fuse.key");
+        set.add("sounds.creeper-fuse.volume");
+        set.add("sounds.creeper-fuse.pitch");
+        set.add("sounds.creeper-fuse.category");
+
         return Collections.unmodifiableSet(set);
     }
 

@@ -436,6 +436,58 @@ public final class ReputationRepository {
         });
     }
 
+    public StorageEngine engine() {
+        return engine;
+    }
+
+    public int calculateSystemKillLossSince(PlayerId target, Instant since) {
+        Objects.requireNonNull(target, "Target must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.execute(conn -> {
+            String sql = """
+                SELECT COALESCE(SUM(ABS(delta)), 0)
+                FROM reputation_event
+                WHERE target_uuid = ?
+                  AND kind = 'system_kill'
+                  AND created_at > ?;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, target.toString());
+                ps.setString(2, StorageTimestamps.format(since));
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt(1);
+                    }
+                    return 0;
+                }
+            }
+        });
+    }
+
+    public CompletableFuture<Integer> calculateSystemKillLossSinceAsync(PlayerId target, Instant since) {
+        Objects.requireNonNull(target, "Target must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.executeAsync(conn -> {
+            String sql = """
+                SELECT COALESCE(SUM(ABS(delta)), 0)
+                FROM reputation_event
+                WHERE target_uuid = ?
+                  AND kind = 'system_kill'
+                  AND created_at > ?;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, target.toString());
+                ps.setString(2, StorageTimestamps.format(since));
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt(1);
+                    }
+                    return 0;
+                }
+            }
+        });
+    }
+
     private static ReputationEvent mapRow(ResultSet rs) throws SQLException {
         long id = rs.getLong("id");
         String actorStr = rs.getString("actor_uuid");

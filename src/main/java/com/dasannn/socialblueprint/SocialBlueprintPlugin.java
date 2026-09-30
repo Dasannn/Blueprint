@@ -218,7 +218,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 new com.dasannn.socialblueprint.platform.listener.DuelCombatListener(
                         duelService,
                         psychosisRepository,
-                        configManager
+                        configManager,
+                        reputationRepository
                 ),
                 this
         );

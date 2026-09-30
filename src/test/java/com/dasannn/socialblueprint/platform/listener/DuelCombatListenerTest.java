@@ -113,7 +113,7 @@ class DuelCombatListenerTest {
                 c -> {}
         );
 
-        listener = new DuelCombatListener(duelService, psychosisRepo, configManager);
+        listener = new DuelCombatListener(duelService, psychosisRepo, configManager, reputationRepo);
     }
 
     @AfterEach
@@ -204,7 +204,7 @@ class DuelCombatListenerTest {
     }
 
     @Test
-    @DisplayName("DoD 1 / T-062 / SB-032: A kill outside a duel changes only Psychosis and NEVER touches status")
+    @DisplayName("T-130 / SB-032: A kill outside a duel raises Psychosis and applies kill penalty to killer status")
     void killOutsideDuelChangesOnlyPsychosisAndNeverTouchesStatus() {
         Player killer = createMockPlayer("Murderer");
         Player victim = createMockPlayer("Innocent");
@@ -229,7 +229,7 @@ class DuelCombatListenerTest {
 
         // Pass combat death facts directly to listener
         RuntimeSnapshot snapshot = configManager.snapshot();
-        listener.handleDeath(victimId, killerId, baseTime, snapshot);
+        listener.handleDeath(victimId, killerId, baseTime, snapshot).join();
 
         // 1. Assert Psychosis: recorded with CombatContext.OPEN, open kills increases by 1!
         List<PsychosisEvent> kills = psychosisRepo.findKillsByKillerSince(killerId, baseTime.minusSeconds(200));
@@ -239,15 +239,25 @@ class DuelCombatListenerTest {
                 .as("Open kills must increase by 1, raising Killing Psychosis")
                 .isEqualTo(1);
 
-        // 2. Assert Social Status: NEVER touches status (T-062 / SB-032, baseline deduction deleted)
+        // 2. Assert Social Status: Killer loses 1 status (T-130), victim status is NEVER deducted
         Status killerStatusAfter = reputationRepo.getStatus(killerId);
         Status victimStatusAfter = reputationRepo.getStatus(victimId);
         assertThat(killerStatusAfter.value())
-                .as("Killer status must never change on open kill")
-                .isEqualTo(10);
+                .as("Killer status drops by configured delta (-1)")
+                .isEqualTo(9);
         assertThat(victimStatusAfter.value())
-                .as("Victim status must never be deducted on open kill (baseline deduction removed)")
+                .as("Victim status must never be deducted on open kill")
                 .isEqualTo(5);
+
+        // Killer received a SYSTEM_KILL event
+        List<ReputationEvent> killerEvents = reputationRepo.findByTarget(killerId);
+        assertThat(killerEvents).hasSize(2);
+        ReputationEvent penaltyEvent = killerEvents.get(1);
+        assertThat(penaltyEvent.actor()).isNull();
+        assertThat(penaltyEvent.kind()).isEqualTo(HonorKind.SYSTEM_KILL);
+        assertThat(penaltyEvent.delta()).isEqualTo(-1);
+        assertThat(penaltyEvent.cost()).isEqualTo(0.0);
+        assertThat(penaltyEvent.reason()).isEqualTo("kill-penalty.reason");
 
         // Absolutely no reputation event was added to victim
         List<ReputationEvent> victimEvents = reputationRepo.findByTarget(victimId);

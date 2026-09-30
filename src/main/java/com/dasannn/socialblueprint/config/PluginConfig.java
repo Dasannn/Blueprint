@@ -20,7 +20,9 @@ public record PluginConfig(
         PermissionsConfig permissions,
         DuelConfigSection duel,
         EffectsConfigSection effects,
-        UpdateConfig update
+        UpdateConfig update,
+        KillPenaltyConfigSection killPenalty,
+        SoundsConfigSection sounds
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -34,7 +36,8 @@ public record PluginConfig(
             PermissionsConfig permissions
     ) {
         this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                null, EffectsConfigSection.defaults(), UpdateConfig.defaults());
+                null, EffectsConfigSection.defaults(), UpdateConfig.defaults(),
+                KillPenaltyConfigSection.defaults(), SoundsConfigSection.defaults());
     }
 
     /** P5 call sites: duel supplied, effects defaulted. */
@@ -49,7 +52,8 @@ public record PluginConfig(
             DuelConfigSection duel
     ) {
         this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                duel, EffectsConfigSection.defaults(), UpdateConfig.defaults());
+                duel, EffectsConfigSection.defaults(), UpdateConfig.defaults(),
+                KillPenaltyConfigSection.defaults(), SoundsConfigSection.defaults());
     }
 
     /** P6 call sites: effects supplied, no duel configured. */
@@ -63,7 +67,25 @@ public record PluginConfig(
             PermissionsConfig permissions,
             EffectsConfigSection effects
     ) {
-        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null, effects, UpdateConfig.defaults());
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
+                null, effects, UpdateConfig.defaults(),
+                KillPenaltyConfigSection.defaults(), SoundsConfigSection.defaults());
+    }
+
+    public PluginConfig(
+            String language,
+            String chatPrefix,
+            TiersConfig tiers,
+            ConfidenceConfigSection confidence,
+            PsychosisConfigSection psychosis,
+            HonorConfigSection honor,
+            PermissionsConfig permissions,
+            DuelConfigSection duel,
+            EffectsConfigSection effects,
+            UpdateConfig update
+    ) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
+                duel, effects, update, KillPenaltyConfigSection.defaults(), SoundsConfigSection.defaults());
     }
 
     public PluginConfig {
@@ -77,6 +99,12 @@ public record PluginConfig(
         Objects.requireNonNull(effects, "effects must not be null");
         if (update == null) {
             update = UpdateConfig.defaults();
+        }
+        if (killPenalty == null) {
+            killPenalty = KillPenaltyConfigSection.defaults();
+        }
+        if (sounds == null) {
+            sounds = SoundsConfigSection.defaults();
         }
     }
 
@@ -122,8 +150,14 @@ public record PluginConfig(
                 ? EffectsConfigSection.load(root)
                 : EffectsConfigSection.defaults();
         UpdateConfig update = UpdateConfig.load(root);
+        KillPenaltyConfigSection killPenalty = root.contains("kill-penalty")
+                ? KillPenaltyConfigSection.load(root)
+                : KillPenaltyConfigSection.defaults();
+        SoundsConfigSection sounds = root.contains("sounds")
+                ? SoundsConfigSection.load(root)
+                : SoundsConfigSection.defaults();
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects, update);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects, update, killPenalty, sounds);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -137,7 +171,9 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                update
+                update,
+                killPenalty,
+                sounds
         );
     }
 
@@ -152,7 +188,9 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                update
+                update,
+                killPenalty,
+                sounds
         );
     }
 
@@ -167,7 +205,9 @@ public record PluginConfig(
                 permissions,
                 duel,
                 Objects.requireNonNull(newEffects, "effects must not be null"),
-                update
+                update,
+                killPenalty,
+                sounds
         );
     }
 
@@ -182,7 +222,43 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                Objects.requireNonNull(newUpdate, "update must not be null")
+                Objects.requireNonNull(newUpdate, "update must not be null"),
+                killPenalty,
+                sounds
+        );
+    }
+
+    public PluginConfig withKillPenalty(KillPenaltyConfigSection newKillPenalty) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                Objects.requireNonNull(newKillPenalty, "killPenalty must not be null"),
+                sounds
+        );
+    }
+
+    public PluginConfig withSounds(SoundsConfigSection newSounds) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                killPenalty,
+                Objects.requireNonNull(newSounds, "sounds must not be null")
         );
     }
 }
