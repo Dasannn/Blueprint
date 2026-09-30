@@ -24,11 +24,11 @@ second place where progress is recorded.
 | P5 Duels | `feat/p5-duels` | **done** — review closed, 283 tests green in both languages (`7eb93ab`); T-062 superseded by P12, T-139 carried into P12 |
 | P6 Ambient effects | `feat/p6-effects` | **done** — review closed, 276 tests green in both languages (`15fc1f0`) |
 | P7 Self-update | `feat/p7-selfupdate` | **done** — 291 tests green in both languages (`3c11ae6`); Codex review closed |
-| P8 Legacy import | `feat/p8-legacy-import` | in progress |
-| P9 Rating decay | `feat/p9-decay` | in progress |
-| P10 History GUI, anonymity | `feat/p10-gui` | not started |
+| P8 Legacy import | `feat/p8-legacy-import` | **done** — review closed, 263 tests green in both languages (`ca72c41`) |
+| P9 Rating decay | `feat/p9-decay` | **done** — review closed, 267 tests green in both languages (`2b83756`) |
+| P10 History GUI, anonymity | `feat/p10-gui` | in progress — written, 14 GUI tests failing, fix round running |
 | P11 Hardening | — | not started |
-| P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | in progress |
+| P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -190,9 +190,9 @@ Parallel with P5.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-090 | Read an old PlayerStatus `config.yml`; write one `legacy_import` event per player, no actor. | — | todo |
-| T-091 | Legacy events contribute nothing to Reputation Confidence. | SB-003 | todo |
-| T-092 | Import is idempotent and reports what it did. | — | todo |
+| T-090 | Read an old PlayerStatus `config.yml`; write one `legacy_import` event per player, no actor. | — | done |
+| T-091 | Legacy events contribute nothing to Reputation Confidence. | SB-003 | done |
+| T-092 | Import is idempotent and reports what it did. | — | done |
 
 **Gate:** a real old configuration imports with no score loss and invents no evidence.
 
@@ -202,9 +202,9 @@ Parallel with P5.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-110 | Age-weighted contribution of a reputation event to social status, curve configured in YAML. No event is ever deleted or rewritten. | SB-006 | todo |
-| T-111 | Decay configuration is independent of Confidence's age weighting. Changing one must not change the other; a test proves it. | SB-006, SB-003 | todo |
-| T-112 | Symmetric tier ladder: negative thresholds at `-5`, `-15`, `-30`, `-50`. Migrate an existing configuration without reclassifying anyone silently — report what moved. | SB-011a | todo |
+| T-110 | Age-weighted contribution of a reputation event to social status, curve configured in YAML. No event is ever deleted or rewritten. | SB-006 | done |
+| T-111 | Decay configuration is independent of Confidence's age weighting. Changing one must not change the other; a test proves it. | SB-006, SB-003 | done |
+| T-112 | Symmetric tier ladder: negative thresholds at `-5`, `-15`, `-30`, `-50`. Migrate an existing configuration without reclassifying anyone silently — report what moved. | SB-011a | done |
 
 **Gate:** an old negative event loses weight over a simulated year while the
 event itself is still readable in the history; falling a tier costs the same
@@ -250,15 +250,15 @@ status half of T-062 and removes the last hardcoded sound.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-130 | A kill outside a duel writes a system-authored reputation event: actor `SYSTEM`, cost `0`, message-key reason, YAML delta (default `-1`). Stored, derived and decayed like any other event. | SB-032 | todo |
-| T-131 | The system event never raises Reputation Confidence, and Psychosis still never moves status. A test asserts both metrics move only by their own rule. | SB-034, SB-004 | todo |
-| T-132 | One penalty per killer-victim pair per configurable cooldown, plus a configurable per-window cap on total automatic loss. | SB-035 | todo |
-| T-133 | Penalty skipped inside a duel, when the killer cannot be identified, and in YAML-exempt worlds. Delta `0` disables the feature. | SB-036, SB-031 | todo |
+| T-130 | A kill outside a duel writes a system-authored reputation event: actor `SYSTEM`, cost `0`, message-key reason, YAML delta (default `-1`). Stored, derived and decayed like any other event. | SB-032 | done |
+| T-131 | The system event never raises Reputation Confidence, and Psychosis still never moves status. A test asserts both metrics move only by their own rule. | SB-034, SB-004 | done |
+| T-132 | One penalty per killer-victim pair per configurable cooldown, plus a configurable per-window cap on total automatic loss. | SB-035 | done |
+| T-133 | Penalty skipped inside a duel, when the killer cannot be identified, and in YAML-exempt worlds. Delta `0` disables the feature. | SB-036, SB-031 | done |
 | T-139 | An attack's duel context is decided when it lands, not when the victim dies: an arrow fired before consent that kills after the duel starts is an open-world kill, and one fired during a duel that lands after it ends is not. Carried over from the P5 review. | SB-031, SB-032 | todo |
-| T-134 | The system event renders in the history GUI and in `/status history` like any other, with its reason translated from the message key. | SB-032, SB-080 | todo |
-| T-135 | `sounds:` section in `config.yml`: one named slot per sound, each with key, volume, pitch and category. Every existing sound — starting with the creeper fuse in `AmbientEffectDispatcher` — reads its slot instead of a constant. | SB-090 | todo |
-| T-136 | An empty slot plays nothing; an unrecognised key logs a warning naming the slot once and plays nothing. Neither ever throws or blocks the action the sound accompanied. | SB-090 | todo |
-| T-137 | Slots are reloadable in-game with the rest of the configuration, and private sounds still reach only the affected player. | SB-091, SB-041, SB-062 | todo |
+| T-134 | The system event renders in the history GUI and in `/status history` like any other, with its reason translated from the message key. | SB-032, SB-080 | done |
+| T-135 | `sounds:` section in `config.yml`: one named slot per sound, each with key, volume, pitch and category. Every existing sound — starting with the creeper fuse in `AmbientEffectDispatcher` — reads its slot instead of a constant. | SB-090 | done |
+| T-136 | An empty slot plays nothing; an unrecognised key logs a warning naming the slot once and plays nothing. Neither ever throws or blocks the action the sound accompanied. | SB-090 | done |
+| T-137 | Slots are reloadable in-game with the rest of the configuration, and private sounds still reach only the affected player. | SB-091, SB-041, SB-062 | done |
 | T-138 | A slot may hold several layers, each with its own key, volume, pitch, category and tick delay; they play in order from one trigger. The single-mapping form still means one layer at delay `0`. | SB-092 | todo |
 
 **Gate:** a non-duel kill lowers status once per pair cooldown, bounded by the
