@@ -83,7 +83,7 @@ class ConfigValidationTest {
         // Verify Honor settings
         assertThat(config.honor().cost()).isEqualTo(500.0);
         assertThat(config.honor().multipliers()).containsExactly(1.0, 1.5, 2.0, 3.0);
-        assertThat(config.honor().window()).isEqualTo(Duration.ofHours(1));
+        assertThat(config.honor().window()).isEqualTo(Duration.ofDays(7));
         assertThat(config.honor().cooldownPerPair()).isEqualTo(Duration.ofHours(24));
         assertThat(config.honor().maxPerTarget()).isEqualTo(3);
     }

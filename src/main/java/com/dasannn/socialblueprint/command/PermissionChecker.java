@@ -2,7 +2,6 @@ package com.dasannn.socialblueprint.command;
 
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Objects;
@@ -23,29 +22,29 @@ public final class PermissionChecker {
         Objects.requireNonNull(actionKey, "actionKey must not be null");
         Objects.requireNonNull(snapshot, "snapshot must not be null");
 
-        // Console sender is permitted for all console-capable actions
-        if (!(sender instanceof Player player)) {
-            return true;
-        }
+        // Permissible#hasPermission is declared on CommandSender, so the same path
+        // serves players, the console and command blocks. The console is granted
+        // everything by the server itself; it needs no special case here, and a
+        // special case would also wave through command blocks and remote console.
 
         // 1. Check configured permission node from runtime snapshot
         String configuredNode = snapshot.config().permissions().node(actionKey);
-        if (configuredNode != null && player.hasPermission(configuredNode)) {
+        if (configuredNode != null && sender.hasPermission(configuredNode)) {
             return true;
         }
 
         // Parent permissions declared in plugin.yml
-        if (player.hasPermission("socialblueprint.*")) {
+        if (sender.hasPermission("socialblueprint.*")) {
             return true;
         }
-        if (actionKey.startsWith("admin") && player.hasPermission("socialblueprint.admin")) {
+        if (actionKey.startsWith("admin") && sender.hasPermission("socialblueprint.admin")) {
             return true;
         }
 
         // 2. Backward compatibility: consult legacy pstatus.* nodes
         List<String> legacyNodes = legacyNodesFor(actionKey);
         for (String legacy : legacyNodes) {
-            if (player.hasPermission(legacy)) {
+            if (sender.hasPermission(legacy)) {
                 return true;
             }
         }

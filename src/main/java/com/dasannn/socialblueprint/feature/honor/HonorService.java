@@ -181,7 +181,7 @@ public class HonorService {
                                     }
                                 }))
                                 .exceptionally(ex -> {
-                                    future.completeExceptionally(ex);
+                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
                                     return null;
                                 });
                     });
@@ -311,26 +311,28 @@ public class HonorService {
             saveFuture = CompletableFuture.failedFuture(ex);
         }
 
-        return saveFuture
-                .handle((saved, error) -> {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        saveFuture.whenComplete((saved, error) -> {
+            mainThreadRunner.accept(() -> {
+                try {
                     if (error != null) {
                         // Write failed: refund on main thread (SB-057)
-                        mainThreadRunner.accept(() -> {
-                            if (economy != null) {
-                                economy.depositPlayer(actor, pending.cost());
-                            }
-                            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
-                        });
+                        if (economy != null) {
+                            economy.depositPlayer(actor, pending.cost());
+                        }
+                        actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
                     } else {
                         // Write succeeded: notify actor on main thread
-                        mainThreadRunner.accept(() -> {
-                            String msgKey = pending.kind() == HonorKind.POSITIVE ? "honor.given" : "honor.removed";
-                            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, msgKey,
-                                    Map.of("target", pending.targetName())));
-                        });
+                        String msgKey = pending.kind() == HonorKind.POSITIVE ? "honor.given" : "honor.removed";
+                        actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, msgKey,
+                                Map.of("target", pending.targetName())));
                     }
-                    return null;
-                });
+                } finally {
+                    future.complete(null);
+                }
+            });
+        });
+        return future;
     }
 
     /**

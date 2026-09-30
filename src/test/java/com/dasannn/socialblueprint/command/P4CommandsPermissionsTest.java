@@ -27,6 +27,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
@@ -52,9 +53,11 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -74,6 +77,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * - DoD 5: Failed charge writes no event; failed write refunds.
  * - DoD 6: No blocking DB call on main thread, and no Bukkit call off it.
  */
+@Timeout(value = 10, unit = TimeUnit.SECONDS)
 class P4CommandsPermissionsTest {
 
     @TempDir
@@ -348,16 +352,16 @@ class P4CommandsPermissionsTest {
         }
     }
 
-    private void drainMainThread() {
-        long deadline = System.currentTimeMillis() + 3000;
+    private void drainQueueUntilDone(Queue<Runnable> queue, CompletableFuture<?> future) {
+        long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
             Runnable r;
             boolean executed = false;
-            while ((r = mainThreadQueue.poll()) != null) {
+            while ((r = queue.poll()) != null) {
                 r.run();
                 executed = true;
             }
-            if (!executed && commandExecutor.lastExecution().isDone()) {
+            if (!executed && (future == null || future.isDone())) {
                 break;
             }
             try {
@@ -368,9 +372,13 @@ class P4CommandsPermissionsTest {
             }
         }
         Runnable r;
-        while ((r = mainThreadQueue.poll()) != null) {
+        while ((r = queue.poll()) != null) {
             r.run();
         }
+    }
+
+    private void drainMainThread() {
+        drainQueueUntilDone(mainThreadQueue, commandExecutor.lastExecution());
     }
 
     private boolean runCommandSync(CommandSender sender, String label, String... args) {
@@ -690,9 +698,9 @@ class P4CommandsPermissionsTest {
 
             // Prepare rating (Stage 1: succeeds and prepares confirmation)
             customExecutor.onCommand(actor, null, "status", new String[]{"give", "Target2"});
-            drainQueue(failingQueue);
+            drainQueueUntilDone(failingQueue, customExecutor.lastExecution());
             customExecutor.lastExecution().join();
-            drainQueue(failingQueue);
+            drainQueueUntilDone(failingQueue, customExecutor.lastExecution());
 
             assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
@@ -704,9 +712,9 @@ class P4CommandsPermissionsTest {
 
             // Confirm rating (Stage 2: charge succeeds, DB write fails, refund triggered)
             customExecutor.onCommand(actor, null, "status", new String[]{"confirm"});
-            drainQueue(failingQueue);
+            drainQueueUntilDone(failingQueue, customExecutor.lastExecution());
             customExecutor.lastExecution().join();
-            drainQueue(failingQueue);
+            drainQueueUntilDone(failingQueue, customExecutor.lastExecution());
 
             // Verify withdrawal was attempted and succeeded
             assertThat(economyWithdrawCount.get()).isEqualTo(withdrawsBefore + 1);
@@ -724,13 +732,6 @@ class P4CommandsPermissionsTest {
             assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.write-failed");
         } finally {
             failingEngine.close();
-        }
-    }
-
-    private void drainQueue(Queue<Runnable> q) {
-        Runnable r;
-        while ((r = q.poll()) != null) {
-            r.run();
         }
     }
 
@@ -872,7 +873,9 @@ class P4CommandsPermissionsTest {
         mockPlayer("CapTarget");
         economyBalances.put(actor.getUniqueId(), 5000.0);
 
-        Duration cooldown = Duration.ofMinutes(15);
+        // Must match honor.cooldown-per-pair in config.yml, or the ratings are
+        // refused for cooldown and the cap is never exercised.
+        Duration cooldown = Duration.ofHours(24);
 
         // Issue 3 positive ratings (advancing time past cooldown each time)
         for (int i = 0; i < 3; i++) {
