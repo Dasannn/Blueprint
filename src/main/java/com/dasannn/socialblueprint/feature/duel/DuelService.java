@@ -19,6 +19,7 @@ import net.kyori.adventure.text.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -66,6 +67,7 @@ public class DuelService {
         record ConsentRecorded(DuelChallenge challenge, int acceptedCount, int totalCount) implements AcceptResult {}
         record AlreadyInDuel() implements AcceptResult {}
         record NoPendingChallenge() implements AcceptResult {}
+        record ChallengeCancelled(DuelChallenge challenge) implements AcceptResult {}
     }
 
     public sealed interface DenyResult {
@@ -154,7 +156,9 @@ public class DuelService {
                 if (isInActiveDuel(member)) {
                     return new ChallengeResult.TargetAlreadyInDuel(member);
                 }
-                allParticipants.add(member);
+                if (!allParticipants.add(member)) {
+                    return new ChallengeResult.CannotDuelSelf();
+                }
             }
         }
 
@@ -218,6 +222,22 @@ public class DuelService {
         String playerName = resolveName(player);
 
         if (challenge.hasEveryMemberConsented()) {
+            // Verify no participant is already in an active duel
+            boolean anyInActiveDuel = false;
+            for (PlayerId participant : challenge.allParticipants()) {
+                if (isInActiveDuel(participant)) {
+                    anyInActiveDuel = true;
+                    break;
+                }
+            }
+            if (anyInActiveDuel) {
+                cleanUpChallenge(challenge.id());
+                for (PlayerId p : challenge.allParticipants()) {
+                    messageSender.accept(p, messageRegistry.renderWithPrefix(snapshot, "duel.challenge-cancelled"));
+                }
+                return new AcceptResult.ChallengeCancelled(challenge);
+            }
+
             // All invited sides and participants have consented! Start duel!
             cleanUpChallenge(challenge.id());
 
@@ -225,8 +245,8 @@ public class DuelService {
             activeDuels.put(session.id(), session);
             for (PlayerId participant : session.allParticipants()) {
                 playerToActiveDuel.put(participant, session.id());
-                // Cancel any lingering pending challenges for participants
-                cancelOutgoingChallenge(participant);
+                // When a player enters a duel, cancel every invitation that involves them
+                cancelAllInvitationsInvolving(participant, snapshot);
             }
 
             // Persist active duel in SQLite on storage executor
@@ -318,9 +338,8 @@ public class DuelService {
         // 2. If challenger with an outgoing pending challenge: cancel it
         String outgoingId = playerOutgoingChallenge.get(player);
         if (outgoingId != null) {
-            DuelChallenge challenge = pendingChallenges.get(outgoingId);
+            DuelChallenge challenge = cleanUpChallenge(outgoingId);
             if (challenge != null) {
-                cleanUpChallenge(outgoingId);
                 for (PlayerId p : challenge.allParticipants()) {
                     messageSender.accept(p, messageRegistry.renderWithPrefix(snapshot, "duel.challenge-cancelled"));
                 }
@@ -332,16 +351,15 @@ public class DuelService {
     }
 
     public void expireChallenge(String challengeId, RuntimeSnapshot snapshot) {
-        DuelChallenge challenge = pendingChallenges.remove(challengeId);
+        DuelChallenge challenge = cleanUpChallenge(challengeId);
         if (challenge != null) {
-            cleanUpChallenge(challengeId);
             for (PlayerId p : challenge.allParticipants()) {
                 messageSender.accept(p, messageRegistry.renderWithPrefix(snapshot, "duel.expired"));
             }
         }
     }
 
-    private void cleanUpChallenge(String challengeId) {
+    private DuelChallenge cleanUpChallenge(String challengeId) {
         DuelChallenge challenge = pendingChallenges.remove(challengeId);
         TimerScheduler.TaskHandle handle = challengeExpiryHandles.remove(challengeId);
         if (handle != null) {
@@ -360,13 +378,40 @@ public class DuelService {
                 }
             }
         }
+        return challenge;
     }
 
-    private void cancelOutgoingChallenge(PlayerId player) {
-        String challengeId = playerOutgoingChallenge.remove(player);
-        if (challengeId != null) {
-            cleanUpChallenge(challengeId);
+    private void cancelAllInvitationsInvolving(PlayerId player, RuntimeSnapshot snapshot) {
+        String outgoingId = playerOutgoingChallenge.get(player);
+        if (outgoingId != null) {
+            DuelChallenge outgoing = cleanUpChallenge(outgoingId);
+            if (outgoing != null) {
+                for (PlayerId p : outgoing.allParticipants()) {
+                    messageSender.accept(p, messageRegistry.renderWithPrefix(snapshot, "duel.challenge-cancelled"));
+                }
+            }
         }
+
+        Set<String> incoming = playerIncomingChallenges.get(player);
+        if (incoming != null) {
+            List<String> incomingIds = new ArrayList<>(incoming);
+            for (String chId : incomingIds) {
+                DuelChallenge inChallenge = cleanUpChallenge(chId);
+                if (inChallenge != null) {
+                    for (PlayerId p : inChallenge.allParticipants()) {
+                        messageSender.accept(p, messageRegistry.renderWithPrefix(snapshot, "duel.challenge-cancelled"));
+                    }
+                }
+            }
+        }
+    }
+
+    private DuelChallenge cancelOutgoingChallenge(PlayerId player) {
+        String challengeId = playerOutgoingChallenge.get(player);
+        if (challengeId != null) {
+            return cleanUpChallenge(challengeId);
+        }
+        return null;
     }
 
     private DuelChallenge findIncomingChallenge(PlayerId player, String optionalChallengerQuery) {
@@ -376,9 +421,15 @@ public class DuelService {
         }
 
         if (optionalChallengerQuery == null || optionalChallengerQuery.isBlank()) {
-            // Default to most recently or first available challenge
-            String firstId = incomingIds.iterator().next();
-            return pendingChallenges.get(firstId);
+            // The newest invitation, not an arbitrary one: incomingIds is a hash set,
+            // so iteration order made a bare /status accept nondeterministic when two
+            // challenges were pending. Ties break on id so the choice stays stable.
+            return incomingIds.stream()
+                    .map(pendingChallenges::get)
+                    .filter(Objects::nonNull)
+                    .max(Comparator.comparing(DuelChallenge::createdAt)
+                            .thenComparing(DuelChallenge::id))
+                    .orElse(null);
         }
 
         for (String id : incomingIds) {
@@ -405,6 +456,10 @@ public class DuelService {
         if (isInActiveDuel(victim)) {
             recentDamageTime.put(victim, timestamp);
             recentDamagers.put(victim, attacker);
+        }
+        if (isInActiveDuel(attacker)) {
+            recentDamageTime.put(attacker, timestamp);
+            recentDamagers.put(attacker, victim);
         }
     }
 
@@ -474,7 +529,7 @@ public class DuelService {
             boolean concluded = session.eliminate(player);
             playerToActiveDuel.remove(player);
             recentDamageTime.remove(player);
-            recentDamagers.remove(player);
+            PlayerId damagerId = recentDamagers.remove(player);
 
             // Audit row per T-063 and ARCHITECTURE.md §4
             auditRepository.saveAsync(new AuditEvent(
@@ -492,7 +547,6 @@ public class DuelService {
                     ? snapshot.config().duel().disconnect().action()
                     : "broadcast";
 
-            PlayerId damagerId = recentDamagers.get(player);
             String opponentName = damagerId != null ? resolveName(damagerId) : "opponent";
 
             if ("notify".equalsIgnoreCase(action)) {
@@ -624,7 +678,7 @@ public class DuelService {
         // End and persist all in-flight active duels as cancelled
         Instant now = Instant.now();
         for (ActiveDuelSession session : activeDuels.values()) {
-            duelRepository.updateState(session.id(), DuelState.CANCELLED, now);
+            duelRepository.updateStateAsync(session.id(), DuelState.CANCELLED, now);
         }
 
         pendingChallenges.clear();

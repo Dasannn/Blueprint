@@ -298,6 +298,7 @@ public class ConfigManager {
         set.add("permissions.view-reputation");
         set.add("permissions.admin-adjust");
         set.add("permissions.admin-config");
+        set.add("permissions.duel");
 
         return Collections.unmodifiableSet(set);
     }

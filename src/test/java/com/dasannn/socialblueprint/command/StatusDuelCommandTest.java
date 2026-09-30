@@ -481,6 +481,37 @@ class StatusDuelCommandTest {
         assertThat(multiCompletions).contains("vs", "Charlie");
     }
 
+    @Test
+    @DisplayName("P1: /status duel B vs B rejects duplicate player across sides")
+    void duelCommandRejectsSamePlayerAcrossSides() {
+        Player alice = mockPlayer("Alice", "socialblueprint.duel");
+        mockPlayer("Bob", "socialblueprint.duel");
+
+        commandExecutor.onCommand(alice, null, "status", new String[]{"duel", "Bob", "vs", "Bob"});
+        assertThat(getLastCall(alice).key()).isEqualTo("duel.cannot-duel-self");
+        assertThat(duelService.pendingChallengeCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("P2: permissions.duel is present in config and can be dynamically remapped")
+    void duelPermissionIsConfigurableAndRemappable() {
+        // Assert permissions.duel is recognized as a supported config leaf
+        assertThat(configManager.isEditableKey("permissions.duel")).isTrue();
+
+        Player player = mockPlayer("CustomDuelist", "custom.duel.node");
+        RuntimeSnapshot snapshotBefore = configManager.snapshot();
+
+        // Before remapping: player without socialblueprint.duel is denied
+        assertThat(PermissionChecker.hasPermission(player, "duel", snapshotBefore)).isFalse();
+
+        // Remap permissions.duel to custom.duel.node
+        configManager.set("permissions.duel", "custom.duel.node");
+        RuntimeSnapshot snapshotAfter = configManager.snapshot();
+
+        // After remapping: player with custom.duel.node is granted
+        assertThat(PermissionChecker.hasPermission(player, "duel", snapshotAfter)).isTrue();
+    }
+
     private void copyResource(String resourceName, File destination) throws Exception {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourceName)) {
             if (in == null) {

@@ -249,8 +249,18 @@ class SocialBlueprintPluginTest {
                 .as("Async initialization must schedule completeInitialization on Bukkit main thread")
                 .isNotEmpty();
 
-        Runnable completeTask = scheduledMainTasks.poll();
-        completeTask.run();
+        // Startup now hops twice: the coordinator's ready callback lands on the main
+        // thread, and the stale-duel cleanup it starts schedules completeInitialization
+        // when it finishes. Drain until the engine is set rather than assuming one task.
+        long drainDeadline = System.currentTimeMillis() + 3000;
+        while (plugin.getStorageEngine() == null && System.currentTimeMillis() < drainDeadline) {
+            Runnable next = scheduledMainTasks.poll();
+            if (next != null) {
+                next.run();
+            } else {
+                Thread.sleep(20);
+            }
+        }
 
         // After running the scheduled task, completeInitialization must be done
         assertThat(plugin.getStorageEngine())

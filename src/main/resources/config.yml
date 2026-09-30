@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # SocialBlueprint Configuration
 # ==============================================================================
 
@@ -136,6 +136,7 @@ permissions:
   view-reputation: "socialblueprint.view"
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
+  duel: "socialblueprint.duel"
 
 # ==============================================================================
 # Duels (SB-030, SB-031, SB-032, SB-033, T-060, T-063)

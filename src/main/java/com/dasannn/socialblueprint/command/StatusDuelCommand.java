@@ -204,8 +204,15 @@ public class StatusDuelCommand {
             return CompletableFuture.completedFuture(null);
         }
 
-        // Cannot duel self
-        if (side2.contains(challengerId)) {
+        // Cannot duel self or have duplicate players across sides
+        boolean hasOverlap = false;
+        for (PlayerId p : side1) {
+            if (side2.contains(p)) {
+                hasOverlap = true;
+                break;
+            }
+        }
+        if (hasOverlap) {
             player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "duel.cannot-duel-self"));
             return CompletableFuture.completedFuture(null);
         }

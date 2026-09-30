@@ -41,9 +41,15 @@ public final class DuelChallenge {
         }
 
         Map<String, Set<PlayerId>> copy = new HashMap<>();
+        Set<PlayerId> allSeen = new HashSet<>();
         for (Map.Entry<String, Set<PlayerId>> entry : sides.entrySet()) {
             if (entry.getValue() == null || entry.getValue().isEmpty()) {
                 throw new IllegalArgumentException("Side cannot be empty: " + entry.getKey());
+            }
+            for (PlayerId member : entry.getValue()) {
+                if (!allSeen.add(member)) {
+                    throw new IllegalArgumentException("Player cannot be on multiple sides: " + member);
+                }
             }
             copy.put(entry.getKey(), Collections.unmodifiableSet(new HashSet<>(entry.getValue())));
         }

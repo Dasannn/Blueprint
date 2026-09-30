@@ -36,8 +36,12 @@ public final class ActiveDuelSession {
         Set<PlayerId> all = new HashSet<>();
         for (Map.Entry<String, Set<PlayerId>> entry : sides.entrySet()) {
             Set<PlayerId> s = Collections.unmodifiableSet(new HashSet<>(entry.getValue()));
+            for (PlayerId member : s) {
+                if (!all.add(member)) {
+                    throw new IllegalArgumentException("Player cannot be on multiple sides: " + member);
+                }
+            }
             copy.put(entry.getKey(), s);
-            all.addAll(s);
         }
         this.sides = Collections.unmodifiableMap(copy);
         this.remainingPlayers = new HashSet<>(all);
