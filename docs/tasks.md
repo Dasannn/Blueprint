@@ -21,14 +21,18 @@ second place where progress is recorded.
 | P2 Configuration | `feat/p2-configuration` | **done** — 157 tests green in both languages; thirteen review findings closed across three rounds |
 | P3 Status, tiers, chat | `feat/p3-status-chat` | **done** — 200 tests green in both languages; eighteen review findings closed across two rounds, one rejected by decision |
 | P4 Commands, permissions | `feat/p4-commands-permissions` | **done** — 234 tests green in both languages; sixteen review findings closed across four rounds, plus three defects found only on a live server |
-| P5 Duels | `feat/p5-duels` | **done** — 270 tests green in both languages (`986776e`); T-062 superseded by P12 |
-| P6 Ambient effects | `feat/p6-effects` | **done** — 269 tests green in both languages (`85f72b6`) |
+| P5 Duels | `feat/p5-duels` | **done** — review closed, 283 tests green in both languages (`7eb93ab`); T-062 superseded by P12, T-139 carried into P12 |
+| P6 Ambient effects | `feat/p6-effects` | **done** — review closed, 276 tests green in both languages (`15fc1f0`) |
 | P7 Self-update | `feat/p7-selfupdate` | **done** — 291 tests green in both languages (`3c11ae6`); Codex review closed |
-| P8 Legacy import | — | not started |
-| P9 Rating decay | — | not started |
-| P10 History GUI, anonymity | — | not started |
+| P8 Legacy import | `feat/p8-legacy-import` | in progress |
+| P9 Rating decay | `feat/p9-decay` | in progress |
+| P10 History GUI, anonymity | `feat/p10-gui` | not started |
 | P11 Hardening | — | not started |
-| P12 Kill penalty, configurable sounds | — | not started |
+| P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | in progress |
+
+An integration branch, `integration/r1`, carries P4 through P7 merged together
+and is the base for P10 and P12. It exists because three phases branched from
+P4 in parallel and each added a constructor to the same two classes.
 
 Reference produced along the way: `docs/reference/paper-26.3-notes.md` settles
 the 26.3 API for every later phase, and corrected two things this project had
