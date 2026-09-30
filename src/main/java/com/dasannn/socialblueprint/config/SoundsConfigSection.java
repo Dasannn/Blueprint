@@ -39,9 +39,7 @@ public record SoundsConfigSection(
     }
 
     public static SoundsConfigSection defaults() {
-        Map<String, SoundSlotConfig> defaultSlots = new HashMap<>();
-        defaultSlots.put("creeper-fuse", new SoundSlotConfig("entity.creeper.primed", 1.0f, 0.5f, SoundCategory.HOSTILE));
-        return new SoundsConfigSection(defaultSlots);
+        return new SoundsConfigSection(Collections.emptyMap());
     }
 
     public static SoundsConfigSection load(ConfigurationSection root) {
@@ -63,18 +61,52 @@ public record SoundsConfigSection(
                 ConfigurationSection slotSec = section.getConfigurationSection(slotName);
                 if (slotSec != null) {
                     String key = slotSec.getString("key", "");
-                    float volume = (float) slotSec.getDouble("volume", 1.0);
-                    float pitch = (float) slotSec.getDouble("pitch", 1.0);
+
+                    double rawVolume = 1.0;
+                    if (slotSec.contains("volume")) {
+                        Object obj = slotSec.get("volume");
+                        if (obj instanceof Number num) {
+                            rawVolume = num.doubleValue();
+                        } else {
+                            try {
+                                rawVolume = Double.parseDouble(String.valueOf(obj));
+                            } catch (NumberFormatException e) {
+                                throw new ConfigValidationException("sounds." + slotName + ".volume",
+                                        "Volume for sound slot '" + slotName + "' must be a valid number, got: " + obj);
+                            }
+                        }
+                    }
+                    float volume = (float) rawVolume;
+                    if (!Float.isFinite(volume) || volume < 0.0f) {
+                        throw new ConfigValidationException("sounds." + slotName + ".volume",
+                                "Volume for sound slot '" + slotName + "' must be a non-negative finite number, got: " + rawVolume);
+                    }
+
+                    double rawPitch = 1.0;
+                    if (slotSec.contains("pitch")) {
+                        Object obj = slotSec.get("pitch");
+                        if (obj instanceof Number num) {
+                            rawPitch = num.doubleValue();
+                        } else {
+                            try {
+                                rawPitch = Double.parseDouble(String.valueOf(obj));
+                            } catch (NumberFormatException e) {
+                                throw new ConfigValidationException("sounds." + slotName + ".pitch",
+                                        "Pitch for sound slot '" + slotName + "' must be a valid number, got: " + obj);
+                            }
+                        }
+                    }
+                    float pitch = (float) rawPitch;
+                    if (!Float.isFinite(pitch) || pitch < 0.0f || pitch > 2.0f) {
+                        throw new ConfigValidationException("sounds." + slotName + ".pitch",
+                                "Pitch for sound slot '" + slotName + "' must be a finite number between 0.0 and 2.0, got: " + rawPitch);
+                    }
+
                     String rawCat = slotSec.getString("category", "MASTER");
                     SoundCategory category = parseCategory(rawCat, slotName, log);
                     slots.put(slotName.toLowerCase(Locale.ROOT), new SoundSlotConfig(key, volume, pitch, category));
                 }
             }
-        }
-
-        // If creeper-fuse was not explicitly configured in sounds block, supply default
-        if (!slots.containsKey("creeper-fuse")) {
-            slots.put("creeper-fuse", new SoundSlotConfig("entity.creeper.primed", 1.0f, 0.5f, SoundCategory.HOSTILE));
         }
 
         return new SoundsConfigSection(slots);

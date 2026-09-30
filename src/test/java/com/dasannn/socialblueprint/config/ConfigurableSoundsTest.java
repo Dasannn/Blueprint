@@ -34,6 +34,7 @@ import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ConfigurableSoundsTest {
 
@@ -298,6 +299,79 @@ class ConfigurableSoundsTest {
 
         // Still never called world.playSound
         assertThat(worldSoundCalled.get()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 6: Absent sounds block or absent slot defaults to silent without hardcoded Java sound keys")
+    void finding6_absentSoundsBlockOrAbsentSlotIsSilentWithoutJavaDefaults() {
+        // Defaults() in Java must have no hardcoded creeper sound (SB-090)
+        SoundsConfigSection defaultSection = SoundsConfigSection.defaults();
+        assertThat(defaultSection.slots()).isEmpty();
+        assertThat(defaultSection.creeperFuse().isSilent()).isTrue();
+        assertThat(defaultSection.creeperFuse().key()).isEmpty();
+
+        // Config YAML without a sounds section
+        YamlConfiguration emptyYaml = YamlConfiguration.loadConfiguration(new StringReader("version: 1"));
+        SoundsConfigSection loadedEmpty = SoundsConfigSection.load(emptyYaml);
+        assertThat(loadedEmpty.slots()).isEmpty();
+        assertThat(loadedEmpty.creeperFuse().isSilent()).isTrue();
+        assertThat(loadedEmpty.get("creeper-fuse").isSilent()).isTrue();
+        assertThat(loadedEmpty.get("non-existent-slot").isSilent()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Finding 7: Validate volume and pitch on load and reject invalid values naming the slot")
+    void finding7_validateVolumeAndPitchOnLoad() {
+        // Negative volume
+        String negativeVolumeYaml = """
+            sounds:
+              bad-vol-slot:
+                key: "entity.creeper.primed"
+                volume: -0.1
+                pitch: 1.0
+            """;
+        assertThatThrownBy(() -> SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(negativeVolumeYaml))))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("bad-vol-slot")
+                .hasMessageContaining("volume");
+
+        // Pitch below 0.0
+        String lowPitchYaml = """
+            sounds:
+              bad-pitch-slot:
+                key: "entity.creeper.primed"
+                volume: 1.0
+                pitch: -0.01
+            """;
+        assertThatThrownBy(() -> SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(lowPitchYaml))))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("bad-pitch-slot")
+                .hasMessageContaining("pitch");
+
+        // Pitch above 2.0
+        String highPitchYaml = """
+            sounds:
+              high-pitch-slot:
+                key: "entity.creeper.primed"
+                volume: 1.0
+                pitch: 2.1
+            """;
+        assertThatThrownBy(() -> SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(highPitchYaml))))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("high-pitch-slot")
+                .hasMessageContaining("pitch");
+
+        // Direct constructor validation in SoundSlotConfig
+        assertThatThrownBy(() -> new SoundSlotConfig("test", -1.0f, 1.0f, SoundCategory.MASTER))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SoundSlotConfig("test", Float.NaN, 1.0f, SoundCategory.MASTER))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SoundSlotConfig("test", 1.0f, -0.1f, SoundCategory.MASTER))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SoundSlotConfig("test", 1.0f, 2.5f, SoundCategory.MASTER))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SoundSlotConfig("test", 1.0f, Float.NaN, SoundCategory.MASTER))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

@@ -62,6 +62,17 @@ public final class Migration_1_InitialSchema implements Migration {
             """);
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_psychosis_killer ON psychosis_event (killer_uuid, created_at);");
 
+            // kill_penalty_claim: id, killer uuid, victim uuid, created_at (Finding 4)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS kill_penalty_claim (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    killer_uuid TEXT NOT NULL,
+                    victim_uuid TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+            """);
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_kill_penalty_claim_pair ON kill_penalty_claim (killer_uuid, victim_uuid, created_at);");
+
             // honor_allowance: actor uuid, target uuid, sign, count, window_start
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS honor_allowance (

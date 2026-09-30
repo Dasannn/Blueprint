@@ -19,6 +19,7 @@ import com.dasannn.socialblueprint.feature.duel.DuelService;
 import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
 import com.dasannn.socialblueprint.storage.AuditRepository;
 import com.dasannn.socialblueprint.storage.DuelRepository;
+import com.dasannn.socialblueprint.storage.KillPenaltyResult;
 import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
@@ -48,10 +49,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
+import com.dasannn.socialblueprint.storage.StorageTestSupport;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
 class KillPenaltyTest {
@@ -296,7 +300,7 @@ class KillPenaltyTest {
             Player victim = createMockPlayer("Victim_" + i);
             PlayerId victimId = PlayerId.of(victim.getUniqueId());
             Instant killTime = baseTime.plus(Duration.ofMinutes(i * 5));
-            listener.handleDeath(victimId, killerId, null, killTime, customSnapshot).join();
+            listener.handleDeath(victimId, killerId, "world", killTime, customSnapshot).join();
         }
 
         assertThat(reputationRepo.findByTarget(killerId)).hasSize(3);
@@ -307,7 +311,7 @@ class KillPenaltyTest {
         Player victim4 = createMockPlayer("Victim_4");
         PlayerId victim4Id = PlayerId.of(victim4.getUniqueId());
         Instant killTime4 = baseTime.plus(Duration.ofMinutes(20));
-        listener.handleDeath(victim4Id, killerId, null, killTime4, customSnapshot).join();
+        listener.handleDeath(victim4Id, killerId, "world", killTime4, customSnapshot).join();
 
         // Reputation event was NOT written, status remains capped at -3
         assertThat(reputationRepo.findByTarget(killerId)).hasSize(3);
@@ -410,12 +414,153 @@ class KillPenaltyTest {
                 configManager.snapshot().messages()
         );
 
-        listener.handleDeath(victimId, killerId, null, baseTime, snapshot).join();
+        listener.handleDeath(victimId, killerId, "world", baseTime, snapshot).join();
 
         // No reputation event written
         assertThat(reputationRepo.findByTarget(killerId)).isEmpty();
 
         // Psychosis still rises
+        assertThat(psychosisRepo.findKillsByKillerSince(killerId, baseTime.minusSeconds(10))).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Finding 1: Interleaved concurrent deaths obey cooldown and cap")
+    void finding1_interleavedConcurrentDeathsObeyCooldownAndCap() {
+        Player killer = createMockPlayer("FastKiller");
+        PlayerId killerId = PlayerId.of(killer.getUniqueId());
+
+        // Configure max-loss = 1 with delta = -1, pair cooldown = 1 hour
+        KillPenaltyConfigSection customPenalty = new KillPenaltyConfigSection(
+                -1,
+                Duration.ofHours(1),
+                Duration.ofDays(7),
+                1, // Cap at 1 loss
+                Collections.emptySet()
+        );
+        RuntimeSnapshot customSnapshot = new RuntimeSnapshot(
+                configManager.snapshot().config().withKillPenalty(customPenalty),
+                configManager.snapshot().messages()
+        );
+
+        // Case A: Two distinct victims killed concurrently when cap has only 1 remaining.
+        // Before Finding 1, both concurrent tasks read loss = 0 before either wrote reputation,
+        // resulting in 2 penalties (-2 status) instead of capping at 1.
+        Player victim1 = createMockPlayer("VictimCap1");
+        Player victim2 = createMockPlayer("VictimCap2");
+        PlayerId victim1Id = PlayerId.of(victim1.getUniqueId());
+        PlayerId victim2Id = PlayerId.of(victim2.getUniqueId());
+
+        CompletableFuture<KillPenaltyResult> future1 = listener.handleDeath(victim1Id, killerId, "world", baseTime, customSnapshot);
+        CompletableFuture<KillPenaltyResult> future2 = listener.handleDeath(victim2Id, killerId, "world", baseTime.plusMillis(10), customSnapshot);
+        CompletableFuture.allOf(future1, future2).join();
+
+        // Exactly one should have penalty applied because max-loss is 1
+        int penalties = (future1.join().wasPenaltyCharged() ? 1 : 0) + (future2.join().wasPenaltyCharged() ? 1 : 0);
+        assertThat(penalties).isEqualTo(1);
+        assertThat(reputationRepo.findByTarget(killerId)).hasSize(1);
+        assertThat(reputationRepo.getStatus(killerId).value()).isEqualTo(-1);
+
+        // Case B: Two concurrent deaths of the same victim (pair cooldown concurrency race)
+        Player killer2 = createMockPlayer("FastKiller2");
+        PlayerId killer2Id = PlayerId.of(killer2.getUniqueId());
+        Player victimSame = createMockPlayer("VictimSame");
+        PlayerId victimSameId = PlayerId.of(victimSame.getUniqueId());
+
+        CompletableFuture<KillPenaltyResult> futureSame1 = listener.handleDeath(victimSameId, killer2Id, "world", baseTime, customSnapshot);
+        CompletableFuture<KillPenaltyResult> futureSame2 = listener.handleDeath(victimSameId, killer2Id, "world", baseTime.plusMillis(10), customSnapshot);
+        CompletableFuture.allOf(futureSame1, futureSame2).join();
+
+        // Exactly one penalty applied because of pair cooldown
+        int penaltiesSame = (futureSame1.join().wasPenaltyCharged() ? 1 : 0) + (futureSame2.join().wasPenaltyCharged() ? 1 : 0);
+        assertThat(penaltiesSame).isEqualTo(1);
+        assertThat(reputationRepo.findByTarget(killer2Id)).hasSize(1);
+        assertThat(reputationRepo.getStatus(killer2Id).value()).isEqualTo(-1);
+    }
+
+    @Test
+    @DisplayName("Finding 2: The two writes must not come apart; rollback on failure")
+    void finding2_storageFailureRollsBackBothWrites() {
+        Player killer = createMockPlayer("AtomicKiller");
+        Player victim = createMockPlayer("AtomicVictim");
+        PlayerId killerId = PlayerId.of(killer.getUniqueId());
+        PlayerId victimId = PlayerId.of(victim.getUniqueId());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // Inject trigger that causes psychosis insert to fail after reputation insert
+        StorageTestSupport.setFailPsychosisTrigger(storage);
+        try {
+            CompletableFuture<KillPenaltyResult> future = listener.handleDeath(victimId, killerId, "world", baseTime, snapshot);
+            assertThatThrownBy(future::join).hasCauseInstanceOf(RuntimeException.class);
+
+            // Both writes must have been rolled back
+            assertThat(reputationRepo.findByTarget(killerId)).isEmpty();
+            assertThat(reputationRepo.getStatus(killerId).value()).isZero();
+            assertThat(psychosisRepo.findKillsByKillerSince(killerId, baseTime.minusSeconds(10))).isEmpty();
+            assertThat(reputationRepo.countKillPenaltyClaimsSince(killerId, victimId, baseTime.minusSeconds(10))).isZero();
+        } finally {
+            StorageTestSupport.dropFailPsychosisTrigger(storage);
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 4: Cooldown is keyed on penalty claim row, not psychosis row")
+    void finding4_cooldownKeyedOnPenaltyClaimRow() {
+        Player killer = createMockPlayer("CooldownKiller");
+        Player victim = createMockPlayer("CooldownVictim");
+        PlayerId killerId = PlayerId.of(killer.getUniqueId());
+        PlayerId victimId = PlayerId.of(victim.getUniqueId());
+
+        // Configure exempt world "exempt_arena" with 30m pair cooldown
+        KillPenaltyConfigSection exemptPenalty = new KillPenaltyConfigSection(
+                -1,
+                Duration.ofMinutes(30),
+                Duration.ofDays(7),
+                10,
+                Set.of("exempt_arena")
+        );
+        RuntimeSnapshot snapshotExempt = new RuntimeSnapshot(
+                configManager.snapshot().config().withKillPenalty(exemptPenalty),
+                configManager.snapshot().messages()
+        );
+
+        // Kill 1: in exempt world
+        KillPenaltyResult result1 = listener.handleDeath(victimId, killerId, "exempt_arena", baseTime, snapshotExempt).join();
+        assertThat(result1.wasPenaltyCharged()).isFalse();
+        // Psychosis is recorded for attributable kill
+        assertThat(psychosisRepo.findKillsByKillerSince(killerId, baseTime.minusSeconds(10))).hasSize(1);
+        // But NO reputation event and NO claim row is recorded
+        assertThat(reputationRepo.findByTarget(killerId)).isEmpty();
+        assertThat(reputationRepo.countKillPenaltyClaimsSince(killerId, victimId, baseTime.minusSeconds(10))).isZero();
+
+        // Kill 2: 5 minutes later (well within 30m pair cooldown) in standard world "world"
+        // Before Finding 4, pair cooldown counted open psychosis rows, so this kill would be silently forgiven.
+        // With Finding 4, pair cooldown is keyed on kill_penalty_claim, so this kill is charged!
+        KillPenaltyResult result2 = listener.handleDeath(victimId, killerId, "world", baseTime.plus(Duration.ofMinutes(5)), snapshotExempt).join();
+        assertThat(result2.wasPenaltyCharged()).isTrue();
+        assertThat(reputationRepo.findByTarget(killerId)).hasSize(1);
+        assertThat(reputationRepo.getStatus(killerId).value()).isEqualTo(-1);
+        assertThat(reputationRepo.countKillPenaltyClaimsSince(killerId, victimId, baseTime.minusSeconds(10))).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Finding 5: Unresolved null world fails closed with no penalty")
+    void finding5_unresolvedWorldFailsClosedWithNoPenalty() {
+        Player killer = createMockPlayer("NullWorldKiller");
+        Player victim = createMockPlayer("NullWorldVictim");
+        PlayerId killerId = PlayerId.of(killer.getUniqueId());
+        PlayerId victimId = PlayerId.of(victim.getUniqueId());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // When world lookup fails (worldName is null), must fail closed: no penalty charged
+        KillPenaltyResult result = listener.handleDeath(victimId, killerId, null, baseTime, snapshot).join();
+        assertThat(result.wasPenaltyCharged()).isFalse();
+
+        // No reputation loss or claim row recorded
+        assertThat(reputationRepo.findByTarget(killerId)).isEmpty();
+        assertThat(reputationRepo.getStatus(killerId).value()).isZero();
+        assertThat(reputationRepo.countKillPenaltyClaimsSince(killerId, victimId, baseTime.minusSeconds(10))).isZero();
+
+        // But psychosis still rises for attributable kill
         assertThat(psychosisRepo.findKillsByKillerSince(killerId, baseTime.minusSeconds(10))).hasSize(1);
     }
 

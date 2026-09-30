@@ -85,10 +85,17 @@ public record KillPenaltyConfigSection(
 
         Set<String> exempt = new HashSet<>();
         if (section.contains("exempt-worlds")) {
-            List<String> list = section.getStringList("exempt-worlds");
-            for (String w : list) {
-                if (w != null && !w.isBlank()) {
-                    exempt.add(w.trim());
+            if (section.isList("exempt-worlds")) {
+                List<String> list = section.getStringList("exempt-worlds");
+                for (String w : list) {
+                    if (w != null && !w.isBlank()) {
+                        exempt.add(w.trim());
+                    }
+                }
+            } else {
+                String single = section.getString("exempt-worlds");
+                if (single != null && !single.isBlank()) {
+                    exempt.add(single.trim());
                 }
             }
         }

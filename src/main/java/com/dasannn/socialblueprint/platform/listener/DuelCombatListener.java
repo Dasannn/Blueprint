@@ -8,6 +8,8 @@ import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.PsychosisEvent;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import com.dasannn.socialblueprint.feature.duel.DuelService;
+import com.dasannn.socialblueprint.storage.KillPenaltyResult;
+import com.dasannn.socialblueprint.storage.KillPenaltySettings;
 import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import org.bukkit.damage.DamageSource;
@@ -25,6 +27,8 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Platform combat listener per T-061, T-062, T-063, T-130 to T-133 and ARCHITECTURE.md §5:
@@ -34,6 +38,8 @@ import java.util.concurrent.CompletableFuture;
  * - Survives disconnects long enough to allow reconnect grace periods.
  */
 public class DuelCombatListener implements Listener {
+
+    private static final Logger LOGGER = Logger.getLogger(DuelCombatListener.class.getName());
 
     private final DuelService duelService;
     private final PsychosisRepository psychosisRepository;
@@ -127,7 +133,11 @@ public class DuelCombatListener implements Listener {
                 ? PlayerId.of(killer.getUniqueId())
                 : null;
 
-        handleDeath(victimId, killerId, worldName, Instant.now(), configManager.snapshot());
+        handleDeath(victimId, killerId, worldName, Instant.now(), configManager.snapshot())
+                .exceptionally(ex -> {
+                    LOGGER.log(Level.SEVERE, "Failed to record death outcome for killer=" + killerId + " victim=" + victimId, ex);
+                    return null;
+                });
     }
 
     /**
@@ -141,7 +151,7 @@ public class DuelCombatListener implements Listener {
      * @param now timestamp of death
      * @param snapshot configuration snapshot
      */
-    public CompletableFuture<Void> handleDeath(
+    public CompletableFuture<KillPenaltyResult> handleDeath(
             PlayerId victimId,
             PlayerId killerId,
             String worldName,
@@ -160,48 +170,36 @@ public class DuelCombatListener implements Listener {
 
                 // Record duel event in repository with CombatContext.DUEL (ignored by PsychosisCalculator)
                 return psychosisRepository.saveAsync(new PsychosisEvent(0L, killerId, victimId, CombatContext.DUEL, now))
-                        .thenApply(saved -> null);
+                        .thenApply(saved -> new KillPenaltyResult(0, null, saved));
             } else {
                 // T-062 / SB-032 / T-130: Kill outside duel raises Killing Psychosis and applies status penalty if eligible.
                 if (duelService.isInActiveDuel(victimId)) {
                     duelService.handleDeath(victimId, null, now, snapshot);
                 }
 
+                if (reputationRepository == null) {
+                    return psychosisRepository.saveAsync(new PsychosisEvent(0L, killerId, victimId, CombatContext.OPEN, now))
+                            .thenApply(saved -> new KillPenaltyResult(0, null, saved));
+                }
+
                 KillPenaltyConfigSection killPenalty = snapshot.config().killPenalty();
-                boolean penaltyEligible = reputationRepository != null
-                        && killPenalty.isEnabled()
-                        && (worldName == null || !killPenalty.isWorldExempt(worldName));
+                KillPenaltySettings settings = new KillPenaltySettings(
+                        killPenalty.isEnabled(),
+                        killPenalty.delta(),
+                        killPenalty.pairCooldown(),
+                        killPenalty.capWindow(),
+                        killPenalty.maxLoss(),
+                        killPenalty.exemptWorlds()
+                );
 
-                CompletableFuture<Void> penalty = penaltyEligible
-                        ? psychosisRepository.countOpenKillsBetweenSinceAsync(killerId, victimId,
-                                now.minus(killPenalty.pairCooldown()))
-                                .thenCompose(killsInCooldown -> {
-                                    if (killsInCooldown != 0) {
-                                        return CompletableFuture.completedFuture(null);
-                                    }
-                                    return reputationRepository.calculateSystemKillLossSinceAsync(killerId,
-                                            now.minus(killPenalty.capWindow()))
-                                            .thenCompose(currentLoss -> {
-                                                int remainingLoss = killPenalty.maxLoss() - currentLoss;
-                                                if (remainingLoss <= 0) {
-                                                    return CompletableFuture.completedFuture(null);
-                                                }
-                                                int penaltyDelta = Math.max(killPenalty.delta(), -remainingLoss);
-                                                if (penaltyDelta >= 0) {
-                                                    return CompletableFuture.completedFuture(null);
-                                                }
-                                                ReputationEvent repEvent = new ReputationEvent(
-                                                        0L, null, killerId, penaltyDelta, HonorKind.SYSTEM_KILL,
-                                                        0.0, "kill-penalty.reason", now
-                                                );
-                                                return reputationRepository.saveAsync(repEvent).thenApply(saved -> null);
-                                            });
-                                })
-                        : CompletableFuture.completedFuture(null);
-
-                return penalty.thenCompose(ignored -> psychosisRepository.saveAsync(
-                        new PsychosisEvent(0L, killerId, victimId, CombatContext.OPEN, now))
-                        .thenApply(saved -> null));
+                return reputationRepository.executeKillPenaltyAsync(
+                        killerId,
+                        victimId,
+                        worldName,
+                        now,
+                        settings,
+                        psychosisRepository
+                );
             }
         } else {
             // Environmental or non-player death
@@ -212,16 +210,16 @@ public class DuelCombatListener implements Listener {
         }
     }
 
-    public CompletableFuture<Void> handleDeath(PlayerId victimId, PlayerId killerId, Instant now, com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot) {
-        return handleDeath(victimId, killerId, null, now, snapshot);
+    public CompletableFuture<KillPenaltyResult> handleDeath(PlayerId victimId, PlayerId killerId, Instant now, com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot) {
+        return handleDeath(victimId, killerId, "world", now, snapshot);
     }
 
-    public CompletableFuture<Void> handleDeath(PlayerId victimId, PlayerId killerId, Instant now) {
-        return handleDeath(victimId, killerId, null, now, configManager.snapshot());
+    public CompletableFuture<KillPenaltyResult> handleDeath(PlayerId victimId, PlayerId killerId, Instant now) {
+        return handleDeath(victimId, killerId, "world", now, configManager.snapshot());
     }
 
-    public CompletableFuture<Void> handleDeath(PlayerId victimId, PlayerId killerId) {
-        return handleDeath(victimId, killerId, null, Instant.now(), configManager.snapshot());
+    public CompletableFuture<KillPenaltyResult> handleDeath(PlayerId victimId, PlayerId killerId) {
+        return handleDeath(victimId, killerId, "world", Instant.now(), configManager.snapshot());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

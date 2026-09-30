@@ -35,7 +35,7 @@ public final class PsychosisRepository {
         }
     }
 
-    private void notifyInvalidation(PlayerId player) {
+    void notifyInvalidation(PlayerId player) {
         for (java.util.function.Consumer<PlayerId> listener : invalidationListeners) {
             listener.accept(player);
         }
@@ -57,7 +57,7 @@ public final class PsychosisRepository {
                 });
     }
 
-    private PsychosisEvent saveInternal(Connection conn, PsychosisEvent event) throws SQLException {
+    PsychosisEvent saveInternal(Connection conn, PsychosisEvent event) throws SQLException {
         String sql = """
             INSERT INTO psychosis_event (killer_uuid, victim_uuid, context, created_at)
             VALUES (?, ?, ?, ?);

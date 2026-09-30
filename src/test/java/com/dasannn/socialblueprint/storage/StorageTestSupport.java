@@ -54,4 +54,12 @@ public final class StorageTestSupport {
     public static void dropFailCompensationDeleteTrigger(StorageEngine storage) {
         executeSql(storage, "DROP TRIGGER IF EXISTS fail_comp_delete;");
     }
+
+    public static void setFailPsychosisTrigger(StorageEngine storage) {
+        executeSql(storage, "CREATE TRIGGER fail_psychosis BEFORE INSERT ON psychosis_event BEGIN SELECT RAISE(FAIL, 'simulated psychosis write failure'); END;");
+    }
+
+    public static void dropFailPsychosisTrigger(StorageEngine storage) {
+        executeSql(storage, "DROP TRIGGER IF EXISTS fail_psychosis;");
+    }
 }
