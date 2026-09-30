@@ -63,8 +63,8 @@ class ConfigManagerTest {
         assertThat(configManager.get("language")).isIn("en", "es");
         assertThat(configManager.get("honor.cost")).isEqualTo("500.0");
         assertThat(configManager.get("psychosis.medium-threshold")).isEqualTo("2");
-        assertThat(configManager.get("tiers.tier-4.threshold")).isEqualTo("-30");
-        assertThat(configManager.get("tier-4.threshold")).isEqualTo("-30");
+        assertThat(configManager.get("tiers.tier-4.threshold")).isEqualTo("-50");
+        assertThat(configManager.get("tier-4.threshold")).isEqualTo("-50");
     }
 
     @Test
@@ -98,7 +98,7 @@ class ConfigManagerTest {
         // Verify running snapshot was not modified
         PluginConfig after = configManager.config();
         assertThat(after).isSameAs(before);
-        assertThat(after.tiers().get(Tier.TEMERARIO).threshold()).isEqualTo(-1);
+        assertThat(after.tiers().get(Tier.TEMERARIO).threshold()).isEqualTo(-5);
 
         // Verify disk was not modified
         String diskAfter = readConfigFile();
@@ -154,8 +154,8 @@ class ConfigManagerTest {
         ConfigManager badManager = new ConfigManager(badConfigFile, messageRegistry, Runnable::run, logger);
         assertThatThrownBy(badManager::initialize)
                 .isInstanceOf(ConfigValidationException.class)
-                .hasMessageContaining("tiers.tier-4.threshold")
-                .matches(e -> ((ConfigValidationException) e).key().equals("tiers.tier-4.threshold"));
+                .hasMessageContaining("tiers.tier-3.threshold")
+                .matches(e -> ((ConfigValidationException) e).key().equals("tiers.tier-3.threshold"));
     }
 
     @Test

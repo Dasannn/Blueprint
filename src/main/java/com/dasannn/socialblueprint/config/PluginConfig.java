@@ -1,10 +1,12 @@
 package com.dasannn.socialblueprint.config;
 
+import com.dasannn.socialblueprint.domain.DecayConfig;
 import org.bukkit.configuration.ConfigurationSection;
 
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.logging.Logger;
 
 /**
  * Root typed immutable configuration record per T-030 and T-031.
@@ -17,7 +19,8 @@ public record PluginConfig(
         ConfidenceConfigSection confidence,
         PsychosisConfigSection psychosis,
         HonorConfigSection honor,
-        PermissionsConfig permissions
+        PermissionsConfig permissions,
+        DecayConfigSection decay
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -29,9 +32,27 @@ public record PluginConfig(
         Objects.requireNonNull(psychosis, "psychosis must not be null");
         Objects.requireNonNull(honor, "honor must not be null");
         Objects.requireNonNull(permissions, "permissions must not be null");
+        Objects.requireNonNull(decay, "decay must not be null");
+    }
+
+    public PluginConfig(
+            String language,
+            String chatPrefix,
+            TiersConfig tiers,
+            ConfidenceConfigSection confidence,
+            PsychosisConfigSection psychosis,
+            HonorConfigSection honor,
+            PermissionsConfig permissions
+    ) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
+                new DecayConfigSection(true, DecayConfig.DEFAULT_HALF_LIFE, DecayConfig.DEFAULT_FLOOR, DecayConfig.DEFAULT_CACHE_TTL));
     }
 
     public static PluginConfig load(ConfigurationSection root) {
+        return load(root, null);
+    }
+
+    public static PluginConfig load(ConfigurationSection root, Logger logger) {
         Objects.requireNonNull(root, "Root ConfigurationSection must not be null");
 
         // Validate language (SB-066, T-032a)
@@ -63,13 +84,14 @@ public record PluginConfig(
         ColorParser.validate(chatPrefix, "chat-prefix");
 
         // Validate sections
-        TiersConfig tiers = TiersConfig.load(root);
+        TiersConfig tiers = TiersConfig.load(root, logger);
         ConfidenceConfigSection confidence = ConfidenceConfigSection.load(root);
         PsychosisConfigSection psychosis = PsychosisConfigSection.load(root);
         HonorConfigSection honor = HonorConfigSection.load(root);
         PermissionsConfig permissions = PermissionsConfig.load(root);
+        DecayConfigSection decay = DecayConfigSection.load(root);
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, decay);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -80,7 +102,8 @@ public record PluginConfig(
                 confidence,
                 psychosis,
                 honor,
-                permissions
+                permissions,
+                decay
         );
     }
 
@@ -92,7 +115,8 @@ public record PluginConfig(
                 confidence,
                 psychosis,
                 honor,
-                permissions
+                permissions,
+                decay
         );
     }
 }

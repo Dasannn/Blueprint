@@ -69,7 +69,7 @@ public class ConfigManager {
         synchronized (writeLock) {
             migrateLegacyHonorWindowIfNeeded(configFile, logger);
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
-            PluginConfig newConfig = PluginConfig.load(yaml);
+            PluginConfig newConfig = PluginConfig.load(yaml, logger);
             File dataFolder = configFile.getParentFile();
             MessagesSnapshot newMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
             RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages);
@@ -172,7 +172,7 @@ public class ConfigManager {
                 Object parsedValue = parseValue(rawValue);
                 yaml.set(resolvedConfigPath, parsedValue);
 
-                PluginConfig newConfig = PluginConfig.load(yaml);
+                PluginConfig newConfig = PluginConfig.load(yaml, logger);
 
                 // 2. Persist atomically preserving comments and formatting
                 try {
@@ -344,6 +344,11 @@ public class ConfigManager {
         set.add("confidence.low-threshold");
         set.add("confidence.established-threshold");
         set.add("confidence.high-threshold");
+
+        set.add("decay.enabled");
+        set.add("decay.half-life");
+        set.add("decay.floor");
+        set.add("decay.cache-ttl");
 
         set.add("psychosis.window");
         set.add("psychosis.medium-threshold");

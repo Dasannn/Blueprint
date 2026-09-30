@@ -179,11 +179,11 @@ public class ProfileService {
 
     private PlayerSocialView loadViewInternal(PlayerId id, String fallbackName, RuntimeSnapshot snapshot, int loadGeneration) {
         List<ReputationEvent> repEvents = reputationRepository.findByTarget(id);
-        Status status = Status.fromEvents(repEvents);
-
         PluginConfig cfg = snapshot.config();
-        ConfidenceCalculator confCalc = new ConfidenceCalculator(cfg.confidence().toDomain());
         Instant now = Instant.now();
+        Status status = Status.fromEvents(repEvents, cfg.decay().toDomain(), now);
+
+        ConfidenceCalculator confCalc = new ConfidenceCalculator(cfg.confidence().toDomain());
         ConfidenceLevel conf = confCalc.calculate(repEvents, now);
         int contributors = confCalc.countDistinctActors(repEvents);
 

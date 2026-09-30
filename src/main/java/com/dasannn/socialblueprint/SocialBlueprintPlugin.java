@@ -125,7 +125,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             return;
         }
         this.storageEngine = engine;
-        this.statusCache = new StatusCache();
+        this.statusCache = new StatusCache(configManager.config().decay().cacheTtl());
         this.reputationRepository = new ReputationRepository(storageEngine, statusCache);
         this.profileRepository = new ProfileRepository(storageEngine);
         this.psychosisRepository = new PsychosisRepository(storageEngine);
