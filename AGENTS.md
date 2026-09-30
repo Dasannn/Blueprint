@@ -66,8 +66,9 @@ Target platform is fixed in `docs/constitution.md` §3. Practical notes:
 
 ## Agent Pipeline
 
-Claude orchestrates and owns git. Antigravity writes production code. Codex
-reviews it and issues corrections. One task per worktree.
+Claude orchestrates, owns git and runs the build. Antigravity writes
+production code. Codex reviews it and issues corrections. One task per
+worktree.
 
 ```bash
 # Antigravity
@@ -90,7 +91,7 @@ hard-won details:
   `workspace-write` sandbox blocks outbound sockets unless
   `sandbox_workspace_write.network_access=true` is set. It also cannot run
   `javac` on this machine — the sandbox denies closing cached jars — so **Codex
-  reads and finds, Antigravity builds and runs**.
+  reads and finds, Antigravity writes, Claude builds**.
 * The wrappers retry on a usage limit with backoff and append the raw failure
   to `.agent/limit-samples.log`, because neither CLI's exhaustion wording is
   known yet.
