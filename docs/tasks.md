@@ -254,6 +254,7 @@ status half of T-062 and removes the last hardcoded sound.
 | T-135 | `sounds:` section in `config.yml`: one named slot per sound, each with key, volume, pitch and category. Every existing sound — starting with the creeper fuse in `AmbientEffectDispatcher` — reads its slot instead of a constant. | SB-090 | todo |
 | T-136 | An empty slot plays nothing; an unrecognised key logs a warning naming the slot once and plays nothing. Neither ever throws or blocks the action the sound accompanied. | SB-090 | todo |
 | T-137 | Slots are reloadable in-game with the rest of the configuration, and private sounds still reach only the affected player. | SB-091, SB-041, SB-062 | todo |
+| T-138 | A slot may hold several layers, each with its own key, volume, pitch, category and tick delay; they play in order from one trigger. The single-mapping form still means one layer at delay `0`. | SB-092 | todo |
 
 **Gate:** a non-duel kill lowers status once per pair cooldown, bounded by the
 cap, never touching Confidence; every sound can be retuned or silenced from

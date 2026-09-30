@@ -227,7 +227,17 @@ accompanied.
 **SB-091.** Sound slots are addressed by name, so an owner can retarget an
 existing slot to a different Minecraft sound, and new slots added by later
 features need no code change beyond playing them. Sounds obey SB-041 where they
-belong to a private ambient effect: they reach only the affected player.
+belong to a private ambient effect: they reach only the affected player.
+
+**SB-092.** A slot may hold **several layers**, each with its own key, volume,
+pitch, category and a delay in ticks. They play in order from one trigger, so an
+owner can build a chord (every layer at delay `0`), a sequence, or a quiet
+texture under a main sound, without touching code. The single-mapping form of
+SB-090 stays valid and means one layer at delay `0`.
+
+A delay is scheduled on the server tick, so it is precise to 50 ms and no
+finer. A key from a resource pack is played like any other: the plugin sends
+the key it was given, and a client without that sound hears nothing.
 
 **SB-064.** Administrative actions — manual adjustments, hiding comments,
 reverting events, bypassing cooldowns — require explicit permission and write an
