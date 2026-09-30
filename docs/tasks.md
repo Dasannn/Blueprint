@@ -250,6 +250,7 @@ status half of T-062 and removes the last hardcoded sound.
 | T-131 | The system event never raises Reputation Confidence, and Psychosis still never moves status. A test asserts both metrics move only by their own rule. | SB-034, SB-004 | todo |
 | T-132 | One penalty per killer-victim pair per configurable cooldown, plus a configurable per-window cap on total automatic loss. | SB-035 | todo |
 | T-133 | Penalty skipped inside a duel, when the killer cannot be identified, and in YAML-exempt worlds. Delta `0` disables the feature. | SB-036, SB-031 | todo |
+| T-139 | An attack's duel context is decided when it lands, not when the victim dies: an arrow fired before consent that kills after the duel starts is an open-world kill, and one fired during a duel that lands after it ends is not. Carried over from the P5 review. | SB-031, SB-032 | todo |
 | T-134 | The system event renders in the history GUI and in `/status history` like any other, with its reason translated from the message key. | SB-032, SB-080 | todo |
 | T-135 | `sounds:` section in `config.yml`: one named slot per sound, each with key, volume, pitch and category. Every existing sound — starting with the creeper fuse in `AmbientEffectDispatcher` — reads its slot instead of a constant. | SB-090 | todo |
 | T-136 | An empty slot plays nothing; an unrecognised key logs a warning naming the slot once and plays nothing. Neither ever throws or blocks the action the sound accompanied. | SB-090 | todo |
