@@ -118,8 +118,9 @@ class AmbientEffectSchedulerTest {
                 null, messageRegistry, configManager, silverfishService
         ) {
             @Override
-            public void dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+            public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
                 dispatchedList.add(new DispatchedRecord(player, type, System.currentTimeMillis()));
+                return true;
             }
         };
 
@@ -306,6 +307,139 @@ class AmbientEffectSchedulerTest {
         // Reconnect in new session -> session state is refreshed
         PlayerEffectState newState = scheduler.getOrCreateState(p);
         assertThat(newState.canFire(AmbientEffectType.CREEPER_SOUND, cfg.creeper(), 500_000L)).isTrue();
+    }
+
+    @Test
+    @DisplayName("Finding 5: Unknown opt-out state suppresses effects; delayed profile load never treats unknown as opted in")
+    void unknownOptOutStateSuppressesEffectsUntilLoaded() {
+        UUID uuid = UUID.randomUUID();
+        Player player = createMockPlayer(uuid, "DelayedPlayer");
+        onlinePlayers.add(player);
+
+        PlayerId id = PlayerId.of(uuid);
+        reputationRepo.saveAsync(new ReputationEvent(
+                PlayerId.of(UUID.randomUUID()),
+                id,
+                -25,
+                HonorKind.ADMIN_TAKE,
+                0.0,
+                "Reputation set",
+                Instant.now()
+        )).join();
+
+        // Ensure state is explicitly UNKNOWN in ProfileService cache
+        assertThat(profileService.getEffectsOptOutState(id)).isEqualTo(ProfileService.OptOutState.UNKNOWN);
+
+        // Tick scheduler while load is pending / unknown -> MUST suppress effects
+        scheduler.tickAt(100_000L);
+        assertThat(dispatchedList).isEmpty();
+
+        // Simulate delayed load completing with opt-out = true
+        profileService.setEffectsOptOutCache(id, true);
+        assertThat(profileService.getEffectsOptOutState(id)).isEqualTo(ProfileService.OptOutState.OPTED_OUT);
+
+        scheduler.tickAt(200_000L);
+        assertThat(dispatchedList).isEmpty();
+
+        // If player changes mind and opts in -> effect can fire.
+        // Warm the view cache first: getViewQuick reads the cache, and loading it
+        // here also loads the opt-out flag, so the opt-in below must come after.
+        profileService.loadViewAsync(id, "DelayedPlayer", configManager.snapshot().config().tiers().ladder()).join();
+        profileService.setEffectsOptOutCache(id, false);
+        assertThat(profileService.getEffectsOptOutState(id)).isEqualTo(ProfileService.OptOutState.OPTED_IN);
+
+        scheduler.tickAt(300_000L);
+        assertThat(dispatchedList).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Finding 6: effects.check-interval changes dynamically at runtime without server restart")
+    void checkIntervalChangesDynamicallyAtRuntime() {
+        UUID uuid = UUID.randomUUID();
+        Player player = createMockPlayer(uuid, "IntervalPlayer");
+        onlinePlayers.add(player);
+        setPlayerStatus(uuid, -20);
+
+        // Initial config interval is 30s
+        long t0 = 100_000L;
+        scheduler.tickAt(t0);
+        assertThat(dispatchedList).hasSize(1);
+
+        // 10 seconds later: should NOT tick because 10s < 30s
+        long t1 = t0 + 10_000L;
+        scheduler.tickAt(t1);
+        assertThat(dispatchedList).hasSize(1);
+
+        // Dynamically update config to 5s interval (without restarting scheduler)
+        EffectsConfigSection current = configManager.snapshot().config().effects();
+        EffectsConfigSection updated = new EffectsConfigSection(
+                current.threshold(),
+                Duration.ofSeconds(5),
+                current.silverfish(),
+                current.whisper(),
+                current.creeper(),
+                current.fakeAnnouncement()
+        );
+        configManager.snapshotReference().set(new RuntimeSnapshot(
+                configManager.config().withEffects(updated),
+                configManager.snapshot().messages()
+        ));
+
+        // Now t2 is 15 seconds after t0 (5 seconds after t1) -> elapsed 15s >= 5s interval -> FIRES!
+        long t2 = t1 + 5_000L;
+        scheduler.tickAt(t2);
+        assertThat(dispatchedList).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Finding 7: Failed dispatch does not burn session allowance or record cooldown")
+    void failedDispatchDoesNotConsumeAllowanceOrCooldown() {
+        UUID uuid = UUID.randomUUID();
+        Player player = createMockPlayer(uuid, "FailingDispatchPlayer");
+        onlinePlayers.add(player);
+        setPlayerStatus(uuid, -20);
+
+        // Replace scheduler with one that has a failing dispatcher
+        java.util.concurrent.atomic.AtomicBoolean dispatchSuccess = new java.util.concurrent.atomic.AtomicBoolean(false);
+        AmbientEffectDispatcher failingDispatcher = new AmbientEffectDispatcher(
+                null, messageRegistry, configManager,
+                new FakeSilverfishService(null, new AmbientEntityRegistry(), null)
+        ) {
+            @Override
+            public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+                return dispatchSuccess.get();
+            }
+        };
+
+        AmbientEffectScheduler failScheduler = new AmbientEffectScheduler(
+                null, configManager, profileService, failingDispatcher, () -> List.of(player)
+        );
+
+        // Past the longest configured cooldown (fake-announcement, 15m), so a fresh
+        // state can fire every effect type.
+        long t0 = 1_000_000L;
+        // Dispatch fails
+        failScheduler.tickAt(t0);
+
+        PlayerEffectState state = failScheduler.getOrCreateState(uuid);
+        EffectsConfigSection cfg = configManager.snapshot().config().effects();
+
+        // Verify session counts are all 0 and can still fire
+        for (AmbientEffectType type : AmbientEffectType.values()) {
+            assertThat(state.getSessionCount(type)).isEqualTo(0);
+            assertThat(state.canFire(type, cfg.getEffect(type), t0)).isTrue();
+        }
+
+        // Now enable dispatch success
+        dispatchSuccess.set(true);
+        failScheduler.tickAt(t0 + 40_000L);
+
+        // Exactly one effect fired and recorded
+        int totalFired = 0;
+        for (AmbientEffectType type : AmbientEffectType.values()) {
+            totalFired += state.getSessionCount(type);
+        }
+        assertThat(totalFired).isEqualTo(1);
     }
 
     private static Object defaultValue(Class<?> returnType) {

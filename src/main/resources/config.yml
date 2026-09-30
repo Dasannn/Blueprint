@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # SocialBlueprint Configuration
 # ==============================================================================
 
@@ -144,6 +144,7 @@ permissions:
 # Private, cosmetic, rate-limited effects delivered only to players below the threshold.
 # ==============================================================================
 effects:
+  # Session caps reset on player relog and on server restart.
   # Status threshold below which ambient effects can fire (default: -10).
   threshold: -10
 
