@@ -49,6 +49,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final StatusGiveCommand giveCommand;
     private final StatusTakeCommand takeCommand;
     private final StatusConfirmCommand confirmCommand;
+    private final com.dasannn.socialblueprint.feature.duel.DuelService duelService;
+    private final StatusDuelCommand duelCommand;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
 
@@ -59,6 +61,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             MessageRegistry messageRegistry,
             ProfileService profileService,
             HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
@@ -68,13 +71,27 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.profileService = profileService;
         this.honorService = honorService;
         this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
+        this.duelService = duelService;
         this.auditRepository = auditRepository;
         this.configCommand = new StatusConfigCommand(configManager, messageRegistry, auditRepository, this.mainThreadRunner, Logger.getLogger(StatusConfigCommand.class.getName()));
         this.adminCommand = honorService != null ? new StatusAdminCommand(honorService, messageRegistry) : null;
         this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
+        this.duelCommand = duelService != null ? new StatusDuelCommand(duelService, messageRegistry, onlinePlayersSupplier) : null;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, null, auditRepository, mainThreadRunner, onlinePlayersSupplier);
     }
 
     public StatusCommandExecutor(
@@ -96,6 +113,33 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
         this(configManager, messageRegistry, profileService, null, null, mainThreadRunner, onlinePlayersSupplier);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Plugin plugin
+    ) {
+        this(
+                configManager,
+                messageRegistry,
+                profileService,
+                honorService,
+                duelService,
+                auditRepository,
+                runnable -> {
+                    if (plugin != null && plugin.isEnabled()) {
+                        Bukkit.getScheduler().runTask(plugin, runnable);
+                    } else if (plugin == null) {
+                        runnable.run();
+                    }
+                },
+                Bukkit::getOnlinePlayers
+        );
     }
 
     public StatusCommandExecutor(
@@ -220,6 +264,46 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 return true;
             }
             this.lastExecution = confirmCommand.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
+        // 6a. Subcommand: /status duel ...
+        if ("duel".equals(sub)) {
+            if (duelCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = duelCommand.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
+        // 6b. Subcommand: /status accept ...
+        if ("accept".equals(sub)) {
+            if (duelCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = duelCommand.executeAccept(sender, subArgs, snapshot);
+            return true;
+        }
+
+        // 6c. Subcommand: /status deny ...
+        if ("deny".equals(sub)) {
+            if (duelCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = duelCommand.executeDeny(sender, subArgs, snapshot);
+            return true;
+        }
+
+        // 6d. Subcommand: /status leave
+        if ("leave".equals(sub)) {
+            if (duelCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = duelCommand.executeLeave(sender, subArgs, snapshot);
             return true;
         }
 
@@ -362,6 +446,12 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 if ("confirm".startsWith(current)) {
                     suggestions.add("confirm");
                 }
+                if (PermissionChecker.hasPermission(sender, "duel", snapshot)) {
+                    if ("duel".startsWith(current)) suggestions.add("duel");
+                    if ("accept".startsWith(current)) suggestions.add("accept");
+                    if ("deny".startsWith(current)) suggestions.add("deny");
+                    if ("leave".startsWith(current)) suggestions.add("leave");
+                }
             }
 
             for (Player player : onlinePlayersSupplier.get()) {
@@ -407,6 +497,33 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     }
                 }
                 return playerMatches;
+            }
+
+            if ("duel".equals(sub)) {
+                if (subArgs.length == 1) {
+                    List<String> duelMatches = new ArrayList<>();
+                    if ("accept".startsWith(subArgs[0].toLowerCase(Locale.ROOT))) duelMatches.add("accept");
+                    if ("deny".startsWith(subArgs[0].toLowerCase(Locale.ROOT))) duelMatches.add("deny");
+                    if ("leave".startsWith(subArgs[0].toLowerCase(Locale.ROOT))) duelMatches.add("leave");
+                    for (Player player : onlinePlayersSupplier.get()) {
+                        if (!player.getName().equalsIgnoreCase(sender.getName()) && player.getName().toLowerCase(Locale.ROOT).startsWith(subArgs[0].toLowerCase(Locale.ROOT))) {
+                            duelMatches.add(player.getName());
+                        }
+                    }
+                    return duelMatches;
+                } else {
+                    String currentArg = subArgs[subArgs.length - 1].toLowerCase(Locale.ROOT);
+                    List<String> playerMatches = new ArrayList<>();
+                    if ("vs".startsWith(currentArg)) {
+                        playerMatches.add("vs");
+                    }
+                    for (Player player : onlinePlayersSupplier.get()) {
+                        if (!player.getName().equalsIgnoreCase(sender.getName()) && player.getName().toLowerCase(Locale.ROOT).startsWith(currentArg)) {
+                            playerMatches.add(player.getName());
+                        }
+                    }
+                    return playerMatches;
+                }
             }
         }
 
