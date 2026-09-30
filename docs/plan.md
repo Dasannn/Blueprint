@@ -116,12 +116,32 @@ likely to be revised once the rest is real.
 **Gate:** a real old configuration imports without loss of scores and without
 inventing evidence.
 
-### P9 — Hardening
+### P9 — Rating decay
 
-Walk every acceptance criterion in `docs/spec.md` §13 against a running Paper
+Small, and deliberately late: it changes how status is *computed*, so it lands
+once the events it weighs are all being written correctly. Also corrects the
+tier ladder to be symmetric, which the baseline's inherited thresholds were not.
+
+**Gate:** an old event loses weight while staying readable in the history;
+falling a tier costs what rising one costs.
+
+### P10 — Rating history GUI and anonymity
+
+The largest remaining surface, and last because it depends on everything: the
+honor path from P4, the events from P1, the configuration from P2. It adds no
+rules of its own — it is a second way to reach the rules that already exist,
+which is exactly the trap to avoid.
+
+**Gate:** a rating made in the GUI is indistinguishable in storage from one made
+by command; a name stays hidden until paid for; a comment cannot style another
+player's screen.
+
+### P11 — Hardening
+
+Walk every acceptance criterion in `docs/spec.md` §14 against a running Paper
 26.3 server. Codex reviews the whole diff, not phase by phase.
 
-**Gate:** every box in §13 ticked, with evidence.
+**Gate:** every box in §14 ticked, with evidence.
 
 ## Working agreement
 

@@ -25,7 +25,9 @@ second place where progress is recorded.
 | P6 Ambient effects | — | not started |
 | P7 Self-update | — | not started |
 | P8 Legacy import | — | not started |
-| P9 Hardening | — | not started |
+| P9 Rating decay | — | not started |
+| P10 History GUI, anonymity | — | not started |
+| P11 Hardening | — | not started |
 
 Reference produced along the way: `docs/reference/paper-26.3-notes.md` settles
 the 26.3 API for every later phase, and corrected two things this project had
@@ -52,7 +54,7 @@ Neither blocks current work; both land in `config.yml` during P2.
 | T-003 | Move `plugin.yml` and `config.yml` from `src/main/java` to `src/main/resources`; remove the explicit `<resource>` block from `pom.xml`. | — | done |
 | T-004 | Rename package to `com.dasannn.socialblueprint`; rename entry class `main` to `SocialBlueprintPlugin`; update `plugin.yml`. | — | done |
 | T-005 | Delete `PrefixManager`. It is entirely commented out and wrongly extends `JavaPlugin`. | SB-12.4 | done |
-| T-006 | Reduce the entry class to a skeleton: enable, disable, logging, no feature code. Remove `/pstatus evaluate`, the `eco` dispatch, the death item rewards and `/utils`. | §12 | done |
+| T-006 | Reduce the entry class to a skeleton: enable, disable, logging, no feature code. Remove `/pstatus evaluate`, the `eco` dispatch, the death item rewards and `/utils`. | §13 | done |
 | T-007 | Declare `sqlite-jdbc` under `libraries:` in `plugin.yml`. | — | done |
 
 **Gate:** Paper 26.3 starts with the jar and no configuration file; enable and disable are clean in the log.
@@ -73,7 +75,7 @@ Neither blocks current work; both land in `config.yml` during P2.
 | T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` §4. | — | done |
 | T-018 | Repositories over a single-threaded executor; one connection; no pool. | — | done |
 | T-019 | In-memory status cache, invalidated on write, rebuildable from events. | — | done |
-| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | §13 | done |
+| T-020 | Domain tests: tier resolution across the full range including `0` and both extremes; cost with each multiplier step; cap expiry across a window boundary; Confidence over distinct versus repeated actors; status derived from an event list. | §14 | done |
 | T-021 | Storage tests against an in-memory database, including the full migration chain. | — | done |
 
 **Gate:** T-020 and T-021 pass.
@@ -139,7 +141,7 @@ Neither blocks current work; both land in `config.yml` during P2.
 |---|---|---|---|
 | T-060 | Duel lifecycle: challenge, accept, deny, leave, expiry. 1v1 and group. | SB-030 | todo |
 | T-061 | A kill inside an active duel affects neither status nor Psychosis. | SB-031 | todo |
-| T-062 | A kill outside a duel raises Psychosis and never changes status. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, §12 | todo |
+| T-062 | A kill outside a duel raises Psychosis and never changes status. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, §13 | todo |
 | T-063 | Configurable disconnect handling, distinguishing a combat log from a normal quit. | SB-033 | todo |
 
 **Gate:** duel kill changes neither metric; open-world kill changes only Psychosis.
@@ -190,13 +192,45 @@ Parallel with P5.
 
 ---
 
-## P9 — Hardening
+## P9 — Rating decay
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-100 | Walk every acceptance criterion in `docs/spec.md` §13 on a running Paper 26.3 server; record evidence per box. | §13 | todo |
-| T-101 | Confirm no file or database I/O happens on the main thread. | §13 | todo |
-| T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §13 | todo |
+| T-110 | Age-weighted contribution of a reputation event to social status, curve configured in YAML. No event is ever deleted or rewritten. | SB-006 | todo |
+| T-111 | Decay configuration is independent of Confidence's age weighting. Changing one must not change the other; a test proves it. | SB-006, SB-003 | todo |
+| T-112 | Symmetric tier ladder: negative thresholds at `-5`, `-15`, `-30`, `-50`. Migrate an existing configuration without reclassifying anyone silently — report what moved. | SB-011a | todo |
+
+**Gate:** an old negative event loses weight over a simulated year while the
+event itself is still readable in the history; falling a tier costs the same
+number of points as rising one.
+
+---
+
+## P10 — Rating history GUI and anonymity
+
+| id | task | spec | status |
+|---|---|---|---|
+| T-120 | Double chest GUI from `/status [player]`: subject head, tier-coloured dye, green and red banners. | SB-080 | todo |
+| T-121 | History grid: rater head, paper with the written reason, direction banner. Edge banners page forward and back. | SB-080 | todo |
+| T-122 | The GUI opens from cache or a completed async load. No blocking read on the main thread, no inventory work off it. | SB-081 | todo |
+| T-123 | A rating made in the GUI goes through the same honor path as the command: same cost, cooldown, cap and audit. | SB-081 | todo |
+| T-124 | Rater names hidden by default; revealing one charges a configurable amount through Vault and is remembered per viewer. | SB-082 | todo |
+| T-125 | Comments are length-bounded and rendered as plain text — no colour codes, formatting or click actions, whatever the rater typed. | SB-083 | todo |
+| T-126 | Anonymity is cosmetic only: the SB-054 cap still counts per actor-target pair, and administrators and the audit trail still see everything. | SB-084 | todo |
+
+**Gate:** a rating made in the GUI is indistinguishable in storage from one made
+by command; a rater's name is hidden until paid for; a comment containing colour
+codes renders as literal text.
+
+---
+
+## P11 — Hardening
+
+| id | task | spec | status |
+|---|---|---|---|
+| T-100 | Walk every acceptance criterion in `docs/spec.md` §14 on a running Paper 26.3 server; record evidence per box. | §14 | todo |
+| T-101 | Confirm no file or database I/O happens on the main thread. | §14 | todo |
+| T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §14 | todo |
 | T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
 
-**Gate:** every box in §13 ticked with evidence.
+**Gate:** every box in §14 ticked with evidence.

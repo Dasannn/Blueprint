@@ -34,6 +34,16 @@ is never reduced by, and never reduces, social status.
 **SB-005.** A player with no record reads as status `0`, Confidence `Unknown`,
 Psychosis at its lowest level. Never as negative or suspect.
 
+**SB-006.** A reputation event's contribution to social status **decays with
+its age**, on a curve configured in YAML. Nothing is deleted: the event stays in
+the history at full fidelity and only its weight in the current status falls.
+This is what makes constitution §2.6 real — a player who stops behaving badly
+recovers as their old events fade, without needing anyone to forgive them.
+
+This decay is **separate from Confidence's** age weighting (SB-003) and has its
+own configuration. Confidence answers "how much evidence is there"; this answers
+"how much does an old opinion still count". Moving one must not move the other.
+
 ## 3. Status, tiers and prefixes
 
 **SB-010.** Nine tiers, keeping the existing visual tokens and Spanish names:
@@ -45,6 +55,13 @@ positive `repRequired` values on negative tiers are a defect
 (`config.yml:1-16`) and are corrected. The ladder is validated on load; an
 invalid ladder is a startup error with a message naming the offending key, never
 a silent fallback.
+
+**SB-011a.** The ladder is **symmetric**: the negative thresholds mirror the
+positive ones at `-5`, `-15`, `-30`, `-50`. The baseline's inherited values
+(`-1`, `-10`, `-20`, `-30`) gave the first negative tier a range of exactly one
+point, so a single negative rating from neutral dropped a player two tiers while
+the positive side allowed five points of movement before the first promotion.
+Falling must not be cheaper than rising.
 
 **SB-012.** A player at exactly `0` resolves to the neutral tier `Particular`.
 
@@ -194,8 +211,8 @@ removed.
 | Command | Purpose |
 |---|---|
 | `/status [player]` | Show a social profile |
-| `/status trust <player>` | Give honor |
-| `/status distrust <player>` | Remove honor, with a reason |
+| `/status give <player>` | Give honor |
+| `/status take <player>` | Remove honor, with a reason |
 | `/status psychosis [player]` | Show Killing Psychosis detail |
 | `/status duel <player>` / `accept` / `deny` / `leave` | Duels |
 | `/status effects` | Toggle one's own ambient effects |
@@ -233,7 +250,36 @@ automatic *downloading* defaults to off.
 **SB-076.** The repository and release channel are configurable, so a fork or a
 private build can be pointed somewhere else.
 
-## 11. Later releases
+## 11. Rating history and anonymity
+
+**SB-080.** A player's rating history is browsable in a double chest GUI,
+opened by `/status [player]`. The top row shows the subject: their head, a dye
+whose colour follows their tier, and a green and a red banner for giving and
+removing honor. Below it, one column per rating: the rater's head, a paper
+holding their written reason, and a green or red banner for its direction.
+Banners at the edges page through the history.
+
+**SB-081.** The GUI is a **view**. It opens from cached data or a completed
+asynchronous load, never a blocking read, and a rating made through it goes
+through the same honor path as the command — same cost, same cooldown, same
+cap, same audit. A second surface must not become a second set of rules.
+
+**SB-082.** A rater's **identity is hidden by default**: the history shows their
+head and their reason, not their name. Revealing one name costs a configurable
+amount, charged through Vault, and the reveal is remembered for that viewer.
+The reason text is always visible; only the name is paid for.
+
+**SB-083.** A rater's comment is length-bounded, stored as written, and rendered
+as plain text. It never carries colour codes, formatting or click actions,
+whatever the rater typed: an item name is not a place where one player styles
+another player's screen.
+
+**SB-084.** Hiding a name changes nothing about accountability behind the
+scenes. The cap of SB-054 is still counted per actor-target pair, an
+administrator still sees who rated whom, and the audit trail is unaffected.
+
+
+## 12. Later releases
 
 In order. Each becomes its own specification section when it is reached.
 
@@ -243,7 +289,7 @@ In order. Each becomes its own specification section when it is reached.
 4. Vouching with a monetary guarantee.
 5. Integrations: trade warnings, CoreProtect, land claims, reputation event API.
 
-## 12. Removed from the baseline
+## 13. Removed from the baseline
 
 Deliberate deletions, so no agent restores them as "missing functionality".
 
@@ -258,7 +304,7 @@ Deliberate deletions, so no agent restores them as "missing functionality".
   `JavaPlugin`.
 - **`/utils`** — declared and registered with no handler.
 
-## 13. Acceptance criteria for release 1
+## 14. Acceptance criteria for release 1
 
 - [ ] A fresh install enables with no configuration present, and with a
       configuration file from the old plugin.
