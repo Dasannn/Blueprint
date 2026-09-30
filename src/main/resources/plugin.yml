@@ -21,6 +21,7 @@ permissions:
       socialblueprint.give: true
       socialblueprint.take: true
       socialblueprint.view: true
+      socialblueprint.effects: true
       socialblueprint.admin: true
 
   socialblueprint.admin:
@@ -51,6 +52,9 @@ permissions:
   socialblueprint.admin.config:
     description: Permite al administrador ver y editar la configuración
     default: op
+  socialblueprint.effects:
+    description: Permite al jugador activar o desactivar sus propios efectos ambientales
+    default: true
 
   pstatus.show:
     children:

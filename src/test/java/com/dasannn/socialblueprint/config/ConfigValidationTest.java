@@ -87,6 +87,20 @@ class ConfigValidationTest {
         assertThat(config.honor().capWindow()).isEqualTo(Duration.ofDays(7));
         assertThat(config.honor().cooldownPerPair()).isEqualTo(Duration.ofHours(24));
         assertThat(config.honor().maxPerTarget()).isEqualTo(3);
+
+        // Verify Effects settings (SB-040, SB-043)
+        assertThat(config.effects().threshold()).isEqualTo(-10);
+        assertThat(config.effects().checkInterval()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(config.effects().silverfish().cooldown()).isEqualTo(Duration.ofMinutes(10));
+        assertThat(config.effects().silverfish().sessionCap()).isEqualTo(3);
+        assertThat(config.effects().silverfish().durationTicks()).isEqualTo(40);
+        assertThat(config.effects().whisper().cooldown()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(config.effects().whisper().sessionCap()).isEqualTo(5);
+        assertThat(config.effects().creeper().cooldown()).isEqualTo(Duration.ofMinutes(8));
+        assertThat(config.effects().creeper().sessionCap()).isEqualTo(3);
+        assertThat(config.effects().fakeAnnouncement().cooldown()).isEqualTo(Duration.ofMinutes(15));
+        assertThat(config.effects().fakeAnnouncement().sessionCap()).isEqualTo(2);
+        assertThat(config.effects().fakeAnnouncement().fakeNames()).containsExactly("Herobrine");
     }
 
     @Test

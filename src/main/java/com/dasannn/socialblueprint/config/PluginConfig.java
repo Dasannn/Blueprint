@@ -17,7 +17,8 @@ public record PluginConfig(
         ConfidenceConfigSection confidence,
         PsychosisConfigSection psychosis,
         HonorConfigSection honor,
-        PermissionsConfig permissions
+        PermissionsConfig permissions,
+        EffectsConfigSection effects
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -29,6 +30,19 @@ public record PluginConfig(
         Objects.requireNonNull(psychosis, "psychosis must not be null");
         Objects.requireNonNull(honor, "honor must not be null");
         Objects.requireNonNull(permissions, "permissions must not be null");
+        Objects.requireNonNull(effects, "effects must not be null");
+    }
+
+    public PluginConfig(
+            String language,
+            String chatPrefix,
+            TiersConfig tiers,
+            ConfidenceConfigSection confidence,
+            PsychosisConfigSection psychosis,
+            HonorConfigSection honor,
+            PermissionsConfig permissions
+    ) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, EffectsConfigSection.defaults());
     }
 
     public static PluginConfig load(ConfigurationSection root) {
@@ -68,8 +82,11 @@ public record PluginConfig(
         PsychosisConfigSection psychosis = PsychosisConfigSection.load(root);
         HonorConfigSection honor = HonorConfigSection.load(root);
         PermissionsConfig permissions = PermissionsConfig.load(root);
+        EffectsConfigSection effects = root.contains("effects")
+                ? EffectsConfigSection.load(root)
+                : EffectsConfigSection.defaults();
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, effects);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -80,7 +97,8 @@ public record PluginConfig(
                 confidence,
                 psychosis,
                 honor,
-                permissions
+                permissions,
+                effects
         );
     }
 
@@ -92,7 +110,21 @@ public record PluginConfig(
                 confidence,
                 psychosis,
                 honor,
-                permissions
+                permissions,
+                effects
+        );
+    }
+
+    public PluginConfig withEffects(EffectsConfigSection newEffects) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                Objects.requireNonNull(newEffects, "effects must not be null")
         );
     }
 }

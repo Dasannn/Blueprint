@@ -28,6 +28,8 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.UUID;
+import com.dasannn.socialblueprint.domain.PlayerId;
 
 /**
  * Command dispatcher for /status (and aliases /pstatus, /reputation) per T-050, T-051, and ARCHITECTURE.md §8.
@@ -50,6 +52,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final StatusConfirmCommand confirmCommand;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
+    private final Consumer<UUID> optOutCleaner;
 
     private volatile CompletableFuture<?> lastExecution = CompletableFuture.completedFuture(null);
 
@@ -60,7 +63,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             HonorService honorService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
-            Supplier<Collection<? extends Player>> onlinePlayersSupplier
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier,
+            Consumer<UUID> optOutCleaner
     ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
@@ -74,6 +78,19 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
         this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
+        this.optOutCleaner = optOutCleaner;
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
     }
 
     public StatusCommandExecutor(
@@ -95,6 +112,33 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
         this(configManager, messageRegistry, profileService, null, null, mainThreadRunner, onlinePlayersSupplier);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<UUID> optOutCleaner,
+            Plugin plugin
+    ) {
+        this(
+                configManager,
+                messageRegistry,
+                profileService,
+                honorService,
+                auditRepository,
+                runnable -> {
+                    if (plugin != null && plugin.isEnabled()) {
+                        Bukkit.getScheduler().runTask(plugin, runnable);
+                    } else if (plugin == null) {
+                        runnable.run();
+                    }
+                },
+                Bukkit::getOnlinePlayers,
+                optOutCleaner
+        );
     }
 
     public StatusCommandExecutor(
@@ -221,6 +265,20 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // 7. Subcommand: /status effects (SB-044, T-075)
+        if ("effects".equals(sub)) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.player-only"));
+                return true;
+            }
+            if (!PermissionChecker.hasPermission(player, "effects", snapshot)) {
+                player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = handleToggleEffects(player, snapshot);
+            return true;
+        }
+
         // 7. Legacy syntax: /status info <player> or /pstatus info <player>
         if ("info".equals(sub) && subArgs.length >= 1) {
             if (!PermissionChecker.hasPermission(sender, "show-others", snapshot)) {
@@ -288,6 +346,24 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
     private void handleShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
         this.lastExecution = executeShowProfile(sender, targetInput, snapshot);
+    }
+
+    private CompletableFuture<Void> handleToggleEffects(Player player, RuntimeSnapshot snapshot) {
+        if (profileService == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        PlayerId id = PlayerId.of(player.getUniqueId());
+        return profileService.toggleEffectsOptOutAsync(id, player.getName())
+                .thenAccept(newOptOut -> mainThreadRunner.accept(() -> {
+                    if (newOptOut && optOutCleaner != null) {
+                        optOutCleaner.accept(player.getUniqueId());
+                    }
+                    if (newOptOut) {
+                        player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "effects.opt-out-enabled"));
+                    } else {
+                        player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "effects.opt-out-disabled"));
+                    }
+                }));
     }
 
     public CompletableFuture<Void> executeShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
@@ -359,6 +435,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 }
                 if ("confirm".startsWith(current)) {
                     suggestions.add("confirm");
+                }
+                if (PermissionChecker.hasPermission(sender, "effects", snapshot)) {
+                    if ("effects".startsWith(current)) suggestions.add("effects");
                 }
             }
 
