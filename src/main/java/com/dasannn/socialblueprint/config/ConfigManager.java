@@ -6,16 +6,22 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Manages loading, validation, persistence, and atomic reload of configuration per T-030, T-031, T-034, and T-035.
@@ -61,6 +67,7 @@ public class ConfigManager {
      */
     public RuntimeSnapshot reload() {
         synchronized (writeLock) {
+            migrateLegacyHonorWindowIfNeeded(configFile, logger);
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
             PluginConfig newConfig = PluginConfig.load(yaml);
             File dataFolder = configFile.getParentFile();
@@ -216,6 +223,64 @@ public class ConfigManager {
 
             // Unknown or uneditable key
             throw new ConfigValidationException(path, "Unknown or uneditable configuration key: " + path);
+        }
+    }
+
+    public CompletableFuture<RuntimeSnapshot> setAsync(String path, String rawValue) {
+        return CompletableFuture.supplyAsync(() -> set(path, rawValue), ioExecutor);
+    }
+
+    public Executor ioExecutor() {
+        return ioExecutor;
+    }
+
+    public static void migrateLegacyHonorWindowIfNeeded(File configFile, Logger logger) {
+        if (configFile == null || !configFile.exists()) {
+            return;
+        }
+        try {
+            YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
+            if (yaml.contains("honor.window") && !yaml.contains("honor.multiplier-window") && !yaml.contains("honor.cap-window")) {
+                String oldWindow = yaml.getString("honor.window");
+                String defaultMult = "1h";
+                String content = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
+                // Anchor to the honor section. psychosis also has a window key
+                // and appears first in the shipped file, so an unanchored search
+                // rewrites psychosis and leaves honor in place, destroying a
+                // working configuration on upgrade.
+                Matcher honorSection = Pattern.compile("(?m)^honor:[ \t]*$").matcher(content);
+                int searchFrom = honorSection.find() ? honorSection.end() : 0;
+                Pattern pattern = Pattern.compile("(?m)^([ \t]+)window:[ \t]*(.*)$");
+                Matcher matcher = pattern.matcher(content);
+                if (matcher.find(searchFrom)) {
+                    String indent = matcher.group(1);
+                    String lineSep = content.contains("\r\n") ? "\r\n" : "\n";
+                    String replacement = indent + "multiplier-window: " + defaultMult + lineSep + indent + "cap-window: " + matcher.group(2).trim();
+                    String updated = content.substring(0, matcher.start()) + replacement + content.substring(matcher.end());
+                    Path targetPath = configFile.toPath();
+                    Path tempPath = targetPath.resolveSibling(configFile.getName() + ".tmp." + UUID.randomUUID());
+                    Files.writeString(tempPath, updated, StandardCharsets.UTF_8);
+                    try {
+                        Files.move(tempPath, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                    } catch (IOException e) {
+                        Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                    } finally {
+                        Files.deleteIfExists(tempPath);
+                    }
+                } else {
+                    yaml.set("honor.multiplier-window", defaultMult);
+                    yaml.set("honor.cap-window", oldWindow);
+                    yaml.set("honor.window", null);
+                    yaml.save(configFile);
+                }
+                if (logger != null) {
+                    logger.info("[SocialBlueprint] Migrated legacy 'honor.window: " + oldWindow + "' to 'honor.cap-window: " + oldWindow + "' and 'honor.multiplier-window: " + defaultMult + "'");
+                }
+            }
+        } catch (Exception e) {
+            if (logger != null) {
+                logger.warning("[SocialBlueprint] Failed to migrate legacy honor.window configuration: " + e.getMessage());
+            }
         }
     }
 

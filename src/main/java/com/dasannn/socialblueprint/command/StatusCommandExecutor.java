@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.logging.Logger;
 
 /**
  * Command dispatcher for /status (and aliases /pstatus, /reputation) per T-050, T-051, and ARCHITECTURE.md §8.
@@ -66,13 +67,13 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
         this.profileService = profileService;
         this.honorService = honorService;
+        this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
         this.auditRepository = auditRepository;
-        this.configCommand = new StatusConfigCommand(configManager, messageRegistry, auditRepository);
+        this.configCommand = new StatusConfigCommand(configManager, messageRegistry, auditRepository, this.mainThreadRunner, Logger.getLogger(StatusConfigCommand.class.getName()));
         this.adminCommand = honorService != null ? new StatusAdminCommand(honorService, messageRegistry) : null;
         this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
-        this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
     }
 
@@ -178,7 +179,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
         // 2. Subcommand: /status config ...
         if ("config".equals(sub)) {
-            return configCommand.execute(sender, subArgs, snapshot);
+            this.lastExecution = configCommand.executeAsync(sender, subArgs, snapshot);
+            return true;
         }
 
         // 3. Subcommand: /status admin ...

@@ -107,16 +107,22 @@ public final class Migration_1_InitialSchema implements Migration {
                 );
             """);
 
-            // pending_compensation: id, player_uuid, amount, reason, created_at
+            // pending_compensation: id, player_uuid, amount, reason, state, created_at
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS pending_compensation (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     player_uuid TEXT NOT NULL,
                     amount REAL NOT NULL,
                     reason TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'CHARGED',
                     created_at TEXT NOT NULL
                 );
             """);
+            try {
+                stmt.execute("ALTER TABLE pending_compensation ADD COLUMN state TEXT NOT NULL DEFAULT 'CHARGED';");
+            } catch (SQLException ignored) {
+                // state column already exists
+            }
         }
     }
 }

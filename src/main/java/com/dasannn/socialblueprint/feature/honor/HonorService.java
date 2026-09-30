@@ -22,11 +22,13 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.command.CommandSender;
+import com.dasannn.socialblueprint.domain.CompensationState;
 import org.bukkit.entity.Player;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -39,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.logging.Logger;
 
 /**
  * Service managing the honor economy per SB-050 to SB-058 and Decision 0001:
@@ -61,6 +64,7 @@ public class HonorService {
     private final Consumer<Runnable> mainThreadRunner;
     private final Clock clock;
     private final Function<UUID, org.bukkit.OfflinePlayer> offlinePlayerResolver;
+    private final Logger logger;
     private volatile Economy economy;
 
     private final ConcurrentMap<UUID, PendingConfirmation> pendingConfirmations = new ConcurrentHashMap<>();
@@ -92,6 +96,7 @@ public class HonorService {
             }
             return null;
         };
+        this.logger = Logger.getLogger(HonorService.class.getName());
     }
 
     public HonorService(
@@ -334,64 +339,132 @@ public class HonorService {
             return CompletableFuture.completedFuture(null);
         }
 
-        // Main thread charges player via Vault (SB-057, ARCHITECTURE.md §9)
-        EconomyResponse response = economy.withdrawPlayer(actor, exactCost);
-        if (response == null || !response.transactionSuccess() || response.amount <= 0) {
-            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.insufficient-funds",
-                    Map.of("cost", formatCost(exactCost))));
-            return CompletableFuture.completedFuture(null);
-        }
-
-        double actualCharged = response.amount;
-
-        // Charge succeeded; persist event asynchronously on storage executor
-        ReputationEvent event = new ReputationEvent(
-                pending.actorId(),
-                pending.targetId(),
-                pending.delta(),
-                pending.kind(),
-                actualCharged,
-                pending.reason(),
-                now
-        );
-
-        CompletableFuture<Long> compSaveFuture;
+        // 1. Write INTENT row before withdrawal (SB-057 / Blocking 1)
+        CompletableFuture<Long> intentFuture;
         if (compensationRepository != null) {
             try {
-                compSaveFuture = compensationRepository.saveCompensationAsync(actor.getUniqueId(), actualCharged, "honor_charge", now);
+                intentFuture = compensationRepository.saveIntentAsync(actor.getUniqueId(), exactCost, "honor_charge", now);
             } catch (Exception ex) {
-                compSaveFuture = CompletableFuture.failedFuture(ex);
+                intentFuture = CompletableFuture.failedFuture(ex);
             }
         } else {
-            compSaveFuture = CompletableFuture.completedFuture(null);
+            intentFuture = CompletableFuture.completedFuture(null);
         }
 
-        final CompletableFuture<Long> pendingCompensation = compSaveFuture;
-        return pendingCompensation.thenCompose(compId -> reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository))
-                .handle((saved, error) -> {
+        return intentFuture.thenCompose(compId -> {
+            CompletableFuture<Void> resultFuture = new CompletableFuture<>();
+            mainThreadRunner.accept(() -> {
+                EconomyResponse response;
+                try {
+                    response = (economy != null) ? economy.withdrawPlayer(actor, exactCost) : null;
+                } catch (Exception ex) {
+                    if (compId != null && compensationRepository != null) {
+                        compensationRepository.deleteCompensationAsync(compId);
+                    }
+                    actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+                    resultFuture.complete(null);
+                    return;
+                }
+
+                if (response == null || !response.transactionSuccess()) {
+                    if (compId != null && compensationRepository != null) {
+                        compensationRepository.deleteCompensationAsync(compId);
+                    }
+                    actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.insufficient-funds",
+                            Map.of("cost", formatCost(exactCost))));
+                    resultFuture.complete(null);
+                    return;
+                }
+
+                double actualCharged = response.amount;
+
+                // SB-052 / Finding 3 / Blocking 3: withdrawal amount must match previewed cost exactly!
+                if (actualCharged <= 0 || Math.abs(actualCharged - exactCost) >= 0.0001) {
+                    // Mismatch: treat as failure that needs resolving
+                    if (actualCharged > 0 && compId != null && compensationRepository != null) {
+                        compensationRepository.markChargedWithAmountAsync(compId, actualCharged)
+                                .thenAccept(v -> claimAndRefund(actor, compId, actualCharged, snapshot));
+                    } else if (actualCharged > 0 && economy != null) {
+                        economy.depositPlayer(actor, actualCharged);
+                    } else if (compId != null && compensationRepository != null) {
+                        compensationRepository.deleteCompensationAsync(compId);
+                    }
+                    actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+                    resultFuture.complete(null);
+                    return;
+                }
+
+                // Withdrawal succeeded with exact previewed amount!
+                // Mark row charged
+                CompletableFuture<Boolean> markChargedFuture = (compId != null && compensationRepository != null)
+                        ? compensationRepository.markChargedAsync(compId)
+                        : CompletableFuture.completedFuture(true);
+
+                markChargedFuture.thenCompose(v -> {
+                    ReputationEvent event = new ReputationEvent(
+                            pending.actorId(),
+                            pending.targetId(),
+                            pending.delta(),
+                            pending.kind(),
+                            actualCharged,
+                            pending.reason(),
+                            now
+                    );
+                    return reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository);
+                }).handle((saved, error) -> {
                     mainThreadRunner.accept(() -> {
                         if (error == null) {
                             String msgKey = pending.kind() == HonorKind.POSITIVE ? "honor.given" : "honor.removed";
                             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, msgKey,
                                     Map.of("target", pending.targetName())));
                         } else {
-                            if (economy != null) {
-                                EconomyResponse refundResp = economy.depositPlayer(actor, actualCharged);
-                                if (refundResp != null && refundResp.transactionSuccess()
-                                        && Math.abs(refundResp.amount - actualCharged) < 0.0001
-                                        && compensationRepository != null) {
-                                    pendingCompensation.thenAccept(compId -> {
-                                        if (compId != null) {
-                                            compensationRepository.deleteCompensationAsync(compId);
-                                        }
-                                    });
-                                }
-                            }
+                            claimAndRefund(actor, compId, actualCharged, snapshot);
                             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
                         }
+                        resultFuture.complete(null);
                     });
-                    return (Void) null;
+                    return null;
                 });
+            });
+            return resultFuture;
+        }).exceptionally(ex -> {
+            mainThreadRunner.accept(() -> {
+                actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+            });
+            return null;
+        });
+    }
+
+    private void claimAndRefund(org.bukkit.OfflinePlayer player, Long compId, double amount, RuntimeSnapshot snapshot) {
+        if (player == null || economy == null) {
+            return;
+        }
+        if (compId == null || compensationRepository == null) {
+            economy.depositPlayer(player, amount);
+            return;
+        }
+
+        compensationRepository.claimForRefundAsync(compId).thenAccept(claimed -> {
+            if (!claimed) {
+                return;
+            }
+            mainThreadRunner.accept(() -> {
+                try {
+                    EconomyResponse refundResp = economy.depositPlayer(player, amount);
+                    if (refundResp != null && refundResp.transactionSuccess()
+                            && Math.abs(refundResp.amount - amount) < 0.0001) {
+                        compensationRepository.markRefundedAsync(compId)
+                                .thenCompose(v -> compensationRepository.deleteCompensationAsync(compId));
+                    } else {
+                        compensationRepository.revertToChargedAsync(compId);
+                    }
+                } catch (Exception ex) {
+                    logger.severe("[SocialBlueprint] Exception during refund deposit for player "
+                            + player.getUniqueId() + ", amount=" + amount + ": " + ex.getMessage());
+                    compensationRepository.markUncertainAsync(compId);
+                }
+            });
+        });
     }
 
     /**
@@ -401,24 +474,78 @@ public class HonorService {
         if (compensationRepository == null || economy == null) {
             return CompletableFuture.completedFuture(null);
         }
-        return compensationRepository.findAllAsync().thenAccept(records -> {
+        return compensationRepository.findAllAsync().thenCompose(records -> {
             if (records.isEmpty()) {
-                return;
+                return CompletableFuture.completedFuture(null);
             }
-            mainThreadRunner.accept(() -> {
-                for (CompensationRecord record : records) {
-                    try {
-                        org.bukkit.OfflinePlayer op = offlinePlayerResolver.apply(record.playerUuid());
-                        if (op != null) {
-                            EconomyResponse resp = economy.depositPlayer(op, record.amount());
-                            if (resp != null && resp.transactionSuccess() && Math.abs(resp.amount - record.amount()) < 0.0001) {
-                                compensationRepository.deleteCompensationAsync(record.id());
-                            }
-                        }
-                    } catch (Exception ignored) {
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (CompensationRecord record : records) {
+                switch (record.state()) {
+                    case INTENDED -> {
+                        // Intended but never charged (discard)
+                        futures.add(compensationRepository.deleteCompensationAsync(record.id()));
+                    }
+                    case EVENT_WRITTEN -> {
+                        // Event written (delete the row)
+                        futures.add(compensationRepository.deleteCompensationAsync(record.id()));
+                    }
+                    case REFUNDED -> {
+                        // Refund deposit completed: delete row
+                        futures.add(compensationRepository.deleteCompensationAsync(record.id()));
+                    }
+                    case REFUNDING -> {
+                        // Server crashed mid-deposit! Vault's outcome is genuinely unknown.
+                        // Leave in explicit uncertain state and log for owner.
+                        logger.warning("[SocialBlueprint] Pending compensation ID " + record.id() + " for player "
+                                + record.playerUuid() + " ($" + record.amount()
+                                + ") was in REFUNDING state; marking UNCERTAIN for manual operator review.");
+                        futures.add(compensationRepository.markUncertainAsync(record.id()).thenApply(b -> null));
+                    }
+                    case UNCERTAIN -> {
+                        logger.warning("[SocialBlueprint] Pending compensation ID " + record.id() + " for player "
+                                + record.playerUuid() + " ($" + record.amount()
+                                + ") requires manual operator review (UNCERTAIN state).");
+                    }
+                    case CHARGED -> {
+                        // Charged but no event (refund)
+                        // Claim row before acting on it so two passes cannot both process it
+                        CompletableFuture<Void> compFuture = compensationRepository.claimForRefundAsync(record.id())
+                                .thenAccept(claimed -> {
+                                    if (!claimed) {
+                                        return;
+                                    }
+                                    mainThreadRunner.accept(() -> {
+                                        org.bukkit.OfflinePlayer op = offlinePlayerResolver.apply(record.playerUuid());
+                                        if (op == null) {
+                                            logger.warning("[SocialBlueprint] Cannot resolve offline player "
+                                                    + record.playerUuid() + " for refund compensation ID " + record.id());
+                                            compensationRepository.revertToChargedAsync(record.id());
+                                            return;
+                                        }
+                                        try {
+                                            EconomyResponse resp = economy.depositPlayer(op, record.amount());
+                                            if (resp != null && resp.transactionSuccess()
+                                                    && Math.abs(resp.amount - record.amount()) < 0.0001) {
+                                                compensationRepository.markRefundedAsync(record.id())
+                                                        .thenCompose(v -> compensationRepository.deleteCompensationAsync(record.id()));
+                                            } else {
+                                                logger.severe("[SocialBlueprint] Reconcile refund deposit failed for player "
+                                                        + record.playerUuid() + ", compensation ID " + record.id() + ": "
+                                                        + (resp != null ? resp.errorMessage : "null response"));
+                                                compensationRepository.revertToChargedAsync(record.id());
+                                            }
+                                        } catch (Exception ex) {
+                                            logger.severe("[SocialBlueprint] Exception during reconcile refund for compensation ID "
+                                                    + record.id() + ": " + ex.getMessage());
+                                            compensationRepository.markUncertainAsync(record.id());
+                                        }
+                                    });
+                                });
+                        futures.add(compFuture);
                     }
                 }
-            });
+            }
+            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
         });
     }
 

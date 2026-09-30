@@ -14,14 +14,20 @@ public record CompensationRecord(
         UUID playerUuid,
         double amount,
         String reason,
+        CompensationState state,
         Instant createdAt
 ) {
     public CompensationRecord {
         Objects.requireNonNull(playerUuid, "playerUuid must not be null");
         Objects.requireNonNull(reason, "reason must not be null");
+        Objects.requireNonNull(state, "state must not be null");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
         if (amount <= 0.0 || !Double.isFinite(amount)) {
             throw new IllegalArgumentException("amount must be finite and positive: " + amount);
         }
+    }
+
+    public CompensationRecord(long id, UUID playerUuid, double amount, String reason, Instant createdAt) {
+        this(id, playerUuid, amount, reason, CompensationState.CHARGED, createdAt);
     }
 }

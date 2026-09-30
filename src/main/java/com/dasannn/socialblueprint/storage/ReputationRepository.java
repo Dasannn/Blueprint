@@ -154,9 +154,12 @@ public final class ReputationRepository {
                 conn.setAutoCommit(false);
                 ReputationEvent saved = saveInternal(conn, event);
                 if (compensationId != null && compensationRepository != null) {
-                    compensationRepository.deleteCompensationInternal(conn, compensationId);
+                    compensationRepository.markEventWrittenInternal(conn, compensationId);
                 }
                 conn.commit();
+                if (compensationId != null && compensationRepository != null) {
+                    compensationRepository.deleteCompensationAsync(compensationId);
+                }
                 return saved;
             } catch (Exception ex) {
                 conn.rollback();
@@ -198,23 +201,59 @@ public final class ReputationRepository {
                 int delta;
                 int afterScore;
                 if (kind == HonorKind.ADMIN_RESET) {
-                    delta = -before.value();
                     afterScore = 0;
+                    try {
+                        delta = Math.negateExact(before.value());
+                        ReputationEvent repEvent = new ReputationEvent(
+                                actorId,
+                                targetId,
+                                delta,
+                                kind,
+                                0.0,
+                                reason,
+                                now
+                        );
+                        saveInternal(conn, repEvent);
+                    } catch (ArithmeticException e) {
+                        // Negating Integer.MIN_VALUE overflows 32-bit signed int.
+                        // Compensate with two events in the same transaction summing to +2,147,483,648:
+                        // part1 = Integer.MAX_VALUE (2,147,483,647) and part2 = 1.
+                        delta = Integer.MAX_VALUE;
+                        ReputationEvent part1 = new ReputationEvent(
+                                actorId,
+                                targetId,
+                                Integer.MAX_VALUE,
+                                kind,
+                                0.0,
+                                reason,
+                                now
+                        );
+                        ReputationEvent part2 = new ReputationEvent(
+                                actorId,
+                                targetId,
+                                1,
+                                kind,
+                                0.0,
+                                reason,
+                                now
+                        );
+                        saveInternal(conn, part1);
+                        saveInternal(conn, part2);
+                    }
                 } else {
                     delta = amount;
                     afterScore = before.value() + delta;
+                    ReputationEvent repEvent = new ReputationEvent(
+                            actorId,
+                            targetId,
+                            delta,
+                            kind,
+                            0.0,
+                            reason,
+                            now
+                    );
+                    saveInternal(conn, repEvent);
                 }
-
-                ReputationEvent repEvent = new ReputationEvent(
-                        actorId,
-                        targetId,
-                        delta,
-                        kind,
-                        0.0,
-                        reason,
-                        now
-                );
-                saveInternal(conn, repEvent);
 
                 AuditEvent audit = new AuditEvent(
                         actorId,

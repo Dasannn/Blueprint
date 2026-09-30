@@ -86,12 +86,19 @@ public record HonorConfigSection(
         }
 
         String multWindowKey = "honor.multiplier-window";
+        String capWindowKey = "honor.cap-window";
+
+        // Migrate in-memory if legacy 'honor.window' is present and new keys are not
+        if (!section.contains("multiplier-window") && !section.contains("cap-window") && section.contains("window")) {
+            section.set("cap-window", section.getString("window"));
+            section.set("multiplier-window", "1h");
+        }
+
         if (!section.contains("multiplier-window")) {
             throw new ConfigValidationException(multWindowKey, "Missing required key: " + multWindowKey);
         }
         Duration multiplierWindow = DurationParser.parsePositive(section.getString("multiplier-window"), multWindowKey);
 
-        String capWindowKey = "honor.cap-window";
         if (!section.contains("cap-window")) {
             throw new ConfigValidationException(capWindowKey, "Missing required key: " + capWindowKey);
         }

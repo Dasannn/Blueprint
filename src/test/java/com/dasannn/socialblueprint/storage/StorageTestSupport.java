@@ -38,4 +38,20 @@ public final class StorageTestSupport {
     public static void dropFailAuditTrigger(StorageEngine storage) {
         executeSql(storage, "DROP TRIGGER IF EXISTS fail_audit;");
     }
+
+    public static void setFailCompensationInsertTrigger(StorageEngine storage) {
+        executeSql(storage, "CREATE TRIGGER fail_comp_insert BEFORE INSERT ON pending_compensation BEGIN SELECT RAISE(FAIL, 'simulated compensation insert failure'); END;");
+    }
+
+    public static void dropFailCompensationInsertTrigger(StorageEngine storage) {
+        executeSql(storage, "DROP TRIGGER IF EXISTS fail_comp_insert;");
+    }
+
+    public static void setFailCompensationDeleteTrigger(StorageEngine storage) {
+        executeSql(storage, "CREATE TRIGGER fail_comp_delete BEFORE DELETE ON pending_compensation BEGIN SELECT RAISE(FAIL, 'simulated compensation delete failure'); END;");
+    }
+
+    public static void dropFailCompensationDeleteTrigger(StorageEngine storage) {
+        executeSql(storage, "DROP TRIGGER IF EXISTS fail_comp_delete;");
+    }
 }
