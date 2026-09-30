@@ -88,6 +88,9 @@ decay:
   half-life: 30d
   # Weight below which an event stops counting at all (0.0 keeps the tail).
   floor: 0.0
+  # How long a derived status stays cached. Status now changes with time, not
+  # only with writes, so this bounds how stale a displayed value can be.
+  cache-ttl: 60s
 
 # ==============================================================================
 # Killing Psychosis (SB-004, T-014)

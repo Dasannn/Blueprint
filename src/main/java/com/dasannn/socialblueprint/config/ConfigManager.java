@@ -39,6 +39,7 @@ public class ConfigManager {
     private final Executor ioExecutor;
     private final MessageRegistry messageRegistry;
     private final AtomicReference<RuntimeSnapshot> snapshotRef;
+    private final java.util.List<java.util.function.Consumer<RuntimeSnapshot>> snapshotListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Object writeLock = new Object();
 
     public ConfigManager(File configFile, MessageRegistry messageRegistry, Executor ioExecutor, Logger logger) {
@@ -47,6 +48,22 @@ public class ConfigManager {
         this.ioExecutor = ioExecutor != null ? ioExecutor : Runnable::run;
         this.logger = logger != null ? logger : Logger.getLogger(ConfigManager.class.getName());
         this.snapshotRef = messageRegistry != null ? messageRegistry.snapshotReference() : new AtomicReference<>();
+    }
+
+    public void addSnapshotListener(java.util.function.Consumer<RuntimeSnapshot> listener) {
+        if (listener != null) {
+            snapshotListeners.add(listener);
+        }
+    }
+
+    private void notifySnapshotListeners(RuntimeSnapshot snapshot) {
+        for (java.util.function.Consumer<RuntimeSnapshot> listener : snapshotListeners) {
+            try {
+                listener.accept(snapshot);
+            } catch (Exception e) {
+                logger.warning("[SocialBlueprint] Snapshot listener threw exception: " + e.getMessage());
+            }
+        }
     }
 
     /**
@@ -74,6 +91,7 @@ public class ConfigManager {
             MessagesSnapshot newMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
             RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages);
             snapshotRef.set(newSnapshot);
+            notifySnapshotListeners(newSnapshot);
             return newSnapshot;
         }
     }
@@ -189,6 +207,7 @@ public class ConfigManager {
 
                 RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, messages);
                 snapshotRef.set(newSnapshot);
+                notifySnapshotListeners(newSnapshot);
                 return newSnapshot;
             }
 
@@ -218,6 +237,7 @@ public class ConfigManager {
                 MessagesSnapshot updatedMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, activeLang, logger);
                 RuntimeSnapshot newSnapshot = new RuntimeSnapshot(current.config(), updatedMessages);
                 snapshotRef.set(newSnapshot);
+                notifySnapshotListeners(newSnapshot);
                 return newSnapshot;
             }
 
@@ -307,9 +327,11 @@ public class ConfigManager {
         } catch (NumberFormatException ignored) {
         }
 
-        try {
-            return Double.parseDouble(trimmed);
-        } catch (NumberFormatException ignored) {
+        if (trimmed.matches("[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?")) {
+            try {
+                return Double.parseDouble(trimmed);
+            } catch (NumberFormatException ignored) {
+            }
         }
 
         return raw;

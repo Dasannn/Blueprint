@@ -95,12 +95,12 @@ public record Status(int value) implements Comparable<Status> {
             throw new ArithmeticException("Derived status aggregate exceeds 32-bit signed integer range: " + weightedSum);
         }
 
-        // The weighted sum is rounded half away from zero, so a decayed -1 never rounds to 0
-        // while any weight remains above the floor: a single old slight is either still counted
-        // or has passed the floor.
-        // In Java, Math.round(-0.5) rounds towards positive infinity (yielding 0), which is asymmetric
+        // The weighted sum is rounded half away from zero using RoundingMode.HALF_UP on BigDecimal.
+        // In Java, standard Math.round(-0.5) rounds towards positive infinity (yielding 0), which is asymmetric
         // and rounds negative values towards zero. Using BigDecimal with RoundingMode.HALF_UP
         // ensures exact symmetric rounding half away from zero (0.5 -> 1, -0.5 -> -1).
+        // Once an event's absolute contribution drops below 0.5 (e.g. past one half-life for a delta of +/-1),
+        // it rounds to 0.
         int rounded = BigDecimal.valueOf(weightedSum)
                 .setScale(0, RoundingMode.HALF_UP)
                 .intValueExact();

@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -118,8 +120,8 @@ class RatingDecayTest {
     }
 
     @Test
-    @DisplayName("T-110: Rounding half away from zero ensures decayed -1 rounds to -1 at half-life and never rounds to 0 while above floor")
-    void roundingHalfAwayFromZeroPreservesDecayedNegativeOne() {
+    @DisplayName("T-110: Symmetric half-away-from-zero rounding rounds -0.5 to -1 at half-life and rounds to 0 past half-life")
+    void roundingHalfAwayFromZeroRoundsAtHalfLifeAndToZeroPastHalfLife() {
         PlayerId actor = PlayerId.of(UUID.randomUUID());
         PlayerId target = PlayerId.of(UUID.randomUUID());
         Instant now = Instant.parse("2026-09-30T12:00:00Z");
@@ -138,6 +140,21 @@ class RatingDecayTest {
         ReputationEvent positive = new ReputationEvent(0L, actor, target, 1, HonorKind.POSITIVE, 500.0, null, now.minus(Duration.ofDays(30)));
         Status statusPositive = Status.fromEvents(List.of(positive), decay, now);
         assertThat(statusPositive.value()).isEqualTo(1);
+
+        // Finding 5: Just past one half-life (30 days + 1 second), weight is < 0.5 (e.g. ~0.499999)
+        // Weighted sum is > -0.5 and < 0.0, which rounds to 0 under half-away-from-zero.
+        ReputationEvent pastHalfLifeNegative = new ReputationEvent(0L, actor, target, -1, HonorKind.NEGATIVE, 500.0, "Dispute", now.minus(Duration.ofDays(30).plusSeconds(1)));
+        Status statusPastNegative = Status.fromEvents(List.of(pastHalfLifeNegative), decay, now);
+        assertThat(statusPastNegative.value()).isEqualTo(0);
+
+        ReputationEvent pastHalfLifePositive = new ReputationEvent(0L, actor, target, 1, HonorKind.POSITIVE, 500.0, null, now.minus(Duration.ofDays(30).plusSeconds(1)));
+        Status statusPastPositive = Status.fromEvents(List.of(pastHalfLifePositive), decay, now);
+        assertThat(statusPastPositive.value()).isEqualTo(0);
+
+        // At two half-lives (60 days), weight is 0.25 -> -0.25 rounds to 0
+        ReputationEvent twoHalfLives = new ReputationEvent(0L, actor, target, -1, HonorKind.NEGATIVE, 500.0, "Dispute", now.minus(Duration.ofDays(60)));
+        Status statusTwoHalfLives = Status.fromEvents(List.of(twoHalfLives), decay, now);
+        assertThat(statusTwoHalfLives.value()).isEqualTo(0);
     }
 
     @Test
@@ -363,6 +380,55 @@ class RatingDecayTest {
         assertThat(logMessages).anyMatch(msg -> msg.contains("tier-3") && msg.contains("-20") && msg.contains("-30"));
         assertThat(logMessages).anyMatch(msg -> msg.contains("tier-2") && msg.contains("-10") && msg.contains("-15"));
         assertThat(logMessages).anyMatch(msg -> msg.contains("tier-1") && msg.contains("-1") && msg.contains("-5"));
+
+        // Finding 6: Subsequent reload/parsing with the same logger logs nothing
+        logMessages.clear();
+        TiersConfig reloaded = TiersConfig.load(yaml, testLogger);
+        assertThat(logMessages).as("Subsequent reload must not fire migration notices repeatedly").isEmpty();
+    }
+
+    @Test
+    @DisplayName("Finding 6: Custom negative thresholds do not log legacy migration notices")
+    void customThresholdsDoNotLogMigrationNotices() {
+        String customYaml = """
+                tiers:
+                  tier-4: { prefix: '&7[&4||||&7]', threshold: -45 }
+                  tier-3: { prefix: '&7[&c|||&7]', threshold: -25 }
+                  tier-2: { prefix: '&7[&c||&7]', threshold: -12 }
+                  tier-1: { prefix: '&7[&c|&7]', threshold: -3 }
+                  tier0: { prefix: '&7[&f|&7]', threshold: 0 }
+                  tier1: { prefix: '&7[&a|&7]', threshold: 5 }
+                  tier2: { prefix: '&7[&a||&7]', threshold: 15 }
+                  tier3: { prefix: '&7[&a|||&7]', threshold: 30 }
+                  tier4: { prefix: '&7[&b||||&7]', threshold: 50 }
+                """;
+
+        YamlConfiguration yaml = new YamlConfiguration();
+        try {
+            yaml.load(new StringReader(customYaml));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        List<String> logMessages = new ArrayList<>();
+        Logger testLogger = Logger.getLogger("CustomMigrationLogger-" + UUID.randomUUID());
+        testLogger.setUseParentHandlers(false);
+        testLogger.addHandler(new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                logMessages.add(record.getMessage());
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        });
+
+        TiersConfig loaded = TiersConfig.load(yaml, testLogger);
+        assertThat(loaded.get(Tier.FORAJIDO).threshold()).isEqualTo(-25);
+        assertThat(logMessages).as("Custom ladders should not trigger legacy default migration notices").isEmpty();
     }
 
     @Test
@@ -470,5 +536,86 @@ class RatingDecayTest {
         Status refreshed = cache.getOrRebuild(player, () -> eventsList);
         assertThat(refreshed.value()).isEqualTo(15);
         assertThat(cache.get(player)).isPresent().contains(Status.of(15));
+    }
+
+    @Test
+    @DisplayName("Finding 4: getOrRebuild reloads when a write/invalidation commits while loading and never returns stale derived status")
+    void getOrRebuildReloadsOnConcurrentWrite() throws Exception {
+        TestClock clock = new TestClock(Instant.parse("2026-09-30T12:00:00Z"));
+        StatusCache cache = new StatusCache(Duration.ofSeconds(60), clock);
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+
+        java.util.concurrent.CountDownLatch loadStartedLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch writeCommittedLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger supplierCalls = new java.util.concurrent.atomic.AtomicInteger(0);
+
+        List<ReputationEvent> initialEvents = List.of(
+                new ReputationEvent(0L, actor, target, 10, HonorKind.POSITIVE, 500.0, null, clock.instant())
+        );
+        List<ReputationEvent> updatedEvents = List.of(
+                new ReputationEvent(0L, actor, target, 10, HonorKind.POSITIVE, 500.0, null, clock.instant()),
+                new ReputationEvent(1L, actor, target, 5, HonorKind.POSITIVE, 500.0, null, clock.instant())
+        );
+
+        Supplier<List<ReputationEvent>> supplier = () -> {
+            int call = supplierCalls.incrementAndGet();
+            if (call == 1) {
+                loadStartedLatch.countDown();
+                try {
+                    writeCommittedLatch.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return initialEvents;
+            } else {
+                return updatedEvents;
+            }
+        };
+
+        CompletableFuture<Status> future = CompletableFuture.supplyAsync(() ->
+                cache.getOrRebuild(target, supplier, DecayConfig.defaults(), clock.instant())
+        );
+
+        loadStartedLatch.await();
+        // A concurrent write commits and invalidates while supplier is loading
+        cache.invalidate(target);
+        writeCommittedLatch.countDown();
+
+        Status finalStatus = future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        // Must reload and return the post-write status (15), never the stale pre-write status (10)
+        assertThat(finalStatus.value()).isEqualTo(15);
+        assertThat(supplierCalls.get()).isEqualTo(2);
+        assertThat(cache.get(target)).isPresent().contains(Status.of(15));
+    }
+
+    @Test
+    @DisplayName("Finding 3: Cache entries are not reused under different decay configurations")
+    void cacheEntryNotReusedUnderDifferentDecayConfig() {
+        TestClock clock = new TestClock(Instant.parse("2026-09-30T12:00:00Z"));
+        StatusCache cache = new StatusCache(Duration.ofSeconds(60), clock);
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+
+        // Event from 30 days ago: delta +10
+        ReputationEvent event = new ReputationEvent(0L, actor, target, 10, HonorKind.POSITIVE, 500.0, null, clock.instant().minus(Duration.ofDays(30)));
+        List<ReputationEvent> events = List.of(event);
+
+        DecayConfig decayEnabled = new DecayConfig(true, Duration.ofDays(30), 0.0);
+        DecayConfig decayDisabled = DecayConfig.disabled();
+
+        // 1. Read with decay enabled -> weight 0.5 -> score 5
+        Status s1 = cache.getOrRebuild(target, () -> events, decayEnabled, clock.instant());
+        assertThat(s1.value()).isEqualTo(5);
+        assertThat(cache.get(target, decayEnabled)).contains(Status.of(5));
+
+        // 2. Read with decay disabled -> entry for decayEnabled must NOT be reused; must compute undecayed 10
+        Status s2 = cache.getOrRebuild(target, () -> events, decayDisabled, clock.instant());
+        assertThat(s2.value()).isEqualTo(10);
+        assertThat(cache.get(target, decayDisabled)).contains(Status.of(10));
+
+        // 3. Read again with decay enabled -> entry for decayDisabled must NOT be reused; must compute 5
+        Status s3 = cache.getOrRebuild(target, () -> events, decayEnabled, clock.instant());
+        assertThat(s3.value()).isEqualTo(5);
     }
 }

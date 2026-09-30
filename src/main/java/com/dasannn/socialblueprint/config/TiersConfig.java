@@ -35,6 +35,22 @@ public record TiersConfig(
             Tier.ILUSTRE, 50
     );
 
+    /**
+     * Former shipped negative tier ladder thresholds (-30, -20, -10, -1).
+     */
+    public static final Map<Tier, Integer> LEGACY_SHIPPED_THRESHOLDS = Map.of(
+            Tier.CRIMINAL, -30,
+            Tier.FORAJIDO, -20,
+            Tier.DELINCUENTE, -10,
+            Tier.TEMERARIO, -1
+    );
+
+    private static final java.util.Set<String> REPORTED_MIGRATIONS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    public static void resetMigrationNotices() {
+        REPORTED_MIGRATIONS.clear();
+    }
+
     public TiersConfig {
         Objects.requireNonNull(tiers, "Tiers map must not be null");
         Objects.requireNonNull(ladder, "TierLadder must not be null");
@@ -133,14 +149,18 @@ public record TiersConfig(
                         "Positive tier '" + tier.displayName() + "' threshold must be strictly positive (> 0), got " + threshold);
             }
 
-            // Report migration difference for negative tiers without silently deciding (T-112, SB-011a)
+            // Report migration difference for legacy shipped negative tiers once per migration (T-112, SB-011a)
             if (tier.isNegative() && logger != null) {
+                Integer legacyThreshold = LEGACY_SHIPPED_THRESHOLDS.get(tier);
                 Integer defThreshold = DEFAULT_THRESHOLDS.get(tier);
-                if (defThreshold != null && threshold != defThreshold) {
-                    logger.info(String.format(
-                            "[SocialBlueprint] Tier '%s' (%s) stored threshold %d differs from default %d; keeping stored threshold",
-                            tier.displayName(), tier.configKey(), threshold, defThreshold
-                    ));
+                if (legacyThreshold != null && threshold == legacyThreshold && defThreshold != null && threshold != defThreshold) {
+                    String noticeKey = logger.getName() + ":" + tier.configKey() + ":" + threshold;
+                    if (REPORTED_MIGRATIONS.add(noticeKey)) {
+                        logger.info(String.format(
+                                "[SocialBlueprint] Tier '%s' (%s) stored threshold %d differs from default %d; keeping stored threshold",
+                                tier.displayName(), tier.configKey(), threshold, defThreshold
+                        ));
+                    }
                 }
             }
 

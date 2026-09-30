@@ -52,6 +52,38 @@ class ProfileServiceTest {
     private MessageRegistry messageRegistry;
     private ProfileService profileService;
 
+    static class TestClock extends java.time.Clock {
+        private Instant instant;
+
+        TestClock(Instant initial) {
+            this.instant = initial;
+        }
+
+        void set(Instant instant) {
+            this.instant = instant;
+        }
+
+        void advance(java.time.Duration duration) {
+            this.instant = this.instant.plus(duration);
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return java.time.ZoneOffset.UTC;
+        }
+
+        @Override
+        public java.time.Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
+    }
+
+    private TestClock testClock;
     private final Instant baseTime = Instant.now().minus(java.time.Duration.ofMinutes(5));
 
     @BeforeEach
@@ -70,8 +102,18 @@ class ProfileServiceTest {
         storage = StorageEngine.inMemory();
         storage.runMigrations();
 
-        statusCache = new StatusCache();
-        reputationRepo = new ReputationRepository(storage, statusCache);
+        testClock = new TestClock(Instant.now());
+        statusCache = new StatusCache(
+                configManager.config().decay().cacheTtl(),
+                testClock,
+                () -> configManager.config().decay().toDomain()
+        );
+        reputationRepo = new ReputationRepository(
+                storage,
+                statusCache,
+                () -> configManager.config().decay().toDomain(),
+                testClock
+        );
         psychosisRepo = new PsychosisRepository(storage);
         profileRepo = new ProfileRepository(storage);
 
@@ -83,7 +125,8 @@ class ProfileServiceTest {
                 statusCache,
                 configManager,
                 null,
-                logger
+                logger,
+                testClock
         );
     }
 
@@ -356,6 +399,32 @@ class ProfileServiceTest {
     }
 
     @Test
+    void loadQueuedBeforeQuitCannotRepublishAfterRejoin() throws Exception {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        reputationRepo.save(new ReputationEvent(actor, target, 10, HonorKind.POSITIVE, 500.0, null, testClock.instant()));
+
+        java.util.concurrent.CountDownLatch holdLatch = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        CompletableFuture<PlayerSocialView> staleLoad = profileService.loadViewAsync(target, "Quitter", snapshot);
+        profileService.evict(target);
+        profileService.warmUp(target, "Rejoined", snapshot);
+        holdLatch.countDown();
+
+        assertThat(staleLoad.get(5, java.util.concurrent.TimeUnit.SECONDS).status()).isZero();
+        storage.submitAsync(() -> {}).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.getViewQuick(target, snapshot).status()).isEqualTo(10);
+    }
+
+    @Test
     @DisplayName("Round 2 Finding 4: In-flight cap admission and reservation is atomic under concurrency")
     void concurrentDistinctLoadsRespectAtomicCap() throws Exception {
         RuntimeSnapshot snapshot = configManager.snapshot();
@@ -444,5 +513,109 @@ class ProfileServiceTest {
         assertThat(view1.tier())
                 .as("Tier must be resolved from captured snapshot1 (AFABLE), not from reloaded config (PARTICULAR)")
                 .isEqualTo(Tier.AFABLE);
+    }
+
+    @Test
+    @DisplayName("Finding 2: Expired view in cache is removed on read, triggers background rebuild, and does no storage work on calling thread")
+    void viewExpiresOnReadAndTriggersBackgroundRebuildWithoutStorageCallOnCallingThread() throws Exception {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+
+        // Event of -5 rating at T=0 (ladder resolves -5 to TEMERARIO)
+        reputationRepo.save(new ReputationEvent(actor, target, -5, HonorKind.NEGATIVE, 500.0, "reason.test", testClock.instant()));
+
+        // Populate view cache initially
+        PlayerSocialView initialView = profileService.loadViewAsync(target, "Alice", configManager.snapshot()).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(initialView.status()).isEqualTo(-5);
+        assertThat(initialView.tier()).isEqualTo(Tier.TEMERARIO);
+        assertThat(profileService.isCached(target)).isTrue();
+
+        // Immediate quick view hit returns the cached Temerario view
+        PlayerSocialView hitView = profileService.getViewQuick(target, configManager.snapshot());
+        assertThat(hitView.status()).isEqualTo(-5);
+        assertThat(hitView.tier()).isEqualTo(Tier.TEMERARIO);
+
+        // Advance clock by 15 days (half-life 30d):
+        // 1. -5 decays to -4 (rounds half-up to -4, tier changes from TEMERARIO to PARTICULAR)
+        // 2. View cache TTL (default 60s) has expired!
+        testClock.advance(java.time.Duration.ofDays(15));
+
+        // Lock/hold the storage executor with a latch to prove that getViewQuick on the calling thread does NO storage work
+        java.util.concurrent.CountDownLatch holdStorage = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try {
+                holdStorage.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        try {
+            // Calling getViewQuick with storage paused MUST return immediately without blocking!
+            long startTime = System.currentTimeMillis();
+            PlayerSocialView quickView = profileService.getViewQuick(target, configManager.snapshot());
+            long duration = System.currentTimeMillis() - startTime;
+
+            // Must return neutral default immediately without blocking on storage executor
+            assertThat(duration).isLessThan(500);
+            assertThat(quickView.status()).isZero();
+            assertThat(quickView.tier()).isEqualTo(Tier.PARTICULAR);
+
+            // Expired entry must have been removed from cache
+            assertThat(profileService.isCached(target)).isFalse();
+        } finally {
+            // Unblock storage executor to let background rebuild execute
+            holdStorage.countDown();
+        }
+
+        // Wait for the background load to complete and repopulate the cache
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline && !profileService.isCached(target)) {
+            Thread.sleep(10);
+        }
+        assertThat(profileService.isCached(target)).isTrue();
+
+        // Subsequent quick read gets the fresh view from background rebuild with decayed status -4 and updated tier PARTICULAR
+        PlayerSocialView refreshedView = profileService.getViewQuick(target, configManager.snapshot());
+        assertThat(refreshedView.status()).isEqualTo(-4);
+        assertThat(refreshedView.tier()).isEqualTo(Tier.PARTICULAR);
+    }
+
+    @Test
+    @DisplayName("Finding 7: Editing decay configuration invalidates view cache and updates StatusCache TTL")
+    void editingDecayInvalidatesCachesAndUpdatesTtl() throws Exception {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+
+        reputationRepo.save(new ReputationEvent(actor, target, 10, HonorKind.POSITIVE, 500.0, null, testClock.instant()));
+
+        // Populate viewCache and statusCache
+        profileService.loadViewAsync(target, "Bob", configManager.snapshot()).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.isCached(target)).isTrue();
+        assertThat(statusCache.get(target)).isPresent();
+
+        // Initial StatusCache TTL is 60s
+        assertThat(statusCache.ttl()).isEqualTo(java.time.Duration.ofSeconds(60));
+
+        // 1. In-game edit of cache-ttl via ConfigManager
+        configManager.set("decay.cache-ttl", "15s");
+
+        // StatusCache TTL must immediately reflect the new 15s duration
+        assertThat(statusCache.ttl()).isEqualTo(java.time.Duration.ofSeconds(15));
+        // View cache must be invalidated
+        assertThat(profileService.isCached(target)).isFalse();
+        assertThat(statusCache.get(target)).isEmpty();
+
+        // 2. Re-populate cache under current config
+        profileService.loadViewAsync(target, "Bob", configManager.snapshot()).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.isCached(target)).isTrue();
+        assertThat(statusCache.get(target)).isPresent();
+
+        // 3. In-game edit of half-life via ConfigManager
+        configManager.set("decay.half-life", "7d");
+
+        // Changing half-life must invalidate both viewCache and statusCache
+        assertThat(profileService.isCached(target)).isFalse();
+        assertThat(statusCache.get(target)).isEmpty();
     }
 }

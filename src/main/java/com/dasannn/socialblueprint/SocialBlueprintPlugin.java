@@ -22,6 +22,7 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.time.Clock;
 import com.dasannn.socialblueprint.storage.CompensationRepository;
 import java.io.File;
 
@@ -125,8 +126,16 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             return;
         }
         this.storageEngine = engine;
-        this.statusCache = new StatusCache(configManager.config().decay().cacheTtl());
-        this.reputationRepository = new ReputationRepository(storageEngine, statusCache);
+        this.statusCache = new StatusCache(
+                configManager.config().decay().cacheTtl(),
+                Clock.systemUTC(),
+                () -> configManager.config().decay().toDomain()
+        );
+        this.reputationRepository = new ReputationRepository(
+                storageEngine,
+                statusCache,
+                () -> configManager.config().decay().toDomain()
+        );
         this.profileRepository = new ProfileRepository(storageEngine);
         this.psychosisRepository = new PsychosisRepository(storageEngine);
         this.auditRepository = new AuditRepository(storageEngine);
@@ -143,6 +152,15 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 playerLookup,
                 getLogger()
         );
+
+        this.configManager.addSnapshotListener(snapshot -> {
+            if (this.statusCache != null) {
+                this.statusCache.updateTtl(snapshot.config().decay().cacheTtl());
+            }
+            if (this.profileService != null) {
+                this.profileService.invalidateAll();
+            }
+        });
 
         this.honorService = new HonorService(
                 configManager,

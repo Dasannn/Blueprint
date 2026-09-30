@@ -30,13 +30,16 @@ public record DecayConfigSection(
 
     public static DecayConfigSection load(ConfigurationSection root) {
         Objects.requireNonNull(root, "ConfigurationSection must not be null");
-        ConfigurationSection section = root.getConfigurationSection("decay");
-        if (section == null) {
+        if (!root.contains("decay")) {
             // An existing server's configuration predates this section. Upgrading must
             // not refuse to enable, so an absent block means the shipped defaults; a
             // block that is present is still validated strictly.
             return defaults();
         }
+        if (!root.isConfigurationSection("decay")) {
+            throw new ConfigValidationException("decay", "decay must be a configuration section, got: " + root.get("decay"));
+        }
+        ConfigurationSection section = root.getConfigurationSection("decay");
 
         String enabledKey = "decay.enabled";
         if (!section.contains("enabled")) {

@@ -487,6 +487,19 @@ class ConfigValidationTest {
         PluginConfig withoutDecay = PluginConfig.load(yamlSection);
         assertThat(withoutDecay.decay()).isEqualTo(DecayConfigSection.defaults());
 
+        // Finding 8: Present but not a section must fail naming 'decay'
+        YamlConfiguration yamlScalar = loadValidYaml();
+        yamlScalar.set("decay", false);
+        assertThatThrownBy(() -> PluginConfig.load(yamlScalar))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay"));
+
+        YamlConfiguration yamlString = loadValidYaml();
+        yamlString.set("decay", "broken");
+        assertThatThrownBy(() -> PluginConfig.load(yamlString))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay"));
+
         YamlConfiguration yamlEnabled = loadValidYaml();
         yamlEnabled.set("decay.enabled", null);
         assertThatThrownBy(() -> PluginConfig.load(yamlEnabled))

@@ -85,6 +85,14 @@ class ConfigManagerTest {
     }
 
     @Test
+    void durationWithDaySuffixRoundTripsAsString() {
+        configManager.set("decay.half-life", "7d");
+
+        assertThat(readConfigFile()).contains("half-life: '7d'");
+        assertThat(configManager.reload().config().decay().halfLife()).isEqualTo(java.time.Duration.ofDays(7));
+    }
+
+    @Test
     @DisplayName("T-035: In-game editing with invalid value refuses change, naming offending key, leaving disk and snapshot untouched")
     void inGameEditInvalidValueRefused() {
         PluginConfig before = configManager.config();

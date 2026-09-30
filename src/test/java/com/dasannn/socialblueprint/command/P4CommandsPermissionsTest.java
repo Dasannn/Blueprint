@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.NonPlayerTarget;
 import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import com.dasannn.socialblueprint.domain.Status;
 import com.dasannn.socialblueprint.feature.honor.HonorService;
@@ -246,13 +247,22 @@ class P4CommandsPermissionsTest {
         storage = StorageEngine.inMemory();
         storage.runMigrations();
 
-        StatusCache statusCache = new StatusCache();
-        reputationRepo = new ReputationRepository(storage, statusCache);
+        testClock = new TestClock(Instant.parse("2026-09-29T12:00:00Z"));
+
+        StatusCache statusCache = new StatusCache(
+                configManager.config().decay().cacheTtl(),
+                testClock,
+                () -> configManager.config().decay().toDomain()
+        );
+        reputationRepo = new ReputationRepository(
+                storage,
+                statusCache,
+                () -> configManager.config().decay().toDomain(),
+                testClock
+        );
         psychosisRepo = new PsychosisRepository(storage);
         profileRepo = new ProfileRepository(storage);
         auditRepo = new AuditRepository(storage);
-
-        testClock = new TestClock(Instant.parse("2026-09-29T12:00:00Z"));
 
         // Setup PlayerLookup with thread-boundary validation
         PlayerLookup testLookup = nameOrUuid -> {
@@ -279,7 +289,8 @@ class P4CommandsPermissionsTest {
                 statusCache,
                 configManager,
                 testLookup,
-                logger
+                logger,
+                testClock
         );
 
         // Dynamic Proxy for Vault Economy
@@ -890,6 +901,74 @@ class P4CommandsPermissionsTest {
         assertThat(events.get(0).delta()).isEqualTo(50);
         assertThat(events.get(1).delta()).isEqualTo(-50);
         assertThat(events.get(2).delta()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("P9 Finding 1 / SB-006: Admin reset on decayed events resets status to exactly 0 on normal profile read path")
+    void adminResetOnDecayedEventsResetsStatusToZero() {
+        Player target = mockPlayer("DecayedTarget");
+        PlayerId targetId = PlayerId.of(target.getUniqueId());
+
+        // Target receives +100 rating at T=0
+        reputationRepo.saveAsync(new ReputationEvent(
+                PlayerId.CONSOLE,
+                targetId,
+                100,
+                HonorKind.ADMIN_GIVE,
+                0.0,
+                "initial 100",
+                testClock.instant()
+        )).join();
+
+        // Decay half-life is 30 days (default config).
+        // Advance clock by 30 days so the +100 rating is exactly one half-life old.
+        // Effective contribution is 100 * 0.5 = 50.
+        testClock.advance(Duration.ofDays(30));
+
+        // Status before reset is 50
+        Status statusBefore = reputationRepo.getStatus(targetId);
+        assertThat(statusBefore.value()).isEqualTo(50);
+
+        // Execute admin reset command
+        Player admin = mockPlayer("ResetAdmin", "socialblueprint.admin");
+        runCommandSync(admin, "status", "admin", "reset", "DecayedTarget");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.reset-success");
+
+        // The compensating ADMIN_RESET delta saved should be -50 (NOT undecayed -100!)
+        List<ReputationEvent> events = reputationRepo.findByTargetAsync(targetId).join();
+        assertThat(events).hasSize(2);
+        assertThat(events.get(0).delta()).isEqualTo(100);
+        assertThat(events.get(1).delta()).isEqualTo(-50);
+        assertThat(events.get(1).kind()).isEqualTo(HonorKind.ADMIN_RESET);
+
+        // Read profile through normal path (resolvePlayerAsync / loadViewAsync)
+        PlayerSocialView view = profileService.resolvePlayerAsync("DecayedTarget", configManager.snapshot()).join().orElseThrow();
+        assertThat(view.status()).isEqualTo(0);
+        assertThat(reputationRepo.getStatus(targetId).value()).isEqualTo(0);
+
+        // Advance clock further by 30 days (T=60d, two half-lives since initial event)
+        testClock.advance(Duration.ofDays(30));
+
+        // At T=60d:
+        // Initial +100 event is now at 2 half-lives -> contributes 100 * 0.25 = 25
+        // First reset event (-50, ADMIN_RESET) is exempt from decay -> contributes -50
+        // Net status is 25 - 50 = -25.
+        assertThat(reputationRepo.getStatus(targetId).value()).isEqualTo(-25);
+
+        // Perform a second reset compounding the earlier reset
+        runCommandSync(admin, "status", "admin", "reset", "DecayedTarget");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.reset-success");
+
+        // The second reset accounts for earlier reset and writes -(-25) = +25
+        List<ReputationEvent> eventsAfterSecondReset = reputationRepo.findByTargetAsync(targetId).join();
+        assertThat(eventsAfterSecondReset).hasSize(3);
+        assertThat(eventsAfterSecondReset.get(2).delta()).isEqualTo(25);
+        assertThat(eventsAfterSecondReset.get(2).kind()).isEqualTo(HonorKind.ADMIN_RESET);
+
+        // Read profile through normal path again: must be exactly 0!
+        PlayerSocialView view2 = profileService.resolvePlayerAsync("DecayedTarget", configManager.snapshot()).join().orElseThrow();
+        assertThat(view2.status()).isEqualTo(0);
+        assertThat(reputationRepo.getStatus(targetId).value()).isEqualTo(0);
     }
 
     @Test
