@@ -114,6 +114,11 @@ hard-won details:
 * Codex writes its report to stdout as well as the file it was asked for, and
   sometimes only to stdout. Check the task output before concluding it produced
   nothing.
+* Build with `-Dmaven.compiler.fork=true`. The in-process javac on this
+  machine crashes with `NullPointerException` in
+  `UnsharedNameTable.fromValidUtf` and reports only "Fatal error compiling",
+  hiding every real error behind it. Forking javac into its own process prints
+  them normally. This cost a round of blind guessing once.
 
 ## Progress
 
