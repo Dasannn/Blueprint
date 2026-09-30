@@ -39,6 +39,9 @@ public class AmbientEffectScheduler {
     private final Random random = new Random();
     private BukkitTask task;
 
+    private static final long FIXED_TICK_INTERVAL_TICKS = 20L;
+    private long lastCheckTimestamp = 0L;
+
     public AmbientEffectScheduler(
             Plugin plugin,
             ConfigManager configManager,
@@ -58,8 +61,7 @@ public class AmbientEffectScheduler {
             return;
         }
         if (plugin != null && plugin.isEnabled()) {
-            long intervalTicks = Math.max(20L, configManager.snapshot().config().effects().checkInterval().toSeconds() * 20L);
-            task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, intervalTicks, intervalTicks);
+            task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, FIXED_TICK_INTERVAL_TICKS, FIXED_TICK_INTERVAL_TICKS);
         }
     }
 
@@ -68,6 +70,7 @@ public class AmbientEffectScheduler {
             task.cancel();
             task = null;
         }
+        lastCheckTimestamp = 0L;
     }
 
     public void tick() {
@@ -77,6 +80,13 @@ public class AmbientEffectScheduler {
     public void tickAt(long now) {
         RuntimeSnapshot snapshot = configManager.snapshot();
         EffectsConfigSection cfg = snapshot.config().effects();
+        long intervalMillis = cfg.checkInterval().toMillis();
+
+        if (lastCheckTimestamp > 0 && now >= lastCheckTimestamp && (now - lastCheckTimestamp) < intervalMillis) {
+            return;
+        }
+        lastCheckTimestamp = now;
+
         int threshold = cfg.threshold();
 
         for (Player player : onlinePlayersSupplier.get()) {
@@ -85,8 +95,8 @@ public class AmbientEffectScheduler {
             }
             PlayerId id = PlayerId.of(player.getUniqueId());
 
-            // 1. Opt-out check (SB-044)
-            if (profileService.isEffectsOptedOut(id)) {
+            // 1. Opt-out check (SB-044) - unknown must never mean opted in (Finding 5)
+            if (profileService.getEffectsOptOutState(id) != ProfileService.OptOutState.OPTED_IN) {
                 continue;
             }
 
@@ -109,10 +119,12 @@ public class AmbientEffectScheduler {
                 continue;
             }
 
-            // 4. Fire one eligible effect
+            // 4. Fire one eligible effect - record only on successful dispatch (Finding 7)
             AmbientEffectType chosen = eligible.get(random.nextInt(eligible.size()));
-            state.recordFired(chosen, now);
-            dispatcher.dispatch(player, chosen, cfg, snapshot);
+            boolean success = dispatcher.dispatch(player, chosen, cfg, snapshot);
+            if (success) {
+                state.recordFired(chosen, now);
+            }
         }
     }
 
