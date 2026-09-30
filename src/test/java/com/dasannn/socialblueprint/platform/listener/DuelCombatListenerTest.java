@@ -18,15 +18,10 @@ import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
-import org.bukkit.damage.DamageSource;
-import org.bukkit.damage.DamageType;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
@@ -155,20 +150,6 @@ class DuelCombatListenerTest {
         return player;
     }
 
-    private DamageSource createMockDamageSource(Entity causingEntity) {
-        InvocationHandler handler = (proxy, method, args) -> {
-            String mName = method.getName();
-            if ("getCausingEntity".equals(mName)) return causingEntity;
-            return defaultValue(method.getReturnType());
-        };
-
-        return (DamageSource) Proxy.newProxyInstance(
-                DamageSource.class.getClassLoader(),
-                new Class<?>[]{DamageSource.class},
-                handler
-        );
-    }
-
     @Test
     @DisplayName("DoD 1 / T-061 / SB-031: A duel kill changes neither status nor Psychosis")
     void duelKillChangesNeitherStatusNorPsychosis() {
@@ -177,9 +158,10 @@ class DuelCombatListenerTest {
         PlayerId killerId = PlayerId.of(killer.getUniqueId());
         PlayerId victimId = PlayerId.of(victim.getUniqueId());
 
-        // Establish initial status for both players
-        reputationRepo.save(new ReputationEvent(killerId, killerId, 10, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
-        reputationRepo.save(new ReputationEvent(victimId, victimId, 5, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+        // Establish initial status for both players via a distinct third-party rater
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+        reputationRepo.save(new ReputationEvent(rater, killerId, 10, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+        reputationRepo.save(new ReputationEvent(rater, victimId, 5, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
 
         Status killerStatusBefore = reputationRepo.getStatus(killerId);
         Status victimStatusBefore = reputationRepo.getStatus(victimId);
@@ -195,16 +177,13 @@ class DuelCombatListenerTest {
         duelService.accept(victimId, null, snapshot);
         assertThat(duelService.areInSameActiveDuel(killerId, victimId)).isTrue();
 
-        // Fire PlayerDeathEvent with killer as causing entity
-        DamageSource damageSource = createMockDamageSource(killer);
-        PlayerDeathEvent deathEvent = new PlayerDeathEvent(victim, damageSource, Collections.emptyList(), 0, "died in duel");
-
-        listener.onPlayerDeath(deathEvent);
+        // Pass combat death facts directly to listener
+        listener.handleDeath(victimId, killerId, baseTime, snapshot);
 
         // 1. Assert Psychosis: duel kill recorded with CombatContext.DUEL, open kills remains 0!
         List<PsychosisEvent> kills = psychosisRepo.findKillsByKillerSince(killerId, baseTime.minusSeconds(200));
         assertThat(kills).hasSize(1);
-        assertThat(kills.getFirst().combatContext()).isEqualTo(CombatContext.DUEL);
+        assertThat(kills.getFirst().context()).isEqualTo(CombatContext.DUEL);
         assertThat(psychosisRepo.countOpenKillsSince(killerId, baseTime.minusSeconds(200)))
                 .as("Open kills must remain zero so Killing Psychosis does not move")
                 .isZero();
@@ -232,9 +211,10 @@ class DuelCombatListenerTest {
         PlayerId killerId = PlayerId.of(killer.getUniqueId());
         PlayerId victimId = PlayerId.of(victim.getUniqueId());
 
-        // Establish initial status for both players
-        reputationRepo.save(new ReputationEvent(killerId, killerId, 10, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
-        reputationRepo.save(new ReputationEvent(victimId, victimId, 5, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+        // Establish initial status for both players via a distinct third-party rater
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+        reputationRepo.save(new ReputationEvent(rater, killerId, 10, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+        reputationRepo.save(new ReputationEvent(rater, victimId, 5, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
 
         Status killerStatusBefore = reputationRepo.getStatus(killerId);
         Status victimStatusBefore = reputationRepo.getStatus(victimId);
@@ -247,16 +227,14 @@ class DuelCombatListenerTest {
         assertThat(duelService.isInActiveDuel(killerId)).isFalse();
         assertThat(duelService.isInActiveDuel(victimId)).isFalse();
 
-        // Fire PlayerDeathEvent outside a duel
-        DamageSource damageSource = createMockDamageSource(killer);
-        PlayerDeathEvent deathEvent = new PlayerDeathEvent(victim, damageSource, Collections.emptyList(), 0, "killed in the wild");
-
-        listener.onPlayerDeath(deathEvent);
+        // Pass combat death facts directly to listener
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        listener.handleDeath(victimId, killerId, baseTime, snapshot);
 
         // 1. Assert Psychosis: recorded with CombatContext.OPEN, open kills increases by 1!
         List<PsychosisEvent> kills = psychosisRepo.findKillsByKillerSince(killerId, baseTime.minusSeconds(200));
         assertThat(kills).hasSize(1);
-        assertThat(kills.getFirst().combatContext()).isEqualTo(CombatContext.OPEN);
+        assertThat(kills.getFirst().context()).isEqualTo(CombatContext.OPEN);
         assertThat(psychosisRepo.countOpenKillsSince(killerId, baseTime.minusSeconds(200)))
                 .as("Open kills must increase by 1, raising Killing Psychosis")
                 .isEqualTo(1);
@@ -289,14 +267,7 @@ class DuelCombatListenerTest {
         duelService.accept(victimId, null, snapshot);
 
         // Direct player attack
-        EntityDamageByEntityEvent damageEvent = new EntityDamageByEntityEvent(
-                attacker,
-                victim,
-                EntityDamageEvent.DamageCause.ENTITY_ATTACK,
-                5.0
-        );
-
-        listener.onEntityDamageByEntity(damageEvent);
+                listener.handleDamage(attacker, victim);
 
         // Victim immediately quits -> classified as COMBAT_LOG
         Optional<DisconnectClassification> disc = duelService.handlePlayerQuit(victimId, Instant.now(), snapshot);
@@ -327,14 +298,7 @@ class DuelCombatListenerTest {
                 arrowHandler
         );
 
-        EntityDamageByEntityEvent projectileDamage = new EntityDamageByEntityEvent(
-                arrow,
-                target,
-                EntityDamageEvent.DamageCause.PROJECTILE,
-                7.0
-        );
-
-        listener.onEntityDamageByEntity(projectileDamage);
+                listener.handleDamage(arrow, target);
 
         // Target quits shortly after taking arrow damage -> classified as COMBAT_LOG
         Optional<DisconnectClassification> disc = duelService.handlePlayerQuit(targetId, Instant.now(), snapshot);
@@ -350,18 +314,11 @@ class DuelCombatListenerTest {
         PlayerId opponentId = PlayerId.of(opponent.getUniqueId());
 
         RuntimeSnapshot snapshot = configManager.snapshot();
-        duelService.challenge(player, Map.of("s1", Set.of(playerId), "s2", Set.of(opponentId)), snapshot);
+        duelService.challenge(playerId, Map.of("s1", Set.of(playerId), "s2", Set.of(opponentId)), snapshot);
         duelService.accept(opponentId, null, snapshot);
 
         // Self-damage event
-        EntityDamageByEntityEvent selfDamage = new EntityDamageByEntityEvent(
-                player,
-                player,
-                EntityDamageEvent.DamageCause.ENTITY_ATTACK,
-                2.0
-        );
-
-        listener.onEntityDamageByEntity(selfDamage);
+                listener.handleDamage(player, player);
 
         // Quit is NORMAL_DISCONNECT because self-damage was ignored
         Optional<DisconnectClassification> disc = duelService.handlePlayerQuit(playerId, Instant.now(), snapshot);
@@ -377,7 +334,7 @@ class DuelCombatListenerTest {
         PlayerId opponentId = PlayerId.of(opponent.getUniqueId());
 
         RuntimeSnapshot snapshot = configManager.snapshot();
-        duelService.challenge(player, Map.of("s1", Set.of(playerId), "s2", Set.of(opponentId)), snapshot);
+        duelService.challenge(playerId, Map.of("s1", Set.of(playerId), "s2", Set.of(opponentId)), snapshot);
         duelService.accept(opponentId, null, snapshot);
 
         PlayerQuitEvent quitEvent = new PlayerQuitEvent(player, "quit");

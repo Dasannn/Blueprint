@@ -46,11 +46,21 @@ public class DuelCombatListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof Player victim)) {
+        handleDamage(event.getDamager(), event.getEntity());
+    }
+
+    /**
+     * The decision behind {@link #onEntityDamageByEntity}, separated from the
+     * event that carries it. Constructing an {@code EntityDamageByEntityEvent}
+     * needs a live server registry, so a unit test cannot reach the logic
+     * through the handler; it calls this instead.
+     */
+    void handleDamage(Entity damager, Entity damaged) {
+        if (!(damaged instanceof Player victim)) {
             return;
         }
 
-        Player attacker = resolvePlayerAttacker(event.getDamager());
+        Player attacker = resolvePlayerAttacker(damager);
         if (attacker != null && !attacker.getUniqueId().equals(victim.getUniqueId())) {
             duelService.recordCombatDamage(
                     PlayerId.of(victim.getUniqueId()),
@@ -65,25 +75,47 @@ public class DuelCombatListener implements Listener {
         Player victim = event.getEntity();
         PlayerId victimId = PlayerId.of(victim.getUniqueId());
 
-        DamageSource damageSource = event.getDamageSource();
-        Entity fatalCause = damageSource != null ? damageSource.getCausingEntity() : null;
-
         Player killer = null;
-        if (fatalCause instanceof Player p) {
-            killer = p;
-        } else if (victim.getKiller() != null) {
+        try {
+            DamageSource damageSource = event.getDamageSource();
+            Entity fatalCause = damageSource != null ? damageSource.getCausingEntity() : null;
+            if (fatalCause instanceof Player p) {
+                killer = p;
+            }
+        } catch (Throwable ignored) {
+            // DamageSource or DamageType unresolvable without server registry
+        }
+        if (killer == null && victim.getKiller() != null) {
             killer = victim.getKiller();
         }
 
-        Instant now = Instant.now();
+        PlayerId killerId = (killer != null && !killer.getUniqueId().equals(victim.getUniqueId()))
+                ? PlayerId.of(killer.getUniqueId())
+                : null;
 
-        if (killer != null && !killer.getUniqueId().equals(victim.getUniqueId())) {
-            PlayerId killerId = PlayerId.of(killer.getUniqueId());
+        handleDeath(victimId, killerId, Instant.now(), configManager.snapshot());
+    }
 
+    /**
+     * Decides combat outcomes and persistence for player deaths per T-061, T-062, and SB-031, SB-032.
+     * Separated from Bukkit event unwrapping so that decision logic can be tested
+     * purely through domain facts without instantiating server-bound Bukkit classes.
+     *
+     * @param victimId the deceased player
+     * @param killerId the killer player, or null if environmental / non-player
+     * @param now timestamp of death
+     * @param snapshot configuration snapshot
+     */
+    public void handleDeath(PlayerId victimId, PlayerId killerId, Instant now, com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot) {
+        Objects.requireNonNull(victimId, "victimId must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
+
+        if (killerId != null && !killerId.equals(victimId)) {
             if (duelService.areInSameActiveDuel(killerId, victimId)) {
                 // T-061 / SB-031: Kill inside active duel is free!
                 // Neither social status nor Killing Psychosis moves.
-                duelService.handleDeath(victimId, killerId, now, configManager.snapshot());
+                duelService.handleDeath(victimId, killerId, now, snapshot);
 
                 // Record duel event in repository with CombatContext.DUEL (ignored by PsychosisCalculator)
                 psychosisRepository.saveAsync(new PsychosisEvent(0L, killerId, victimId, CombatContext.DUEL, now));
@@ -91,7 +123,7 @@ public class DuelCombatListener implements Listener {
             } else {
                 // T-062 / SB-032: Kill outside duel raises Killing Psychosis and NEVER touches status.
                 if (duelService.isInActiveDuel(victimId)) {
-                    duelService.handleDeath(victimId, null, now, configManager.snapshot());
+                    duelService.handleDeath(victimId, null, now, snapshot);
                 }
 
                 // Record open kill in repository with CombatContext.OPEN (raises Psychosis)
@@ -101,9 +133,17 @@ public class DuelCombatListener implements Listener {
         } else {
             // Environmental or non-player death
             if (duelService.isInActiveDuel(victimId)) {
-                duelService.handleDeath(victimId, null, now, configManager.snapshot());
+                duelService.handleDeath(victimId, null, now, snapshot);
             }
         }
+    }
+
+    public void handleDeath(PlayerId victimId, PlayerId killerId, Instant now) {
+        handleDeath(victimId, killerId, now, configManager.snapshot());
+    }
+
+    public void handleDeath(PlayerId victimId, PlayerId killerId) {
+        handleDeath(victimId, killerId, Instant.now(), configManager.snapshot());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,7 +59,7 @@ class StatusDuelCommandTest {
 
     private StorageEngine storage;
     private ConfigManager configManager;
-    private MessageRegistry messageRegistry;
+    private RecordingMessageRegistry messageRegistry;
     private DuelRepository duelRepo;
     private AuditRepository auditRepo;
     private PsychosisRepository psychosisRepo;
@@ -69,6 +70,70 @@ class StatusDuelCommandTest {
     private final Map<String, PlayerLookup.KnownPlayer> knownPlayers = new HashMap<>();
     private final List<Player> onlinePlayers = new ArrayList<>();
     private final Map<UUID, List<String>> sentMessages = new HashMap<>();
+    private final Map<UUID, List<RecordingMessageRegistry.RenderCall>> playerCalls = new HashMap<>();
+
+    public static class RecordingMessageRegistry extends MessageRegistry {
+        public record RenderCall(String key, Map<String, String> placeholders, boolean withPrefix) {}
+
+        private final List<RenderCall> renderedCalls = new CopyOnWriteArrayList<>();
+        private final Map<Component, RenderCall> componentCalls = new IdentityHashMap<>();
+
+        public RecordingMessageRegistry(File dataFolder, String language, Logger logger) {
+            super(dataFolder, language, logger);
+        }
+
+        public void clearCalls() {
+            renderedCalls.clear();
+            componentCalls.clear();
+        }
+
+        public List<RenderCall> renderedCalls() {
+            return Collections.unmodifiableList(renderedCalls);
+        }
+
+        public RenderCall lastCall() {
+            if (renderedCalls.isEmpty()) {
+                throw new AssertionError("No messages were rendered");
+            }
+            return renderedCalls.getLast();
+        }
+
+        public boolean hasCall(String key) {
+            return renderedCalls.stream().anyMatch(c -> c.key().equals(key));
+        }
+
+        public Optional<RenderCall> findLastCall(String key) {
+            return renderedCalls.stream().filter(c -> c.key().equals(key)).reduce((first, second) -> second);
+        }
+
+        public RenderCall getCall(Component comp) {
+            return componentCalls.get(comp);
+        }
+
+        @Override
+        public Component renderWithPrefix(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            RenderCall call = new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true);
+            renderedCalls.add(call);
+            Component comp = super.renderWithPrefix(snapshot, key, placeholders);
+            componentCalls.put(comp, call);
+            return comp;
+        }
+
+        @Override
+        public Component renderWithPrefix(RuntimeSnapshot snapshot, String key) {
+            return renderWithPrefix(snapshot, key, Collections.emptyMap());
+        }
+
+        @Override
+        public Component renderWithPrefix(String key, Map<String, String> placeholders) {
+            return renderWithPrefix(snapshot(), key, placeholders);
+        }
+
+        @Override
+        public Component renderWithPrefix(String key) {
+            return renderWithPrefix(key, Collections.emptyMap());
+        }
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -81,7 +146,7 @@ class StatusDuelCommandTest {
         copyResource("messages_es.yml", new File(tempDir, "messages_es.yml"));
 
         Logger logger = Logger.getLogger("StatusDuelCommandTest-" + System.nanoTime());
-        messageRegistry = new MessageRegistry(tempDir, "en", logger);
+        messageRegistry = new RecordingMessageRegistry(tempDir, "es", logger);
         configManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
         configManager.initialize();
 
@@ -107,6 +172,10 @@ class StatusDuelCommandTest {
                 Runnable::run,
                 (d, r) -> () -> {},
                 (pid, comp) -> {
+                    RecordingMessageRegistry.RenderCall call = messageRegistry.getCall(comp);
+                    if (call != null) {
+                        playerCalls.computeIfAbsent(pid.uuid(), k -> new ArrayList<>()).add(call);
+                    }
                     List<String> list = sentMessages.computeIfAbsent(pid.uuid(), k -> new ArrayList<>());
                     list.add(ColorParser.serialize(comp));
                 },
@@ -173,6 +242,10 @@ class StatusDuelCommandTest {
             }
             if ("sendMessage".equals(mName)) {
                 if (args != null && args.length > 0 && args[0] instanceof Component comp) {
+                    RecordingMessageRegistry.RenderCall call = messageRegistry.getCall(comp);
+                    if (call != null) {
+                        playerCalls.computeIfAbsent(uuid, k -> new ArrayList<>()).add(call);
+                    }
                     sentMessages.computeIfAbsent(uuid, k -> new ArrayList<>()).add(ColorParser.serialize(comp));
                 }
                 return null;
@@ -192,14 +265,20 @@ class StatusDuelCommandTest {
         return player;
     }
 
-    private CommandSender mockConsole(List<String> messages) {
+    private CommandSender mockConsole(List<String> messages, List<RecordingMessageRegistry.RenderCall> calls) {
         InvocationHandler handler = (proxy, method, args) -> {
             String mName = method.getName();
             if ("getName".equals(mName)) return "CONSOLE";
             if ("hasPermission".equals(mName)) return true;
             if ("sendMessage".equals(mName)) {
                 if (args != null && args.length > 0 && args[0] instanceof Component comp) {
-                    messages.add(ColorParser.serialize(comp));
+                    RecordingMessageRegistry.RenderCall call = messageRegistry.getCall(comp);
+                    if (call != null && calls != null) {
+                        calls.add(call);
+                    }
+                    if (messages != null) {
+                        messages.add(ColorParser.serialize(comp));
+                    }
                 }
                 return null;
             }
@@ -213,28 +292,44 @@ class StatusDuelCommandTest {
         );
     }
 
+    private CommandSender mockConsole(List<String> messages) {
+        return mockConsole(messages, null);
+    }
+
     private List<String> getMessages(Player player) {
         return sentMessages.getOrDefault(player.getUniqueId(), Collections.emptyList());
+    }
+
+    private List<RecordingMessageRegistry.RenderCall> getCalls(Player player) {
+        return playerCalls.getOrDefault(player.getUniqueId(), Collections.emptyList());
+    }
+
+    private RecordingMessageRegistry.RenderCall getLastCall(Player player) {
+        List<RecordingMessageRegistry.RenderCall> calls = getCalls(player);
+        if (calls.isEmpty()) {
+            throw new AssertionError("No messages sent to player " + player.getName());
+        }
+        return calls.getLast();
     }
 
     @Test
     @DisplayName("DoD 2 / SB-065: Console running /status duel commands returns player-only error without throwing")
     void consoleRunningDuelReturnsPlayerOnlyWithoutThrowing() {
-        List<String> consoleMsgs = new ArrayList<>();
-        CommandSender console = mockConsole(consoleMsgs);
+        List<RecordingMessageRegistry.RenderCall> consoleCalls = new ArrayList<>();
+        CommandSender console = mockConsole(new ArrayList<>(), consoleCalls);
 
         assertThatCode(() -> {
             commandExecutor.onCommand(console, null, "status", new String[]{"duel", "Alice"});
-            assertThat(consoleMsgs.getLast()).contains("&cThis command can only be executed by players.");
+            assertThat(consoleCalls.getLast().key()).isEqualTo("commands.player-only");
 
             commandExecutor.onCommand(console, null, "status", new String[]{"duel", "accept"});
-            assertThat(consoleMsgs.getLast()).contains("&cThis command can only be executed by players.");
+            assertThat(consoleCalls.getLast().key()).isEqualTo("commands.player-only");
 
             commandExecutor.onCommand(console, null, "status", new String[]{"duel", "deny"});
-            assertThat(consoleMsgs.getLast()).contains("&cThis command can only be executed by players.");
+            assertThat(consoleCalls.getLast().key()).isEqualTo("commands.player-only");
 
             commandExecutor.onCommand(console, null, "status", new String[]{"duel", "leave"});
-            assertThat(consoleMsgs.getLast()).contains("&cThis command can only be executed by players.");
+            assertThat(consoleCalls.getLast().key()).isEqualTo("commands.player-only");
         }).doesNotThrowAnyException();
     }
 
@@ -245,7 +340,7 @@ class StatusDuelCommandTest {
         mockPlayer("Target", "socialblueprint.duel");
 
         commandExecutor.onCommand(player, null, "status", new String[]{"duel", "Target"});
-        assertThat(getMessages(player).getLast()).contains("&cYou do not have permission to execute this command.");
+        assertThat(getLastCall(player).key()).isEqualTo("commands.no-permission");
     }
 
     @Test
@@ -254,7 +349,7 @@ class StatusDuelCommandTest {
         Player player = mockPlayer("Duelist", "socialblueprint.duel");
 
         commandExecutor.onCommand(player, null, "status", new String[]{"duel"});
-        assertThat(getMessages(player).getLast()).contains("Usage: /status duel <player|accept|deny|leave>");
+        assertThat(getLastCall(player).key()).isEqualTo("duel.usage");
     }
 
     @Test
@@ -263,7 +358,8 @@ class StatusDuelCommandTest {
         Player player = mockPlayer("Duelist", "socialblueprint.duel");
 
         commandExecutor.onCommand(player, null, "status", new String[]{"duel", "NonExistentUser123"});
-        assertThat(getMessages(player).getLast()).contains("&cPlayer not found: &fNonExistentUser123");
+        assertThat(getLastCall(player).key()).isEqualTo("status.not-found");
+        assertThat(getLastCall(player).placeholders()).containsEntry("player", "NonExistentUser123");
     }
 
     @Test
@@ -272,7 +368,7 @@ class StatusDuelCommandTest {
         Player player = mockPlayer("Duelist", "socialblueprint.duel");
 
         commandExecutor.onCommand(player, null, "status", new String[]{"duel", "Duelist"});
-        assertThat(getMessages(player).getLast()).contains("You cannot challenge yourself to a duel.");
+        assertThat(getLastCall(player).key()).isEqualTo("duel.cannot-duel-self");
     }
 
     @Test
@@ -283,13 +379,17 @@ class StatusDuelCommandTest {
 
         // Alice challenges Bob
         commandExecutor.onCommand(alice, null, "status", new String[]{"duel", "Bob"});
-        assertThat(getMessages(alice).getLast()).contains("Duel challenge sent to &fBob&7.");
-        assertThat(getMessages(bob).getLast()).contains("You have received a duel challenge from &fAlice&7.");
+        assertThat(getLastCall(alice).key()).isEqualTo("duel.challenge-sent");
+        assertThat(getLastCall(alice).placeholders()).containsEntry("target", "Bob");
+        assertThat(getLastCall(bob).key()).isEqualTo("duel.challenge-received");
+        assertThat(getLastCall(bob).placeholders()).containsEntry("challenger", "Alice");
 
         // Bob accepts challenge via shortcut /status accept
         commandExecutor.onCommand(bob, null, "status", new String[]{"accept"});
-        assertThat(getMessages(bob).getLast()).contains("Duel started against &fAlice&7!");
-        assertThat(getMessages(alice).getLast()).contains("Duel started against &fBob&7!");
+        assertThat(getLastCall(bob).key()).isEqualTo("duel.accepted");
+        assertThat(getLastCall(bob).placeholders()).containsEntry("opponent", "Alice");
+        assertThat(getLastCall(alice).key()).isEqualTo("duel.accepted");
+        assertThat(getLastCall(alice).placeholders()).containsEntry("opponent", "Bob");
 
         assertThat(duelService.isInActiveDuel(PlayerId.of(alice.getUniqueId()))).isTrue();
         assertThat(duelService.isInActiveDuel(PlayerId.of(bob.getUniqueId()))).isTrue();
@@ -305,8 +405,8 @@ class StatusDuelCommandTest {
 
         // Bob denies via /status duel deny
         commandExecutor.onCommand(bob, null, "status", new String[]{"duel", "deny"});
-        assertThat(getMessages(bob).getLast()).contains("The duel challenge was denied.");
-        assertThat(getMessages(alice).getLast()).contains("The duel challenge was denied.");
+        assertThat(getLastCall(bob).key()).isEqualTo("duel.denied");
+        assertThat(getLastCall(alice).key()).isEqualTo("duel.denied");
 
         assertThat(duelService.pendingChallengeCount()).isEqualTo(0);
         assertThat(duelService.activeDuelCount()).isEqualTo(0);
@@ -323,10 +423,13 @@ class StatusDuelCommandTest {
         // Leader1 challenges with team syntax: /status duel Ally1 vs Enemy1 Enemy2
         commandExecutor.onCommand(challenger, null, "status", new String[]{"duel", "Ally1", "vs", "Enemy1", "Enemy2"});
 
-        assertThat(getMessages(challenger).getLast()).contains("Duel challenge sent to");
-        assertThat(getMessages(ally).getLast()).contains("You have received a duel challenge from &fLeader1&7.");
-        assertThat(getMessages(enemy1).getLast()).contains("You have received a duel challenge from &fLeader1&7.");
-        assertThat(getMessages(enemy2).getLast()).contains("You have received a duel challenge from &fLeader1&7.");
+        assertThat(getLastCall(challenger).key()).isEqualTo("duel.challenge-sent");
+        assertThat(getLastCall(ally).key()).isEqualTo("duel.challenge-received");
+        assertThat(getLastCall(ally).placeholders()).containsEntry("challenger", "Leader1");
+        assertThat(getLastCall(enemy1).key()).isEqualTo("duel.challenge-received");
+        assertThat(getLastCall(enemy1).placeholders()).containsEntry("challenger", "Leader1");
+        assertThat(getLastCall(enemy2).key()).isEqualTo("duel.challenge-received");
+        assertThat(getLastCall(enemy2).placeholders()).containsEntry("challenger", "Leader1");
         assertThat(duelService.pendingChallengeCount()).isEqualTo(1);
     }
 
@@ -339,19 +442,21 @@ class StatusDuelCommandTest {
         // 1. Leave with outgoing challenge cancels it
         commandExecutor.onCommand(alice, null, "status", new String[]{"duel", "Bob"});
         commandExecutor.onCommand(alice, null, "status", new String[]{"leave"});
-        assertThat(getMessages(alice).getLast()).contains("The duel challenge has been cancelled.");
+        assertThat(getLastCall(alice).key()).isEqualTo("duel.challenge-cancelled");
 
         // 2. Leave while not in a duel displays error
         commandExecutor.onCommand(alice, null, "status", new String[]{"leave"});
-        assertThat(getMessages(alice).getLast()).contains("You are not currently in a duel.");
+        assertThat(getLastCall(alice).key()).isEqualTo("duel.not-in-duel");
 
         // 3. Leave while in active duel forfeits
         commandExecutor.onCommand(alice, null, "status", new String[]{"duel", "Bob"});
         commandExecutor.onCommand(bob, null, "status", new String[]{"accept"});
 
         commandExecutor.onCommand(alice, null, "status", new String[]{"leave"});
-        assertThat(getMessages(alice).getLast()).contains("&fAlice&7 has left the duel.");
-        assertThat(getMessages(bob).getLast()).contains("&fAlice&7 has left the duel.");
+        assertThat(getLastCall(alice).key()).isEqualTo("duel.left");
+        assertThat(getLastCall(alice).placeholders()).containsEntry("player", "Alice");
+        assertThat(getLastCall(bob).key()).isEqualTo("duel.left");
+        assertThat(getLastCall(bob).placeholders()).containsEntry("player", "Alice");
         assertThat(duelService.activeDuelCount()).isEqualTo(0);
     }
 
