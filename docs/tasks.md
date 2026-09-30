@@ -20,10 +20,10 @@ second place where progress is recorded.
 | P1 Storage and domain | `feat/p1-storage-domain` | **done** — 86 tests green; eleven review findings closed, six accepted with reasons recorded in the commit |
 | P2 Configuration | `feat/p2-configuration` | **done** — 157 tests green in both languages; thirteen review findings closed across three rounds |
 | P3 Status, tiers, chat | `feat/p3-status-chat` | **done** — 200 tests green in both languages; eighteen review findings closed across two rounds, one rejected by decision |
-| P4 Commands, permissions | — | next |
-| P5 Duels | — | not started |
-| P6 Ambient effects | — | not started |
-| P7 Self-update | — | not started |
+| P4 Commands, permissions | `feat/p4-commands-permissions` | **done** — 234 tests green in both languages; sixteen review findings closed across four rounds, plus three defects found only on a live server |
+| P5 Duels | `feat/p5-duels` | in progress |
+| P6 Ambient effects | `feat/p6-effects` | in progress |
+| P7 Self-update | `feat/p7-selfupdate` | in progress |
 | P8 Legacy import | — | not started |
 | P9 Rating decay | — | not started |
 | P10 History GUI, anonymity | — | not started |
@@ -121,15 +121,15 @@ Neither blocks current work; both land in `config.yml` during P2.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-050 | `/status` dispatcher with `/pstatus` and `/reputation` aliases. Sender resolved before dispatch, so the console never reaches player-only code. | SB-065 | todo |
-| T-051 | Centralised argument parsing. No subcommand calls `Integer.parseInt` on raw input. | SB-065 | todo |
-| T-052 | Offline target resolution by UUID from `player_profile`, falling back to Bukkit's offline lookup. | SB-060, SB-065 | todo |
-| T-053 | Declare `socialblueprint.*` nodes with explicit defaults. Keep existing `pstatus.*` grants working — children flow parent → child, so the legacy node is the parent or the check consults both (ARCHITECTURE §7). Verify against a real LuckPerms grant. Drop `pstatus.evaluate`. | SB-061 | todo |
-| T-054 | Configurable action-to-node mapping, resolved at check time. Nodes are not invented at runtime. | SB-061 | todo |
-| T-055 | `/status admin give|take|reset`: free, no cooldown, no cap, audited. Reset writes a compensating event, never a delete. | SB-058 | todo |
-| T-056 | Audit rows for every administrative action: actor, operation, target, before, after, time. | SB-064 | todo |
-| T-057 | Vault resolution at enable; disable with a clear reason if no provider. | SB-051 | todo |
-| T-058 | Charge and event commit together, with refund on write failure. `EconomyResponse` is checked. | SB-057 | todo |
+| T-050 | `/status` dispatcher with `/pstatus` and `/reputation` aliases. Sender resolved before dispatch, so the console never reaches player-only code. | SB-065 | done |
+| T-051 | Centralised argument parsing. No subcommand calls `Integer.parseInt` on raw input. | SB-065 | done |
+| T-052 | Offline target resolution by UUID from `player_profile`, falling back to Bukkit's offline lookup. | SB-060, SB-065 | done |
+| T-053 | Declare `socialblueprint.*` nodes with explicit defaults. Keep existing `pstatus.*` grants working — children flow parent → child, so the legacy node is the parent or the check consults both (ARCHITECTURE §7). Verify against a real LuckPerms grant. Drop `pstatus.evaluate`. | SB-061 | done |
+| T-054 | Configurable action-to-node mapping, resolved at check time. Nodes are not invented at runtime. | SB-061 | done |
+| T-055 | `/status admin give|take|reset`: free, no cooldown, no cap, audited. Reset writes a compensating event, never a delete. | SB-058 | done |
+| T-056 | Audit rows for every administrative action: actor, operation, target, before, after, time. | SB-064 | done |
+| T-057 | Vault resolution at enable; disable with a clear reason if no provider. | SB-051 | done |
+| T-058 | Charge and event commit together, with refund on write failure. `EconomyResponse` is checked. | SB-057 | done |
 
 **Gate:** console runs every command without an exception; a name change does not detach a record; every admin action is audited.
 
