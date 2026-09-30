@@ -13,7 +13,9 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -467,18 +469,25 @@ public final class ReputationRepository {
         return engine.executeAsync(conn -> hasLegacyImportInternal(conn, target.toString()));
     }
 
-    boolean hasLegacyImportInternal(Connection conn, String targetUuid) throws SQLException {
+    Optional<Integer> findLegacyImportDeltaInternal(Connection conn, String targetUuid) throws SQLException {
         String sql = """
-            SELECT 1 FROM reputation_event
+            SELECT delta FROM reputation_event
             WHERE target_uuid = ? AND kind = 'legacy_import'
             LIMIT 1;
         """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, targetUuid);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
+                if (rs.next()) {
+                    return Optional.of(rs.getInt("delta"));
+                }
+                return Optional.empty();
             }
         }
+    }
+
+    boolean hasLegacyImportInternal(Connection conn, String targetUuid) throws SQLException {
+        return findLegacyImportDeltaInternal(conn, targetUuid).isPresent();
     }
 
     public record LegacyCandidate(PlayerId target, String lastKnownName, int score) {
@@ -508,14 +517,34 @@ public final class ReputationRepository {
 
                 List<LegacyImportReport.SkippedEntry> allSkipped = new ArrayList<>(preSkipped);
                 List<PlayerId> importedTargets = new ArrayList<>();
+                Map<PlayerId, Integer> importedDeltas = new HashMap<>();
 
                 for (LegacyCandidate candidate : candidates) {
-                    if (importedTargets.contains(candidate.target()) || hasLegacyImportInternal(conn, candidate.target().toString())) {
+                    if (importedDeltas.containsKey(candidate.target())) {
+                        int kept = importedDeltas.get(candidate.target());
+                        int incoming = candidate.score();
                         String displayName = candidate.lastKnownName() != null ? candidate.lastKnownName() : candidate.target().toString();
                         allSkipped.add(new LegacyImportReport.SkippedEntry(
                                 displayName,
                                 LegacyImportReport.SkipReason.ALREADY_IMPORTED,
-                                "Already imported"
+                                "Already imported (kept " + kept + ", ignored " + incoming + ")",
+                                kept,
+                                incoming
+                        ));
+                        continue;
+                    }
+
+                    Optional<Integer> existingDelta = findLegacyImportDeltaInternal(conn, candidate.target().toString());
+                    if (existingDelta.isPresent()) {
+                        int kept = existingDelta.get();
+                        int incoming = candidate.score();
+                        String displayName = candidate.lastKnownName() != null ? candidate.lastKnownName() : candidate.target().toString();
+                        allSkipped.add(new LegacyImportReport.SkippedEntry(
+                                displayName,
+                                LegacyImportReport.SkipReason.ALREADY_IMPORTED,
+                                "Already imported (kept " + kept + ", ignored " + incoming + ")",
+                                kept,
+                                incoming
                         ));
                         continue;
                     }
@@ -532,10 +561,11 @@ public final class ReputationRepository {
                     );
                     saveInternal(conn, repEvent);
                     importedTargets.add(candidate.target());
+                    importedDeltas.put(candidate.target(), candidate.score());
 
                     if (candidate.lastKnownName() != null && profileRepository != null) {
                         PlayerProfile profile = PlayerProfile.create(candidate.target(), candidate.lastKnownName(), now);
-                        profileRepository.saveInternal(conn, profile);
+                        profileRepository.insertIfAbsentInternal(conn, profile);
                     }
                 }
 

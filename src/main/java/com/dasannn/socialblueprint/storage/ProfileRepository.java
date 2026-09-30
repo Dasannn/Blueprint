@@ -53,6 +53,22 @@ public final class ProfileRepository {
         }
     }
 
+    public void insertIfAbsentInternal(Connection conn, PlayerProfile profile) throws SQLException {
+        String sql = """
+            INSERT INTO player_profile (uuid, last_known_name, effects_opt_out, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(uuid) DO NOTHING;
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, profile.id().toString());
+            ps.setString(2, profile.lastKnownName());
+            ps.setInt(3, profile.effectsOptOut() ? 1 : 0);
+            ps.setString(4, StorageTimestamps.format(profile.createdAt()));
+            ps.setString(5, StorageTimestamps.format(profile.updatedAt()));
+            ps.executeUpdate();
+        }
+    }
+
     public Optional<PlayerProfile> findById(PlayerId id) {
         Objects.requireNonNull(id, "PlayerId must not be null");
         return engine.execute(conn -> {

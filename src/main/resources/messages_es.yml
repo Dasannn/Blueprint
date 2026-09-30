@@ -50,11 +50,14 @@ commands:
       summary: '&aImportación heredada completada: &f{read}&a leídos, &f{imported}&a importados, &f{skipped}&a omitidos.'
       reason: 'Migración heredada de PlayerStatus'
       skipped-unresolved: '&eOmitido {player}: no se pudo resolver la identidad del jugador a un UUID.'
-      skipped-already-imported: '&eOmitido {player}: el jugador ya cuenta con estatus heredado importado.'
+      skipped-already-imported: '&eOmitido {player}: ya importado (conservado {kept}, ignorado {ignored}).'
       skipped-invalid-score: '&eOmitido {player}: puntuación no válida o no analizable ({score}).'
+      skipped-unverified: '&eOmitido {player}: no se pudo verificar el nombre.'
       file-not-found: '&cArchivo de importación no encontrado: &f{file}'
       io-error: '&cError durante la importación heredada: &f{error}'
       no-players-found: '&cNo se encontraron entradas de jugadores en el archivo: &f{file}'
+      invalid-yaml: '&cEl archivo no es un YAML válido: &f{file}'
+      invalid-shape: '&cFormato de configuración no válido en el archivo: &f{file}'
       already-running: '&cYa hay una importación heredada en curso.'
 
 chat:

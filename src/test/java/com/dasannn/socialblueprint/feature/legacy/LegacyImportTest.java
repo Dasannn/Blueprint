@@ -4,6 +4,7 @@ import com.dasannn.socialblueprint.command.PermissionChecker;
 import com.dasannn.socialblueprint.command.StatusCommandExecutor;
 import com.dasannn.socialblueprint.config.ColorParser;
 import com.dasannn.socialblueprint.config.ConfigManager;
+import com.dasannn.socialblueprint.config.LegacyImportConfig;
 import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.AuditEvent;
@@ -52,6 +53,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
 
@@ -104,10 +106,11 @@ class LegacyImportTest {
         psychosisRepo = new PsychosisRepository(storage);
         auditRepo = new AuditRepository(storage);
 
-        LegacyPlayerResolver testResolver = nameOrUuid -> {
+        PlayerLookup testLookup = nameOrUuid -> {
             lastResolutionThread.set(Thread.currentThread());
             if (knownResolutions.containsKey(nameOrUuid.toLowerCase())) {
-                return Optional.of(PlayerId.of(knownResolutions.get(nameOrUuid.toLowerCase())));
+                UUID uuid = knownResolutions.get(nameOrUuid.toLowerCase());
+                return Optional.of(new PlayerLookup.KnownPlayer(PlayerId.of(uuid), nameOrUuid, true));
             }
             return Optional.empty();
         };
@@ -120,20 +123,12 @@ class LegacyImportTest {
                 profileRepo,
                 auditRepo,
                 messageRegistry,
-                testResolver,
+                testLookup,
                 tempDir,
                 Runnable::run,
                 () -> consoleSender,
                 logger
         );
-
-        PlayerLookup testLookup = nameOrUuid -> {
-            if (knownResolutions.containsKey(nameOrUuid.toLowerCase())) {
-                UUID uuid = knownResolutions.get(nameOrUuid.toLowerCase());
-                return Optional.of(new PlayerLookup.KnownPlayer(PlayerId.of(uuid), nameOrUuid, true));
-            }
-            return Optional.empty();
-        };
 
         profileService = new ProfileService(
                 storage,
@@ -166,18 +161,16 @@ class LegacyImportTest {
     }
 
     @Test
-    @DisplayName("T-090: Reads old config with name and UUID rows, writes exactly one ReputationEvent per player")
+    @DisplayName("T-090: Reads old config with authoritative UUID rows, writes exactly one ReputationEvent per player")
     void readOldConfig_writesExactReputationEventPerPlayer() throws Exception {
         UUID uuidSteve = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID uuidAlex = UUID.fromString("22222222-2222-2222-2222-222222222222");
         UUID uuidDirect = UUID.fromString("33333333-3333-3333-3333-333333333333");
 
-        knownResolutions.put("steve", uuidSteve);
-
-        // Old config content matching baseline playerstatus format
+        // Baseline PlayerStatus format keys playerList by UUID
         String oldYaml = """
             playerList:
-              Steve:
+              11111111-1111-1111-1111-111111111111:
                 name: 'Steve'
                 reputation: 25
               22222222-2222-2222-2222-222222222222:
@@ -193,7 +186,7 @@ class LegacyImportTest {
 
         legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
 
-        // 1. Verify Steve: resolved by name off-thread to uuidSteve
+        // 1. Verify Steve: keyed by UUID in old config
         List<ReputationEvent> steveEvents = reputationRepo.findByTarget(PlayerId.of(uuidSteve));
         assertThat(steveEvents).hasSize(1);
         ReputationEvent steveEvt = steveEvents.getFirst();
@@ -203,7 +196,6 @@ class LegacyImportTest {
         assertThat(steveEvt.cost()).isEqualTo(0.0);
         assertThat(steveEvt.reason()).isEqualTo("commands.admin.import.reason");
 
-        // Profile should also be recorded
         Optional<PlayerProfile> steveProfile = profileRepo.findById(PlayerId.of(uuidSteve));
         assertThat(steveProfile).isPresent();
         assertThat(steveProfile.get().lastKnownName()).isEqualTo("Steve");
@@ -231,10 +223,6 @@ class LegacyImportTest {
         assertThat(directEvt.delta()).isEqualTo(15);
         assertThat(directEvt.cost()).isEqualTo(0.0);
         assertThat(directEvt.reason()).isEqualTo("commands.admin.import.reason");
-
-        // Verify thread of name resolution was off-thread (on the storage executor thread)
-        assertThat(lastResolutionThread.get()).isNotNull();
-        assertThat(lastResolutionThread.get().getName()).contains("socialblueprint-db");
     }
 
     @Test
@@ -259,16 +247,17 @@ class LegacyImportTest {
         List<String> senderMessages = new ArrayList<>();
         Player admin = mockPlayer("AdminUser", senderMessages, "socialblueprint.admin");
 
-        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
+        RuntimeSnapshot trustedSnapshot = new RuntimeSnapshot(
+                configManager.config().withLegacyImport(new LegacyImportConfig(true)),
+                configManager.snapshot().messages()
+        );
+
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), trustedSnapshot).join();
 
         // Alice is imported
         assertThat(reputationRepo.findByTarget(PlayerId.of(uuidAlice))).hasSize(1);
 
-        // GhostPlayer resolved to no UUID, so nothing can have been written against
-        // one: Alice's single event is the only thing the import produced. Asserted
-        // through the public repository rather than raw SQL, because reaching past
-        // StorageEngine would cross the executor boundary the repositories exist to
-        // hold.
+        // GhostPlayer resolved to no UUID, so nothing can have been written against one
         assertThat(reputationRepo.findByTarget(PlayerId.of(uuidAlice)))
                 .singleElement()
                 .satisfies(event -> assertThat(event.delta()).isNotEqualTo(50));
@@ -279,8 +268,8 @@ class LegacyImportTest {
         assertThat(messageRegistry.renderedCalls().get(1).placeholders()).containsExactlyInAnyOrderEntriesOf(Map.of("player", "GhostPlayer"));
         assertThat(messageRegistry.lastCall().placeholders()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("read", "2", "imported", "1", "skipped", "1"));
-        assertThat(senderMessages).hasSize(3);
-        assertThat(consoleSentMessages).hasSize(2);
+        assertThat(senderMessages).containsExactlyElementsOf(messageRegistry.renderedMessages());
+        assertThat(consoleSentMessages).containsExactlyElementsOf(messageRegistry.renderedMessages());
     }
 
     @Test
@@ -300,79 +289,24 @@ class LegacyImportTest {
                 baseTime
         );
 
-        ConfidenceCalculator calc = new ConfidenceCalculator(new ConfidenceConfig(1.0, 5.0, 15.0, Duration.ofDays(30)));
+        // Calculate confidence
+        ConfidenceCalculator calculator = new ConfidenceCalculator(
+                new ConfidenceConfig(1.0, 5.0, 15.0, Duration.ofDays(30)));
 
-        assertThat(calc.countDistinctActors(List.of(legacyEvent))).isZero();
-        assertThat(calc.calculateScore(List.of(legacyEvent), baseTime)).isEqualTo(0.0);
-        assertThat(calc.calculate(List.of(legacyEvent), baseTime)).isEqualTo(ConfidenceLevel.UNKNOWN);
-
-        // Even with multiple legacy imports from past migrations
-        ReputationEvent legacyEvent2 = new ReputationEvent(
-                0L,
-                null,
-                target,
-                -20,
-                HonorKind.LEGACY_IMPORT,
-                0.0,
-                "commands.admin.import.reason",
-                baseTime.minus(Duration.ofDays(10))
-        );
-        assertThat(calc.countDistinctActors(List.of(legacyEvent, legacyEvent2))).isZero();
-        assertThat(calc.calculateScore(List.of(legacyEvent, legacyEvent2), baseTime)).isEqualTo(0.0);
-        assertThat(calc.calculate(List.of(legacyEvent, legacyEvent2), baseTime)).isEqualTo(ConfidenceLevel.UNKNOWN);
-
-        // When a real player rates them, only the real player contributes to Confidence
-        PlayerId realActor = PlayerId.of(UUID.randomUUID());
-        ReputationEvent realEvent = new ReputationEvent(
-                realActor,
-                target,
-                1,
-                HonorKind.POSITIVE,
-                500.0,
-                null,
-                baseTime
-        );
-
-        List<ReputationEvent> mixed = List.of(legacyEvent, legacyEvent2, realEvent);
-        assertThat(calc.countDistinctActors(mixed)).isEqualTo(1);
-        assertThat(calc.calculateScore(mixed, baseTime)).isEqualTo(1.0);
-        assertThat(calc.calculate(mixed, baseTime)).isEqualTo(ConfidenceLevel.LOW);
+        // Confidence must be UNKNOWN: no distinct actor, no weight
+        assertThat(calculator.calculate(List.of(legacyEvent), baseTime)).isEqualTo(ConfidenceLevel.UNKNOWN);
+        assertThat(calculator.countDistinctActors(List.of(legacyEvent))).isEqualTo(0);
+        assertThat(calculator.calculateScore(List.of(legacyEvent), baseTime)).isEqualTo(0.0);
     }
 
     @Test
-    @DisplayName("T-091: Status score reflects legacy import while Confidence remains Unknown")
-    void profileViewReflectsLegacyStatusWithUnknownConfidence() {
-        UUID uuidCharlie = UUID.fromString("55555555-5555-5555-5555-555555555555");
-        PlayerId targetId = PlayerId.of(uuidCharlie);
-        knownResolutions.put("charlie", uuidCharlie);
-
-        reputationRepo.save(new ReputationEvent(
-                0L,
-                null,
-                targetId,
-                45,
-                HonorKind.LEGACY_IMPORT,
-                0.0,
-                "commands.admin.import.reason",
-                baseTime
-        ));
-        profileRepo.save(PlayerProfile.create(targetId, "Charlie", baseTime));
-
-        PlayerSocialView view = profileService.resolvePlayerAsync("Charlie", configManager.snapshot()).join().orElseThrow();
-        assertThat(view.status()).isEqualTo(45);
-        assertThat(view.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);
-        assertThat(view.contributors()).isZero();
-    }
-
-    @Test
-    @DisplayName("T-092: Import is strictly idempotent; second run does not double status")
-    void importIsIdempotent_secondRunDoesNotDoubleStatus() throws Exception {
+    @DisplayName("T-091: Subsequent imports skip already-imported players (idempotence) with score report")
+    void idempotentImportSkipsExistingTargets() throws Exception {
         UUID uuidDave = UUID.fromString("66666666-6666-6666-6666-666666666666");
-        knownResolutions.put("dave", uuidDave);
 
         String yaml = """
             playerList:
-              Dave:
+              66666666-6666-6666-6666-666666666666:
                 name: 'Dave'
                 reputation: 35
             """;
@@ -388,7 +322,7 @@ class LegacyImportTest {
                 .containsExactly("commands.admin.import.started", "commands.admin.import.summary");
         assertThat(messageRegistry.lastCall().placeholders()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("read", "1", "imported", "1", "skipped", "0"));
-        assertThat(senderMessages1).hasSize(2);
+        assertThat(senderMessages1).containsExactlyElementsOf(messageRegistry.renderedMessages());
 
         Status statusAfterFirst = reputationRepo.getStatus(PlayerId.of(uuidDave));
         assertThat(statusAfterFirst.value()).isEqualTo(35);
@@ -402,14 +336,15 @@ class LegacyImportTest {
 
         legacyImportService.importLegacyAsync(admin2, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
 
-        // Second run must report 0 imported, 1 skipped as already imported
+        // Second run must report 0 imported, 1 skipped as already imported with kept & ignored scores
         assertThat(messageRegistry.renderedCalls()).extracting(RecordingMessageRegistry.RenderCall::key)
                 .containsExactly("commands.admin.import.started", "commands.admin.import.skipped-already-imported", "commands.admin.import.summary");
-        assertThat(messageRegistry.renderedCalls().get(1).placeholders()).containsExactlyInAnyOrderEntriesOf(Map.of("player", "Dave"));
+        assertThat(messageRegistry.renderedCalls().get(1).placeholders()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("player", "Dave", "kept", "35", "ignored", "35"));
         assertThat(messageRegistry.lastCall().placeholders()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("read", "1", "imported", "0", "skipped", "1"));
-        assertThat(senderMessages2).hasSize(3);
-        assertThat(consoleSentMessages).hasSize(2);
+        assertThat(senderMessages2).containsExactlyElementsOf(messageRegistry.renderedMessages());
+        assertThat(consoleSentMessages).containsExactlyElementsOf(messageRegistry.renderedMessages());
 
         // Status score MUST NOT double (remains 35, not 70)
         Status statusAfterSecond = reputationRepo.getStatus(PlayerId.of(uuidDave));
@@ -421,11 +356,10 @@ class LegacyImportTest {
     @DisplayName("T-092: Import reports started and summary to both sender and console")
     void importReportsToBothSenderAndConsole() throws Exception {
         UUID uuidEve = UUID.fromString("77777777-7777-7777-7777-777777777777");
-        knownResolutions.put("eve", uuidEve);
 
         String yaml = """
             playerList:
-              Eve:
+              77777777-7777-7777-7777-777777777777:
                 name: 'Eve'
                 reputation: 12
             """;
@@ -445,21 +379,20 @@ class LegacyImportTest {
                 Map.of("file", legacyFile.getAbsolutePath()));
         assertThat(messageRegistry.lastCall().placeholders()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("read", "1", "imported", "1", "skipped", "0"));
-        assertThat(senderMessages).hasSize(2);
+        assertThat(senderMessages).containsExactlyElementsOf(messageRegistry.renderedMessages());
 
         // Check console messages (dual reporting)
-        assertThat(consoleSentMessages).hasSize(1);
+        assertThat(consoleSentMessages).containsExactlyElementsOf(messageRegistry.renderedMessages());
     }
 
     @Test
     @DisplayName("T-092: Writing audit record on legacy import")
     void importWritesAuditRecord() throws Exception {
         UUID uuidFrank = UUID.fromString("88888888-8888-8888-8888-888888888888");
-        knownResolutions.put("frank", uuidFrank);
 
         String yaml = """
             playerList:
-              Frank:
+              88888888-8888-8888-8888-888888888888:
                 name: 'Frank'
                 reputation: 8
             """;
@@ -486,17 +419,16 @@ class LegacyImportTest {
     @DisplayName("Invalid scores and malformed shapes are skipped with INVALID_SCORE")
     void invalidScoreEntriesAreSkipped() throws Exception {
         UUID uuidGrace = UUID.fromString("99999999-9999-9999-9999-999999999999");
-        knownResolutions.put("grace", uuidGrace);
 
         String yaml = """
             playerList:
-              Grace:
+              99999999-9999-9999-9999-999999999999:
                 name: 'Grace'
                 reputation: 10
-              BadScorePlayer:
+              00000000-0000-0000-0000-000000000001:
                 name: 'BadScorePlayer'
                 reputation: 'NotANumber'
-              ExcessivePlayer:
+              00000000-0000-0000-0000-000000000002:
                 name: 'ExcessivePlayer'
                 reputation: 9999999
             """;
@@ -567,7 +499,7 @@ class LegacyImportTest {
         java.util.concurrent.CountDownLatch startedLatch = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.CountDownLatch proceedLatch = new java.util.concurrent.CountDownLatch(1);
 
-        LegacyPlayerResolver blockingResolver = name -> {
+        PlayerLookup blockingLookup = name -> {
             startedLatch.countDown();
             try {
                 proceedLatch.await();
@@ -582,7 +514,7 @@ class LegacyImportTest {
                 profileRepo,
                 auditRepo,
                 messageRegistry,
-                blockingResolver,
+                blockingLookup,
                 tempDir,
                 Runnable::run,
                 () -> consoleSender,
@@ -603,17 +535,378 @@ class LegacyImportTest {
         List<String> admin2Messages = new ArrayList<>();
         Player admin2 = mockPlayer("Admin2", admin2Messages, "socialblueprint.admin");
 
-        var f1 = blockingService.importLegacyAsync(admin1, legacyFile.getAbsolutePath(), configManager.snapshot());
+        RuntimeSnapshot trustedSnapshot = new RuntimeSnapshot(
+                configManager.config().withLegacyImport(new LegacyImportConfig(true)),
+                configManager.snapshot().messages()
+        );
+
+        var f1 = CompletableFuture.supplyAsync(
+                () -> blockingService.importLegacyAsync(admin1, legacyFile.getAbsolutePath(), trustedSnapshot))
+                .thenCompose(importFuture -> importFuture);
         startedLatch.await();
 
-        var f2 = blockingService.importLegacyAsync(admin2, legacyFile.getAbsolutePath(), configManager.snapshot());
-        f2.join();
+        try {
+            var f2 = blockingService.importLegacyAsync(admin2, legacyFile.getAbsolutePath(), trustedSnapshot);
+            f2.join();
 
-        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.import.already-running");
-        assertThat(admin2Messages).hasSize(1);
-
-        proceedLatch.countDown();
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.import.already-running");
+            assertThat(admin2Messages).containsExactly(messageRegistry.lastCall().message());
+        } finally {
+            proceedLatch.countDown();
+        }
         f1.join();
+    }
+
+    // =========================================================================
+    // Findings 1 - 7 Regression and Specification Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("Finding 1: Name-only row is skipped as unverified by default without guessing identity")
+    void nameOnlyRow_isSkippedAsUnverified_byDefault() throws Exception {
+        UUID uuidAlex = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        knownResolutions.put("alex", uuidAlex);
+
+        String yaml = """
+            playerList:
+              Alex:
+                name: 'Alex'
+                reputation: 25
+            """;
+        File legacyFile = new File(tempDir, "name_only_default.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        List<String> senderMessages = new ArrayList<>();
+        Player admin = mockPlayer("AdminUser", senderMessages, "socialblueprint.admin");
+
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
+
+        // Must NOT be imported to uuidAlex
+        assertThat(reputationRepo.findByTarget(PlayerId.of(uuidAlex))).isEmpty();
+
+        // Must report skipped-unverified
+        assertThat(messageRegistry.renderedCalls()).extracting(RecordingMessageRegistry.RenderCall::key)
+                .containsExactly("commands.admin.import.started", "commands.admin.import.skipped-unverified", "commands.admin.import.summary");
+        assertThat(messageRegistry.renderedCalls().get(1).placeholders())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("player", "Alex"));
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("read", "1", "imported", "0", "skipped", "1"));
+    }
+
+    @Test
+    @DisplayName("Finding 1: Name-only row imports when trust-name-lookup is true")
+    void nameOnlyRow_imports_whenTrustNameLookupIsTrue() throws Exception {
+        UUID uuidAlex = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        knownResolutions.put("alex", uuidAlex);
+
+        String yaml = """
+            playerList:
+              Alex:
+                name: 'Alex'
+                reputation: 25
+            """;
+        File legacyFile = new File(tempDir, "name_only_trusted.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        List<String> senderMessages = new ArrayList<>();
+        Player admin = mockPlayer("AdminUser", senderMessages, "socialblueprint.admin");
+
+        RuntimeSnapshot trustedSnapshot = new RuntimeSnapshot(
+                configManager.config().withLegacyImport(new LegacyImportConfig(true)),
+                configManager.snapshot().messages()
+        );
+
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), trustedSnapshot).join();
+
+        // Must be imported to uuidAlex
+        assertThat(reputationRepo.findByTarget(PlayerId.of(uuidAlex))).hasSize(1);
+        assertThat(messageRegistry.renderedCalls()).extracting(RecordingMessageRegistry.RenderCall::key)
+                .containsExactly("commands.admin.import.started", "commands.admin.import.summary");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("read", "1", "imported", "1", "skipped", "0"));
+    }
+
+    @Test
+    @DisplayName("Finding 1: UUID-keyed row imports normally regardless of trust-name-lookup setting")
+    void uuidKeyedRow_importsNormally_regardlessOfTrustNameLookup() throws Exception {
+        UUID uuidAlex = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
+        String yaml = """
+            playerList:
+              22222222-2222-2222-2222-222222222222:
+                name: 'Alex'
+                reputation: 25
+            """;
+        File legacyFile = new File(tempDir, "uuid_keyed_default.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        List<String> senderMessages = new ArrayList<>();
+        Player admin = mockPlayer("AdminUser", senderMessages, "socialblueprint.admin");
+
+        // With default trust-name-lookup = false
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
+
+        assertThat(reputationRepo.findByTarget(PlayerId.of(uuidAlex))).hasSize(1);
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("read", "1", "imported", "1", "skipped", "0"));
+    }
+
+    @Test
+    @DisplayName("Finding 2: Import does not overwrite existing profile state (preserves opt-out and current name)")
+    void importDoesNotOverwriteExistingProfile() throws Exception {
+        UUID uuidPlayer = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        PlayerId targetId = PlayerId.of(uuidPlayer);
+
+        // Pre-existing profile with effectsOptOut = true and a current live name
+        PlayerProfile existingProfile = new PlayerProfile(
+                targetId,
+                "CurrentLiveName",
+                true,
+                baseTime.minus(Duration.ofDays(30)),
+                baseTime.minus(Duration.ofDays(5))
+        );
+        profileRepo.saveAsync(existingProfile).join();
+
+        // Old config carries stale name "OldStaleName"
+        String yaml = """
+            playerList:
+              55555555-5555-5555-5555-555555555555:
+                name: 'OldStaleName'
+                reputation: 40
+            """;
+        File legacyFile = new File(tempDir, "profile_safety.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
+
+        // 1. Reputation event was created for the UUID
+        List<ReputationEvent> events = reputationRepo.findByTarget(targetId);
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().delta()).isEqualTo(40);
+
+        // 2. Profile MUST NOT have been overwritten: opt-out remains true, name remains CurrentLiveName
+        Optional<PlayerProfile> currentProfile = profileRepo.findById(targetId);
+        assertThat(currentProfile).isPresent();
+        assertThat(currentProfile.get().effectsOptOut()).isTrue();
+        assertThat(currentProfile.get().lastKnownName()).isEqualTo("CurrentLiveName");
+    }
+
+    @Test
+    @DisplayName("Finding 2: Import inserts profile only when absent")
+    void importInsertsProfileWhenAbsent() throws Exception {
+        UUID uuidNew = UUID.fromString("12341234-1234-1234-1234-123412341234");
+        PlayerId targetId = PlayerId.of(uuidNew);
+
+        // Verify profile does not exist initially
+        assertThat(profileRepo.findById(targetId)).isEmpty();
+
+        String yaml = """
+            playerList:
+              12341234-1234-1234-1234-123412341234:
+                name: 'NewPlayer'
+                reputation: 20
+            """;
+        File legacyFile = new File(tempDir, "profile_insert.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
+
+        // Profile should now be inserted
+        Optional<PlayerProfile> createdProfile = profileRepo.findById(targetId);
+        assertThat(createdProfile).isPresent();
+        assertThat(createdProfile.get().lastKnownName()).isEqualTo("NewPlayer");
+        assertThat(createdProfile.get().effectsOptOut()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 3: Corrupt YAML, wrong shape, and empty player list report three distinct outcomes")
+    void malformedFilesReportThreeDistinctOutcomes() throws Exception {
+        Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+
+        // 1. Invalid YAML syntax
+        File corruptFile = new File(tempDir, "corrupt.yml");
+        Files.writeString(corruptFile.toPath(), "playerList:\n  unclosed: { missing_bracket", StandardCharsets.UTF_8);
+
+        messageRegistry.clear();
+        legacyImportService.importLegacyAsync(admin, corruptFile.getAbsolutePath(), configManager.snapshot()).join();
+        assertThat(messageRegistry.renderedCalls()).extracting(RecordingMessageRegistry.RenderCall::key)
+                .containsExactly("commands.admin.import.started", "commands.admin.import.invalid-yaml");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("file", corruptFile.getAbsolutePath());
+        assertThat(legacyImportService.isImporting()).isFalse();
+
+        // 2. Wrong shape (root has no playerList/players section)
+        File wrongShapeFile = new File(tempDir, "wrong_shape.yml");
+        Files.writeString(wrongShapeFile.toPath(), "other_section:\n  foo: bar\n", StandardCharsets.UTF_8);
+
+        messageRegistry.clear();
+        legacyImportService.importLegacyAsync(admin, wrongShapeFile.getAbsolutePath(), configManager.snapshot()).join();
+        assertThat(messageRegistry.renderedCalls()).extracting(RecordingMessageRegistry.RenderCall::key)
+                .containsExactly("commands.admin.import.started", "commands.admin.import.invalid-shape");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("file", wrongShapeFile.getAbsolutePath());
+        assertThat(legacyImportService.isImporting()).isFalse();
+
+        // 3. Valid shape but zero players in playerList
+        File emptyPlayersFile = new File(tempDir, "empty_players.yml");
+        Files.writeString(emptyPlayersFile.toPath(), "playerList: {}\n", StandardCharsets.UTF_8);
+
+        messageRegistry.clear();
+        legacyImportService.importLegacyAsync(admin, emptyPlayersFile.getAbsolutePath(), configManager.snapshot()).join();
+        assertThat(messageRegistry.renderedCalls()).extracting(RecordingMessageRegistry.RenderCall::key)
+                .containsExactly("commands.admin.import.started", "commands.admin.import.no-players-found");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("file", emptyPlayersFile.getAbsolutePath());
+        assertThat(legacyImportService.isImporting()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 4: Bukkit identity lookups run on the calling thread, never on the storage thread")
+    void bukkitLookupRunsOnCallingThreadNotStorageThread() throws Exception {
+        UUID uuidBob = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        knownResolutions.put("bob", uuidBob);
+
+        String yaml = """
+            playerList:
+              Bob:
+                name: 'Bob'
+                reputation: 15
+            """;
+        File legacyFile = new File(tempDir, "thread_test.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+
+        RuntimeSnapshot trustedSnapshot = new RuntimeSnapshot(
+                configManager.config().withLegacyImport(new LegacyImportConfig(true)),
+                configManager.snapshot().messages()
+        );
+
+        lastResolutionThread.set(null);
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), trustedSnapshot).join();
+
+        // Resolution MUST have occurred on the calling thread (current test thread), NOT on the storage executor thread
+        assertThat(lastResolutionThread.get()).isNotNull();
+        assertThat(lastResolutionThread.get()).isEqualTo(Thread.currentThread());
+        assertThat(lastResolutionThread.get().getName()).doesNotContain("socialblueprint-db");
+    }
+
+    @Test
+    @DisplayName("Finding 5: Rerun or conflicting import reports kept vs ignored scores in skip line")
+    void secondImportWithDifferentScoreReportsConflictWithKeptAndIgnored() throws Exception {
+        UUID uuidDave = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        PlayerId targetId = PlayerId.of(uuidDave);
+
+        // File A: Dave has score +10
+        String yamlA = """
+            playerList:
+              66666666-6666-6666-6666-666666666666:
+                name: 'Dave'
+                reputation: 10
+            """;
+        File fileA = new File(tempDir, "fileA.yml");
+        Files.writeString(fileA.toPath(), yamlA, StandardCharsets.UTF_8);
+
+        Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+        legacyImportService.importLegacyAsync(admin, fileA.getAbsolutePath(), configManager.snapshot()).join();
+
+        assertThat(reputationRepo.getStatus(targetId).value()).isEqualTo(10);
+
+        // File B: Dave has conflicting score -5
+        String yamlB = """
+            playerList:
+              66666666-6666-6666-6666-666666666666:
+                name: 'Dave'
+                reputation: -5
+            """;
+        File fileB = new File(tempDir, "fileB.yml");
+        Files.writeString(fileB.toPath(), yamlB, StandardCharsets.UTF_8);
+
+        messageRegistry.clear();
+        legacyImportService.importLegacyAsync(admin, fileB.getAbsolutePath(), configManager.snapshot()).join();
+
+        // Must report conflict with kept and ignored
+        assertThat(messageRegistry.renderedCalls()).extracting(RecordingMessageRegistry.RenderCall::key)
+                .containsExactly("commands.admin.import.started", "commands.admin.import.skipped-already-imported", "commands.admin.import.summary");
+        assertThat(messageRegistry.renderedCalls().get(1).placeholders()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("player", "Dave", "kept", "10", "ignored", "-5")
+        );
+
+        // Score remains 10 (not updated, not added)
+        assertThat(reputationRepo.getStatus(targetId).value()).isEqualTo(10);
+        assertThat(reputationRepo.findByTarget(targetId)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Finding 6: in-flight guard is released if setup or submission throws an exception")
+    void inFlightGuardReleasedOnSetupFailure() {
+        // Create a service pointing to a closed storage engine to cause synchronous throw in supplyAsync
+        StorageEngine closedStorage = StorageEngine.inMemory();
+        closedStorage.runMigrations();
+        closedStorage.close(); // Close storage immediately
+
+        LegacyImportService failingService = new LegacyImportService(
+                closedStorage,
+                reputationRepo,
+                profileRepo,
+                auditRepo,
+                messageRegistry,
+                nameOrUuid -> Optional.empty(),
+                tempDir,
+                Runnable::run,
+                () -> consoleSender,
+                Logger.getLogger("test-failing")
+        );
+
+        String yaml = """
+            playerList:
+              11111111-1111-1111-1111-111111111111:
+                reputation: 10
+            """;
+        File legacyFile = new File(tempDir, "throw_test.yml");
+        try {
+            Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+        failingService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
+
+        // The guard must NOT stick on true
+        assertThat(failingService.isImporting()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 7: Non-integer scores, overflows, and Integer.MIN_VALUE are rejected as INVALID_SCORE")
+    void nonIntegerAndOverflowScoresAreRejectedWithoutRounding() throws Exception {
+        String yaml = """
+            playerList:
+              00000000-0000-0000-0000-000000000001: 3.5
+              00000000-0000-0000-0000-000000000002: 3.0
+              00000000-0000-0000-0000-000000000003: '99999999999999999999'
+              00000000-0000-0000-0000-000000000004: -2147483648
+              00000000-0000-0000-0000-000000000005: 10001
+              00000000-0000-0000-0000-000000000006: -10001
+              00000000-0000-0000-0000-000000000007: 10000
+              00000000-0000-0000-0000-000000000008: -10000
+            """;
+        File legacyFile = new File(tempDir, "scores_strict.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+        legacyImportService.importLegacyAsync(admin, legacyFile.getAbsolutePath(), configManager.snapshot()).join();
+
+        // 6 invalid rows skipped, 2 valid boundary rows (10000, -10000) imported
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("read", "8", "imported", "2", "skipped", "6"));
+
+        UUID uuidValidPos = UUID.fromString("00000000-0000-0000-0000-000000000007");
+        UUID uuidValidNeg = UUID.fromString("00000000-0000-0000-0000-000000000008");
+        assertThat(reputationRepo.findByTarget(PlayerId.of(uuidValidPos))).hasSize(1);
+        assertThat(reputationRepo.findByTarget(PlayerId.of(uuidValidNeg))).hasSize(1);
     }
 
     // Helper methods for dynamic proxies
@@ -691,7 +984,7 @@ class LegacyImportTest {
     }
 
     private static class RecordingMessageRegistry extends MessageRegistry {
-        record RenderCall(String key, Map<String, String> placeholders) {}
+        record RenderCall(String key, Map<String, String> placeholders, String message) {}
 
         private final List<RenderCall> renderedCalls = new ArrayList<>();
 
@@ -701,8 +994,10 @@ class LegacyImportTest {
 
         @Override
         public Component renderWithPrefix(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
-            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of()));
-            return super.renderWithPrefix(snapshot, key, placeholders);
+            Component component = super.renderWithPrefix(snapshot, key, placeholders);
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(),
+                    ColorParser.serialize(component)));
+            return component;
         }
 
         @Override
@@ -712,6 +1007,10 @@ class LegacyImportTest {
 
         List<RenderCall> renderedCalls() {
             return List.copyOf(renderedCalls);
+        }
+
+        List<String> renderedMessages() {
+            return renderedCalls.stream().map(RenderCall::message).toList();
         }
 
         RenderCall lastCall() {

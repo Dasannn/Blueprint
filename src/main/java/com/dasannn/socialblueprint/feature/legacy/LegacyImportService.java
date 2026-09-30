@@ -3,6 +3,9 @@ package com.dasannn.socialblueprint.feature.legacy;
 import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.domain.PlayerProfile;
+import com.dasannn.socialblueprint.domain.ReputationEvent;
+import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
 import com.dasannn.socialblueprint.storage.AuditRepository;
 import com.dasannn.socialblueprint.storage.ProfileRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
@@ -12,17 +15,21 @@ import net.kyori.adventure.text.Component;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 
 import java.io.File;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,7 +40,7 @@ import java.util.logging.Logger;
 /**
  * Service orchestrating legacy PlayerStatus imports per T-090, T-091, T-092.
  * - Reads legacy configuration files off-thread on the storage executor.
- * - Resolves name-keyed rows to UUIDs; skips unresolvable names without guessing.
+ * - Resolves name-keyed rows to UUIDs on calling thread; skips unresolvable names without guessing.
  * - Writes one ReputationEvent per player (HonorKind.LEGACY_IMPORT, cost 0.0, actor null, reason message key).
  * - Enforces idempotence: players with an existing legacy_import event are skipped.
  * - Dispatches all player and console replies on the main thread.
@@ -47,7 +54,7 @@ public class LegacyImportService {
     private final ProfileRepository profileRepository;
     private final AuditRepository auditRepository;
     private final MessageRegistry messageRegistry;
-    private final LegacyPlayerResolver resolver;
+    private final PlayerLookup playerLookup;
     private final File dataFolder;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<ConsoleCommandSender> consoleSenderSupplier;
@@ -61,7 +68,7 @@ public class LegacyImportService {
             ProfileRepository profileRepository,
             AuditRepository auditRepository,
             MessageRegistry messageRegistry,
-            LegacyPlayerResolver resolver,
+            PlayerLookup playerLookup,
             File dataFolder,
             Consumer<Runnable> mainThreadRunner,
             Supplier<ConsoleCommandSender> consoleSenderSupplier,
@@ -72,7 +79,7 @@ public class LegacyImportService {
         this.profileRepository = profileRepository;
         this.auditRepository = auditRepository;
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
-        this.resolver = Objects.requireNonNull(resolver, "resolver must not be null");
+        this.playerLookup = playerLookup;
         this.dataFolder = dataFolder;
         this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
         this.consoleSenderSupplier = consoleSenderSupplier != null ? consoleSenderSupplier : () -> null;
@@ -95,56 +102,48 @@ public class LegacyImportService {
             return CompletableFuture.completedFuture(null);
         }
 
-        File targetFile = resolveTargetFile(filePath);
-        String fileDisplay = targetFile.getPath();
-        sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.import.started",
-                Map.of("file", fileDisplay)));
-
-        PlayerId actorId = (sender instanceof Player p)
-                ? PlayerId.of(p.getUniqueId())
-                : PlayerId.CONSOLE;
-
         CompletableFuture<Void> future = new CompletableFuture<>();
 
-        storageEngine.supplyAsync(() -> {
-            try {
-                if (!targetFile.exists() || !targetFile.isFile()) {
-                    return CompletableFuture.completedFuture(new ServiceOutcome(OutcomeType.FILE_NOT_FOUND, fileDisplay, null, null));
-                }
+        try {
+            File targetFile = resolveTargetFile(filePath);
+            String fileDisplay = targetFile.getPath();
+            deliverMessage(sender, snapshot, "commands.admin.import.started", Map.of("file", fileDisplay));
 
-                YamlConfiguration yaml;
-                try {
-                    yaml = YamlConfiguration.loadConfiguration(targetFile);
-                } catch (Exception e) {
-                    return CompletableFuture.completedFuture(new ServiceOutcome(OutcomeType.IO_ERROR, fileDisplay, e.getMessage(), null));
-                }
-
-                return processYamlInternal(yaml, targetFile.getName(), actorId);
-            } catch (Exception e) {
-                return CompletableFuture.completedFuture(new ServiceOutcome(OutcomeType.IO_ERROR, fileDisplay, e.getMessage() != null ? e.getMessage() : "Unknown error", null));
+            if (!targetFile.exists() || !targetFile.isFile()) {
+                deliverMessage(sender, snapshot, "commands.admin.import.file-not-found", Map.of("file", fileDisplay));
+                isImporting.set(false);
+                future.complete(null);
+                return future;
             }
-        }).thenCompose(result -> result).whenComplete((outcome, ex) -> {
+
+            YamlConfiguration yaml = new YamlConfiguration();
+            try {
+                yaml.load(targetFile);
+            } catch (InvalidConfigurationException e) {
+                deliverMessage(sender, snapshot, "commands.admin.import.invalid-yaml", Map.of("file", fileDisplay));
+                isImporting.set(false);
+                future.complete(null);
+                return future;
+            } catch (IOException e) {
+                deliverMessage(sender, snapshot, "commands.admin.import.io-error",
+                        Map.of("error", e.getMessage() != null ? e.getMessage() : "IO error"));
+                isImporting.set(false);
+                future.complete(null);
+                return future;
+            }
+
+            PlayerId actorId = (sender instanceof Player p)
+                    ? PlayerId.of(p.getUniqueId())
+                    : PlayerId.CONSOLE;
+
+            return processYamlAsync(yaml, targetFile.getName(), fileDisplay, actorId, sender, snapshot, future);
+        } catch (Throwable t) {
             isImporting.set(false);
-            try {
-                mainThreadRunner.accept(() -> {
-                    try {
-                        if (ex != null) {
-                            String errMsg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-                            deliverMessage(sender, snapshot, "commands.admin.import.io-error", Map.of("error", errMsg));
-                        } else if (outcome != null) {
-                            deliverOutcome(sender, snapshot, outcome);
-                        }
-                        future.complete(null);
-                    } catch (RuntimeException error) {
-                        future.completeExceptionally(error);
-                    }
-                });
-            } catch (RuntimeException error) {
-                future.completeExceptionally(error);
-            }
-        });
-
-        return future;
+            String errMsg = t.getMessage() != null ? t.getMessage() : t.toString();
+            deliverMessage(sender, snapshot, "commands.admin.import.io-error", Map.of("error", errMsg));
+            future.complete(null);
+            return future;
+        }
     }
 
     /**
@@ -163,173 +162,304 @@ public class LegacyImportService {
                 ? PlayerId.of(p.getUniqueId())
                 : PlayerId.CONSOLE;
 
-        return storageEngine.supplyAsync(() -> processYamlInternal(yaml, sourceName, actorId))
-                .thenCompose(result -> result)
-                .thenApply(outcome -> outcome.report() != null ? outcome.report() : new LegacyImportReport(0, 0, 0, Collections.emptyList()))
-                .thenApply(report -> {
-                    if (sender != null) {
-                        mainThreadRunner.accept(() -> deliverReportMessages(sender, snapshot, report));
-                    }
-                    return report;
-                });
-    }
-
-    private CompletableFuture<ServiceOutcome> processYamlInternal(YamlConfiguration yaml, String sourceName, PlayerId actorId) {
-        List<ParsedEntry> rawEntries = parseEntries(yaml);
-        if (rawEntries.isEmpty()) {
-            return CompletableFuture.completedFuture(new ServiceOutcome(OutcomeType.NO_PLAYERS_FOUND, sourceName, null, null));
-        }
-
-        int totalRead = rawEntries.size();
-        List<LegacyImportReport.SkippedEntry> preSkipped = new ArrayList<>();
-        List<LegacyCandidate> candidates = new ArrayList<>();
-
-        for (ParsedEntry entry : rawEntries) {
-            if (!entry.isValid()) {
-                preSkipped.add(new LegacyImportReport.SkippedEntry(
-                        entry.rawKey(),
-                        LegacyImportReport.SkipReason.INVALID_SCORE,
-                        entry.parseError() != null ? entry.parseError() : "Invalid score"
-                ));
-                continue;
-            }
-
-            Optional<PlayerId> resolvedId = resolveEntry(entry.rawKey(), entry.name());
-            if (resolvedId.isEmpty()) {
-                preSkipped.add(new LegacyImportReport.SkippedEntry(
-                        entry.name() != null ? entry.name() : entry.rawKey(),
-                        LegacyImportReport.SkipReason.UNRESOLVED_UUID,
-                        "Unable to resolve UUID identity"
-                ));
-                continue;
-            }
-
-            candidates.add(new LegacyCandidate(resolvedId.get(), entry.name(), entry.score()));
-        }
+        CompletableFuture<LegacyImportReport> future = new CompletableFuture<>();
 
         try {
-            return reputationRepository.executeLegacyImportAsync(
-                    candidates,
-                    preSkipped,
-                    totalRead,
-                    actorId,
-                    sourceName,
-                    profileRepository,
-                    auditRepository,
-                    Instant.now()
-            ).handle((report, error) -> {
-                if (error != null) {
-                    Throwable cause = error.getCause() != null ? error.getCause() : error;
-                    return new ServiceOutcome(OutcomeType.IO_ERROR, sourceName, cause.getMessage(), null);
+            ConfigurationSection playerSection = yaml.getConfigurationSection("playerList");
+            if (playerSection == null) {
+                playerSection = yaml.getConfigurationSection("players");
+            }
+
+            if (playerSection == null) {
+                if (sender != null) {
+                    deliverMessage(sender, snapshot, "commands.admin.import.invalid-shape", Map.of("file", sourceName));
                 }
-                return new ServiceOutcome(OutcomeType.SUCCESS, sourceName, null, report);
-            });
-        } catch (Exception e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            return CompletableFuture.completedFuture(new ServiceOutcome(OutcomeType.IO_ERROR, sourceName, cause.getMessage(), null));
+                LegacyImportReport emptyReport = new LegacyImportReport(0, 0, 0, Collections.emptyList());
+                future.complete(emptyReport);
+                return future;
+            }
+
+            Set<String> keys = playerSection.getKeys(false);
+            if (keys.isEmpty()) {
+                if (sender != null) {
+                    deliverMessage(sender, snapshot, "commands.admin.import.no-players-found", Map.of("file", sourceName));
+                }
+                LegacyImportReport emptyReport = new LegacyImportReport(0, 0, 0, Collections.emptyList());
+                future.complete(emptyReport);
+                return future;
+            }
+
+            ParsedResult parsed = parseEntriesOnCallingThread(playerSection, snapshot.config().legacyImport().trustNameLookup());
+
+            storageEngine.supplyAsync(() -> executeStorageResolution(parsed, actorId, sourceName))
+                    .thenCompose(res -> res)
+                    .whenComplete((report, ex) -> {
+                        if (ex != null) {
+                            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                            if (sender != null) {
+                                mainThreadRunner.accept(() -> deliverMessage(sender, snapshot, "commands.admin.import.io-error",
+                                        Map.of("error", cause.getMessage() != null ? cause.getMessage() : cause.toString())));
+                            }
+                            future.completeExceptionally(cause);
+                        } else {
+                            if (sender != null) {
+                                mainThreadRunner.accept(() -> deliverReportMessages(sender, snapshot, report));
+                            }
+                            future.complete(report);
+                        }
+                    });
+            return future;
+        } catch (Throwable t) {
+            if (sender != null) {
+                deliverMessage(sender, snapshot, "commands.admin.import.io-error",
+                        Map.of("error", t.getMessage() != null ? t.getMessage() : t.toString()));
+            }
+            future.completeExceptionally(t);
+            return future;
         }
     }
 
-    private Optional<PlayerId> resolveEntry(String rawKey, String name) {
-        // 1. Direct UUID string check
-        try {
-            UUID uuid = UUID.fromString(rawKey.trim());
-            return Optional.of(PlayerId.of(uuid));
-        } catch (IllegalArgumentException ignored) {
-        }
-
-        // 2. Off-thread resolver
-        String lookupName = (name != null && !name.isBlank()) ? name.trim() : rawKey.trim();
-        return resolver.resolve(lookupName);
-    }
-
-    private List<ParsedEntry> parseEntries(YamlConfiguration yaml) {
+    private CompletableFuture<Void> processYamlAsync(
+            YamlConfiguration yaml,
+            String sourceName,
+            String fileDisplay,
+            PlayerId actorId,
+            CommandSender sender,
+            RuntimeSnapshot snapshot,
+            CompletableFuture<Void> future
+    ) {
         ConfigurationSection playerSection = yaml.getConfigurationSection("playerList");
         if (playerSection == null) {
             playerSection = yaml.getConfigurationSection("players");
         }
+
         if (playerSection == null) {
-            return Collections.emptyList();
+            deliverMessage(sender, snapshot, "commands.admin.import.invalid-shape", Map.of("file", fileDisplay));
+            isImporting.set(false);
+            future.complete(null);
+            return future;
         }
 
-        List<ParsedEntry> result = new ArrayList<>();
-        for (String key : playerSection.getKeys(false)) {
-            if (playerSection.isConfigurationSection(key)) {
-                ConfigurationSection sub = playerSection.getConfigurationSection(key);
+        Set<String> keys = playerSection.getKeys(false);
+        if (keys.isEmpty()) {
+            deliverMessage(sender, snapshot, "commands.admin.import.no-players-found", Map.of("file", fileDisplay));
+            isImporting.set(false);
+            future.complete(null);
+            return future;
+        }
+
+        ParsedResult parsed = parseEntriesOnCallingThread(playerSection, snapshot.config().legacyImport().trustNameLookup());
+
+        storageEngine.supplyAsync(() -> executeStorageResolution(parsed, actorId, sourceName))
+                .thenCompose(res -> res)
+                .whenComplete((report, ex) -> {
+                    isImporting.set(false);
+                    try {
+                        mainThreadRunner.accept(() -> {
+                            try {
+                                if (ex != null) {
+                                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                    deliverMessage(sender, snapshot, "commands.admin.import.io-error",
+                                            Map.of("error", cause.getMessage() != null ? cause.getMessage() : cause.toString()));
+                                } else if (report != null) {
+                                    deliverReportMessages(sender, snapshot, report);
+                                }
+                                future.complete(null);
+                            } catch (Throwable t) {
+                                future.completeExceptionally(t);
+                            }
+                        });
+                    } catch (Throwable t) {
+                        future.completeExceptionally(t);
+                    }
+                });
+
+        return future;
+    }
+
+    private ParsedResult parseEntriesOnCallingThread(ConfigurationSection playerSection, boolean trustNameLookup) {
+        Set<String> keys = playerSection.getKeys(false);
+        int totalRead = keys.size();
+        List<LegacyImportReport.SkippedEntry> preSkipped = new ArrayList<>();
+        List<LegacyCandidate> directCandidates = new ArrayList<>();
+        List<NameCandidateToResolve> nameCandidates = new ArrayList<>();
+        Map<String, Optional<PlayerLookup.KnownPlayer>> resolvedOnCallingThread = new HashMap<>();
+
+        for (String rawKey : keys) {
+            UUID keyUuid = null;
+            try {
+                keyUuid = UUID.fromString(rawKey.trim());
+            } catch (IllegalArgumentException ignored) {}
+
+            String name = null;
+            Object scoreObj = null;
+
+            if (playerSection.isConfigurationSection(rawKey)) {
+                ConfigurationSection sub = playerSection.getConfigurationSection(rawKey);
                 String explicitName = sub.getString("name");
-                String name;
                 if (explicitName != null && !explicitName.isBlank()) {
                     name = explicitName.trim();
-                } else {
-                    boolean isUuid = false;
-                    try {
-                        UUID.fromString(key.trim());
-                        isUuid = true;
-                    } catch (IllegalArgumentException ignored) {}
-                    name = isUuid ? null : key.trim();
+                } else if (keyUuid == null) {
+                    name = rawKey.trim();
                 }
 
-                Object scoreObj = sub.get("reputation");
+                scoreObj = sub.get("reputation");
                 if (scoreObj == null) scoreObj = sub.get("score");
                 if (scoreObj == null) scoreObj = sub.get("rep");
                 if (scoreObj == null) scoreObj = sub.get("status");
-
-                if (scoreObj == null) {
-                    result.add(new ParsedEntry(key, name, null, "Missing reputation score"));
-                } else {
-                    Integer parsedScore = null;
-                    if (scoreObj instanceof Number num) {
-                        parsedScore = num.intValue();
-                    } else {
-                        try {
-                            parsedScore = Integer.parseInt(scoreObj.toString().trim());
-                        } catch (NumberFormatException e) {
-                            result.add(new ParsedEntry(key, name, null, scoreObj.toString()));
-                        }
-                    }
-                    if (parsedScore != null) {
-                        if (Math.abs(parsedScore) > com.dasannn.socialblueprint.domain.ReputationEvent.MAX_DELTA) {
-                            result.add(new ParsedEntry(key, name, null, "Score out of range: " + parsedScore));
-                        } else {
-                            result.add(new ParsedEntry(key, name, parsedScore, null));
-                        }
-                    }
-                }
-            } else if (playerSection.get(key) instanceof Number num) {
-                boolean isUuid = false;
-                try {
-                    UUID.fromString(key.trim());
-                    isUuid = true;
-                } catch (IllegalArgumentException ignored) {}
-                String name = isUuid ? null : key.trim();
-                int score = num.intValue();
-                if (Math.abs(score) > com.dasannn.socialblueprint.domain.ReputationEvent.MAX_DELTA) {
-                    result.add(new ParsedEntry(key, name, null, "Score out of range: " + score));
-                } else {
-                    result.add(new ParsedEntry(key, name, score, null));
-                }
-            } else if (playerSection.isString(key)) {
-                boolean isUuid = false;
-                try {
-                    UUID.fromString(key.trim());
-                    isUuid = true;
-                } catch (IllegalArgumentException ignored) {}
-                String name = isUuid ? null : key.trim();
-                try {
-                    int score = Integer.parseInt(playerSection.getString(key).trim());
-                    if (Math.abs(score) > com.dasannn.socialblueprint.domain.ReputationEvent.MAX_DELTA) {
-                        result.add(new ParsedEntry(key, name, null, "Score out of range: " + score));
-                    } else {
-                        result.add(new ParsedEntry(key, name, score, null));
-                    }
-                } catch (NumberFormatException e) {
-                    result.add(new ParsedEntry(key, name, null, playerSection.getString(key)));
-                }
             } else {
-                result.add(new ParsedEntry(key, key, null, "Unknown entry shape"));
+                scoreObj = playerSection.get(rawKey);
+                if (keyUuid == null) {
+                    name = rawKey.trim();
+                }
+            }
+
+            ScoreParseResult scoreResult = parseExactIntegralScore(scoreObj);
+            if (!scoreResult.isValid()) {
+                preSkipped.add(new LegacyImportReport.SkippedEntry(
+                        name != null ? name : rawKey,
+                        LegacyImportReport.SkipReason.INVALID_SCORE,
+                        scoreResult.error()
+                ));
+                continue;
+            }
+
+            int score = scoreResult.score();
+
+            if (keyUuid != null) {
+                directCandidates.add(new LegacyCandidate(PlayerId.of(keyUuid), name, score));
+            } else {
+                if (!trustNameLookup) {
+                    preSkipped.add(new LegacyImportReport.SkippedEntry(
+                            name != null ? name : rawKey,
+                            LegacyImportReport.SkipReason.UNVERIFIED_NAME,
+                            "Name could not be verified (trust-name-lookup is false)"
+                    ));
+                } else {
+                    String lookupName = name != null ? name : rawKey.trim();
+                    if (!resolvedOnCallingThread.containsKey(lookupName)) {
+                        Optional<PlayerLookup.KnownPlayer> kp = (playerLookup != null)
+                                ? playerLookup.lookup(lookupName)
+                                : Optional.empty();
+                        resolvedOnCallingThread.put(lookupName, kp);
+                    }
+                    nameCandidates.add(new NameCandidateToResolve(lookupName, score));
+                }
             }
         }
-        return result;
+
+        return new ParsedResult(totalRead, directCandidates, nameCandidates, resolvedOnCallingThread, preSkipped);
+    }
+
+    private CompletableFuture<LegacyImportReport> executeStorageResolution(
+            ParsedResult parsed,
+            PlayerId actorId,
+            String sourceName
+    ) {
+        List<LegacyCandidate> allCandidates = new ArrayList<>(parsed.directCandidates());
+        List<LegacyImportReport.SkippedEntry> allPreSkipped = new ArrayList<>(parsed.preSkipped());
+
+        for (NameCandidateToResolve ncr : parsed.nameCandidates()) {
+            PlayerId resolvedId = null;
+            String finalName = ncr.lookupName();
+
+            if (profileRepository != null) {
+                Optional<PlayerProfile> profile = profileRepository.findByName(ncr.lookupName());
+                if (profile.isPresent()) {
+                    resolvedId = profile.get().id();
+                    finalName = profile.get().lastKnownName();
+                }
+            }
+
+            if (resolvedId == null) {
+                Optional<PlayerLookup.KnownPlayer> kp = parsed.resolvedOnCallingThread().get(ncr.lookupName());
+                if (kp != null && kp.isPresent()) {
+                    resolvedId = kp.get().id();
+                    finalName = kp.get().name();
+                }
+            }
+
+            if (resolvedId != null) {
+                allCandidates.add(new LegacyCandidate(resolvedId, finalName, ncr.score()));
+            } else {
+                allPreSkipped.add(new LegacyImportReport.SkippedEntry(
+                        ncr.lookupName(),
+                        LegacyImportReport.SkipReason.UNRESOLVED_UUID,
+                        "Unable to resolve UUID identity"
+                ));
+            }
+        }
+
+        return reputationRepository.executeLegacyImportAsync(
+                allCandidates,
+                allPreSkipped,
+                parsed.totalRead(),
+                actorId,
+                sourceName,
+                profileRepository,
+                auditRepository,
+                Instant.now()
+        );
+    }
+
+    private static ScoreParseResult parseExactIntegralScore(Object scoreObj) {
+        if (scoreObj == null) {
+            return new ScoreParseResult(null, "Missing reputation score");
+        }
+
+        if (scoreObj instanceof Double || scoreObj instanceof Float || scoreObj instanceof java.math.BigDecimal) {
+            return new ScoreParseResult(null, "Non-integer score: " + scoreObj);
+        }
+
+        if (scoreObj instanceof Integer i) {
+            if (i < -ReputationEvent.MAX_DELTA || i > ReputationEvent.MAX_DELTA) {
+                return new ScoreParseResult(null, "Score out of range: " + i);
+            }
+            return new ScoreParseResult(i, null);
+        }
+
+        if (scoreObj instanceof Long l) {
+            if (l < -ReputationEvent.MAX_DELTA || l > ReputationEvent.MAX_DELTA) {
+                return new ScoreParseResult(null, "Score out of range: " + l);
+            }
+            return new ScoreParseResult(l.intValue(), null);
+        }
+
+        if (scoreObj instanceof java.math.BigInteger bi) {
+            long min = -ReputationEvent.MAX_DELTA;
+            long max = ReputationEvent.MAX_DELTA;
+            if (bi.compareTo(java.math.BigInteger.valueOf(min)) < 0 || bi.compareTo(java.math.BigInteger.valueOf(max)) > 0) {
+                return new ScoreParseResult(null, "Score out of range: " + bi);
+            }
+            return new ScoreParseResult(bi.intValue(), null);
+        }
+
+        if (scoreObj instanceof Short s) {
+            int i = s.intValue();
+            if (i < -ReputationEvent.MAX_DELTA || i > ReputationEvent.MAX_DELTA) {
+                return new ScoreParseResult(null, "Score out of range: " + i);
+            }
+            return new ScoreParseResult(i, null);
+        }
+
+        if (scoreObj instanceof Byte b) {
+            return new ScoreParseResult(b.intValue(), null);
+        }
+
+        if (scoreObj instanceof String str) {
+            String trimmed = str.trim();
+            try {
+                long val = Long.parseLong(trimmed);
+                if (val < -ReputationEvent.MAX_DELTA || val > ReputationEvent.MAX_DELTA) {
+                    return new ScoreParseResult(null, "Score out of range: " + val);
+                }
+                return new ScoreParseResult((int) val, null);
+            } catch (NumberFormatException e) {
+                return new ScoreParseResult(null, str);
+            }
+        }
+
+        return new ScoreParseResult(null, scoreObj.toString());
     }
 
     private File resolveTargetFile(String filePath) {
@@ -367,29 +497,20 @@ public class LegacyImportService {
         return new File("plugins/PlayerStatus/config.yml");
     }
 
-    private void deliverOutcome(CommandSender sender, RuntimeSnapshot snapshot, ServiceOutcome outcome) {
-        switch (outcome.type()) {
-            case FILE_NOT_FOUND -> deliverMessage(sender, snapshot, "commands.admin.import.file-not-found",
-                    Map.of("file", outcome.file()));
-            case NO_PLAYERS_FOUND -> deliverMessage(sender, snapshot, "commands.admin.import.no-players-found",
-                    Map.of("file", outcome.file()));
-            case IO_ERROR -> deliverMessage(sender, snapshot, "commands.admin.import.io-error",
-                    Map.of("error", outcome.details() != null ? outcome.details() : "IO error"));
-            case SUCCESS -> {
-                if (outcome.report() != null) {
-                    deliverReportMessages(sender, snapshot, outcome.report());
-                }
-            }
-        }
-    }
-
     private void deliverReportMessages(CommandSender sender, RuntimeSnapshot snapshot, LegacyImportReport report) {
         for (LegacyImportReport.SkippedEntry entry : report.skippedEntries()) {
             switch (entry.reason()) {
+                case UNVERIFIED_NAME -> deliverMessage(sender, snapshot, "commands.admin.import.skipped-unverified",
+                        Map.of("player", entry.playerName()));
                 case UNRESOLVED_UUID -> deliverMessage(sender, snapshot, "commands.admin.import.skipped-unresolved",
                         Map.of("player", entry.playerName()));
-                case ALREADY_IMPORTED -> deliverMessage(sender, snapshot, "commands.admin.import.skipped-already-imported",
-                        Map.of("player", entry.playerName()));
+                case ALREADY_IMPORTED -> {
+                    Map<String, String> placeholders = new HashMap<>();
+                    placeholders.put("player", entry.playerName());
+                    placeholders.put("kept", entry.keptScore() != null ? String.valueOf(entry.keptScore()) : "unknown");
+                    placeholders.put("ignored", entry.ignoredScore() != null ? String.valueOf(entry.ignoredScore()) : "unknown");
+                    deliverMessage(sender, snapshot, "commands.admin.import.skipped-already-imported", placeholders);
+                }
                 case INVALID_SCORE -> deliverMessage(sender, snapshot, "commands.admin.import.skipped-invalid-score",
                         Map.of("player", entry.playerName(), "score", entry.details() != null ? entry.details() : "unknown"));
             }
@@ -412,28 +533,19 @@ public class LegacyImportService {
         }
     }
 
-    private enum OutcomeType {
-        SUCCESS,
-        FILE_NOT_FOUND,
-        NO_PLAYERS_FOUND,
-        IO_ERROR
-    }
-
-    private record ServiceOutcome(
-            OutcomeType type,
-            String file,
-            String details,
-            LegacyImportReport report
-    ) {}
-
-    private record ParsedEntry(
-            String rawKey,
-            String name,
-            Integer score,
-            String parseError
-    ) {
+    private record ScoreParseResult(Integer score, String error) {
         public boolean isValid() {
-            return parseError == null && score != null;
+            return error == null && score != null;
         }
     }
+
+    private record NameCandidateToResolve(String lookupName, int score) {}
+
+    private record ParsedResult(
+            int totalRead,
+            List<LegacyCandidate> directCandidates,
+            List<NameCandidateToResolve> nameCandidates,
+            Map<String, Optional<PlayerLookup.KnownPlayer>> resolvedOnCallingThread,
+            List<LegacyImportReport.SkippedEntry> preSkipped
+    ) {}
 }

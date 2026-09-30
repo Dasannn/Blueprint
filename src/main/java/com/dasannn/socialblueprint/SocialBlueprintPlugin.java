@@ -18,12 +18,9 @@ import com.dasannn.socialblueprint.storage.StorageEngine;
 import com.dasannn.socialblueprint.storage.StorageLifecycleCoordinator;
 import com.dasannn.socialblueprint.feature.honor.HonorService;
 import com.dasannn.socialblueprint.domain.PlayerId;
-import com.dasannn.socialblueprint.domain.PlayerProfile;
 import com.dasannn.socialblueprint.feature.legacy.LegacyImportService;
-import com.dasannn.socialblueprint.feature.legacy.LegacyPlayerResolver;
 import com.dasannn.socialblueprint.storage.CompensationRepository;
 import net.milkbowl.vault.economy.Economy;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
@@ -178,42 +175,13 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this
         );
 
-        LegacyPlayerResolver legacyResolver = name -> {
-            if (name == null || name.isBlank()) {
-                return Optional.empty();
-            }
-            String trimmed = name.trim();
-            try {
-                UUID uuid = UUID.fromString(trimmed);
-                return Optional.of(PlayerId.of(uuid));
-            } catch (IllegalArgumentException ignored) {
-            }
-
-            Optional<PlayerProfile> profile = profileRepository.findByName(trimmed);
-            if (profile.isPresent()) {
-                return Optional.of(profile.get().id());
-            }
-
-            Player online = getServer().getPlayerExact(trimmed);
-            if (online != null) {
-                return Optional.of(PlayerId.of(online.getUniqueId()));
-            }
-
-            OfflinePlayer offline = getServer().getOfflinePlayer(trimmed);
-            if (offline != null && (offline.hasPlayedBefore() || offline.isOnline())) {
-                return Optional.of(PlayerId.of(offline.getUniqueId()));
-            }
-
-            return Optional.empty();
-        };
-
         this.legacyImportService = new LegacyImportService(
                 storageEngine,
                 reputationRepository,
                 profileRepository,
                 auditRepository,
                 messageRegistry,
-                legacyResolver,
+                playerLookup,
                 getDataFolder(),
                 runnable -> {
                     if (isEnabled()) {

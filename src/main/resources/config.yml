@@ -137,3 +137,12 @@ permissions:
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
   admin-import: "socialblueprint.admin.import"
+
+# ==============================================================================
+# Legacy Import (T-090, T-091, T-092)
+# ==============================================================================
+legacy-import:
+  # Import rows keyed only by a name, resolving the name as it is owned today.
+  # Off by default: Minecraft names can be reused, so a name-keyed row can
+  # attach an old record to a different player.
+  trust-name-lookup: false

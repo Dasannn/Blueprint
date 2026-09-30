@@ -17,9 +17,22 @@ public record PluginConfig(
         ConfidenceConfigSection confidence,
         PsychosisConfigSection psychosis,
         HonorConfigSection honor,
-        PermissionsConfig permissions
+        PermissionsConfig permissions,
+        LegacyImportConfig legacyImport
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
+
+    public PluginConfig(
+            String language,
+            String chatPrefix,
+            TiersConfig tiers,
+            ConfidenceConfigSection confidence,
+            PsychosisConfigSection psychosis,
+            HonorConfigSection honor,
+            PermissionsConfig permissions
+    ) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, LegacyImportConfig.DEFAULT);
+    }
 
     public PluginConfig {
         Objects.requireNonNull(language, "language must not be null");
@@ -29,6 +42,7 @@ public record PluginConfig(
         Objects.requireNonNull(psychosis, "psychosis must not be null");
         Objects.requireNonNull(honor, "honor must not be null");
         Objects.requireNonNull(permissions, "permissions must not be null");
+        Objects.requireNonNull(legacyImport, "legacyImport must not be null");
     }
 
     public static PluginConfig load(ConfigurationSection root) {
@@ -68,8 +82,9 @@ public record PluginConfig(
         PsychosisConfigSection psychosis = PsychosisConfigSection.load(root);
         HonorConfigSection honor = HonorConfigSection.load(root);
         PermissionsConfig permissions = PermissionsConfig.load(root);
+        LegacyImportConfig legacyImport = LegacyImportConfig.load(root);
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, legacyImport);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -80,7 +95,8 @@ public record PluginConfig(
                 confidence,
                 psychosis,
                 honor,
-                permissions
+                permissions,
+                legacyImport
         );
     }
 
@@ -92,7 +108,21 @@ public record PluginConfig(
                 confidence,
                 psychosis,
                 honor,
-                permissions
+                permissions,
+                legacyImport
+        );
+    }
+
+    public PluginConfig withLegacyImport(LegacyImportConfig newLegacyImport) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                Objects.requireNonNull(newLegacyImport, "legacyImport must not be null")
         );
     }
 }

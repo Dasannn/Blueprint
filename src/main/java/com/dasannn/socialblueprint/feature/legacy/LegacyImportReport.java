@@ -21,11 +21,22 @@ public record LegacyImportReport(
 
     public enum SkipReason {
         UNRESOLVED_UUID,
+        UNVERIFIED_NAME,
         ALREADY_IMPORTED,
         INVALID_SCORE
     }
 
-    public record SkippedEntry(String playerName, SkipReason reason, String details) {
+    public record SkippedEntry(
+            String playerName,
+            SkipReason reason,
+            String details,
+            Integer keptScore,
+            Integer ignoredScore
+    ) {
+        public SkippedEntry(String playerName, SkipReason reason, String details) {
+            this(playerName, reason, details, null, null);
+        }
+
         public SkippedEntry {
             Objects.requireNonNull(playerName, "playerName must not be null");
             Objects.requireNonNull(reason, "reason must not be null");

@@ -50,11 +50,14 @@ commands:
       summary: '&aLegacy import complete: &f{read}&a read, &f{imported}&a imported, &f{skipped}&a skipped.'
       reason: 'Legacy PlayerStatus migration'
       skipped-unresolved: '&eSkipped {player}: unable to resolve player identity to UUID.'
-      skipped-already-imported: '&eSkipped {player}: player already has imported legacy status.'
+      skipped-already-imported: '&eSkipped {player}: already imported (kept {kept}, ignored {ignored}).'
       skipped-invalid-score: '&eSkipped {player}: invalid or unparseable score ({score}).'
+      skipped-unverified: '&eSkipped {player}: name could not be verified.'
       file-not-found: '&cImport file not found: &f{file}'
       io-error: '&cError during legacy import: &f{error}'
       no-players-found: '&cNo player entries found in file: &f{file}'
+      invalid-yaml: '&cFile is not valid YAML: &f{file}'
+      invalid-shape: '&cInvalid configuration shape in file: &f{file}'
       already-running: '&cA legacy import is already in progress.'
 
 chat:
