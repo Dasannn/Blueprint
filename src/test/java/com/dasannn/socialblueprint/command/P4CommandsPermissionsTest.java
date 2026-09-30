@@ -843,6 +843,9 @@ class P4CommandsPermissionsTest {
             // Verify no reputation event was written
             List<ReputationEvent> events = reputationRepo.findByTargetAsync(targetId).join();
             assertThat(events).isEmpty();
+
+            // Verify failure was reported sanely to sender
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.write-failed");
         } finally {
             StorageTestSupport.dropFailAuditTrigger(storage);
         }
@@ -1021,6 +1024,7 @@ class P4CommandsPermissionsTest {
 
         // Prepare rating while enabled
         honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, null, configManager.snapshot()).join();
+        drainMainThread();
 
         // Confirm rating with shutdownHonorService while disabled
         // The compensation record was persisted in SQLite before DB write.

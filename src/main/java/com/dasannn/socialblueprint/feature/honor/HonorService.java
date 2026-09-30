@@ -203,50 +203,36 @@ public class HonorService {
         // Resolve target player asynchronously
         return profileService.resolveTargetIdentityAsync(targetInput)
                 .thenCompose(optTarget -> {
-                    CompletableFuture<Void> future = new CompletableFuture<>();
-                    mainThreadRunner.accept(() -> {
-                        if (optTarget.isEmpty()) {
-                            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
-                                    Map.of("player", targetInput)));
-                            future.complete(null);
-                            return;
-                        }
+                    if (optTarget.isEmpty()) {
+                        mainThreadRunner.accept(() -> actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
+                                Map.of("player", targetInput))));
+                        return CompletableFuture.completedFuture(null);
+                    }
 
-                        TargetIdentity target = optTarget.get();
-                        if (actorId.equals(target.id())) {
-                            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.cannot-rate-self"));
-                            future.complete(null);
-                            return;
-                        }
+                    TargetIdentity target = optTarget.get();
+                    if (actorId.equals(target.id())) {
+                        mainThreadRunner.accept(() -> actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.cannot-rate-self")));
+                        return CompletableFuture.completedFuture(null);
+                    }
 
-                        // Query actor's ratings in rolling window on storage executor
-                        Duration multWindow = snapshot.config().honor().multiplierWindow();
-                        Duration capWindow = snapshot.config().honor().capWindow();
-                        Duration cooldown = snapshot.config().honor().cooldownPerPair();
-                        Duration maxDuration = multWindow;
-                        if (capWindow.compareTo(maxDuration) > 0) {
-                            maxDuration = capWindow;
-                        }
-                        if (cooldown.compareTo(maxDuration) > 0) {
-                            maxDuration = cooldown;
-                        }
-                        Instant now = clock.instant();
-                        Instant since = now.minus(maxDuration);
+                    // Query actor's ratings in rolling window on storage executor
+                    Duration multWindow = snapshot.config().honor().multiplierWindow();
+                    Duration capWindow = snapshot.config().honor().capWindow();
+                    Duration cooldown = snapshot.config().honor().cooldownPerPair();
+                    Duration maxDuration = multWindow;
+                    if (capWindow.compareTo(maxDuration) > 0) {
+                        maxDuration = capWindow;
+                    }
+                    if (cooldown.compareTo(maxDuration) > 0) {
+                        maxDuration = cooldown;
+                    }
+                    Instant now = clock.instant();
+                    Instant since = now.minus(maxDuration);
 
-                        reputationRepository.findByActorSinceAsync(actorId, since)
-                                .thenAccept(actorEvents -> mainThreadRunner.accept(() -> {
-                                    try {
-                                        evaluateAndPreview(actor, target, kind, reason, actorEvents, snapshot, now);
-                                    } finally {
-                                        future.complete(null);
-                                    }
-                                }))
-                                .exceptionally(ex -> {
-                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
-                                    return null;
-                                });
-                    });
-                    return future;
+                    return reputationRepository.findByActorSinceAsync(actorId, since)
+                            .thenAccept(actorEvents -> mainThreadRunner.accept(() -> {
+                                evaluateAndPreview(actor, target, kind, reason, actorEvents, snapshot, now);
+                            }));
                 });
     }
 
@@ -369,8 +355,6 @@ public class HonorService {
                 now
         );
 
-        CompletableFuture<Void> future = new CompletableFuture<>();
-
         CompletableFuture<Long> compSaveFuture;
         if (compensationRepository != null) {
             try {
@@ -383,21 +367,14 @@ public class HonorService {
         }
 
         final CompletableFuture<Long> pendingCompensation = compSaveFuture;
-        pendingCompensation.thenCompose(compId -> reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository))
-                .thenAccept(saved -> {
+        return pendingCompensation.thenCompose(compId -> reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository))
+                .handle((saved, error) -> {
                     mainThreadRunner.accept(() -> {
-                        try {
+                        if (error == null) {
                             String msgKey = pending.kind() == HonorKind.POSITIVE ? "honor.given" : "honor.removed";
                             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, msgKey,
                                     Map.of("target", pending.targetName())));
-                        } finally {
-                            future.complete(null);
-                        }
-                    });
-                })
-                .exceptionally(error -> {
-                    mainThreadRunner.accept(() -> {
-                        try {
+                        } else {
                             if (economy != null) {
                                 EconomyResponse refundResp = economy.depositPlayer(actor, actualCharged);
                                 if (refundResp != null && refundResp.transactionSuccess()
@@ -411,14 +388,10 @@ public class HonorService {
                                 }
                             }
                             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
-                        } finally {
-                            future.complete(null);
                         }
                     });
-                    return null;
+                    return (Void) null;
                 });
-
-        return future;
     }
 
     /**
@@ -471,37 +444,35 @@ public class HonorService {
 
         return profileService.resolveTargetIdentityAsync(targetInput)
                 .thenCompose(optTarget -> {
-                    CompletableFuture<Void> future = new CompletableFuture<>();
-                    mainThreadRunner.accept(() -> {
-                        if (optTarget.isEmpty()) {
-                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
-                                    Map.of("player", targetInput)));
-                            future.complete(null);
-                            return;
-                        }
+                    if (optTarget.isEmpty()) {
+                        mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
+                                Map.of("player", targetInput))));
+                        return CompletableFuture.completedFuture(null);
+                    }
 
-                        TargetIdentity target = optTarget.get();
-                        Instant now = clock.instant();
+                    TargetIdentity target = optTarget.get();
+                    Instant now = clock.instant();
 
-                        reputationRepository.executeAdminAdjustmentAsync(
-                                actorId,
-                                target.id(),
-                                HonorKind.ADMIN_GIVE,
-                                amount,
-                                "admin_give",
-                                "admin give",
-                                now,
-                                auditRepository
-                        ).thenAccept(res -> mainThreadRunner.accept(() -> {
-                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.give-success",
-                                    Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(res.afterScore()))));
-                            future.complete(null);
-                        })).exceptionally(ex -> {
-                            mainThreadRunner.accept(() -> future.completeExceptionally(ex));
-                            return null;
+                    return reputationRepository.executeAdminAdjustmentAsync(
+                            actorId,
+                            target.id(),
+                            HonorKind.ADMIN_GIVE,
+                            amount,
+                            "admin_give",
+                            "admin give",
+                            now,
+                            auditRepository
+                    ).handle((res, ex) -> {
+                        mainThreadRunner.accept(() -> {
+                            if (ex == null) {
+                                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.give-success",
+                                        Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(res.afterScore()))));
+                            } else {
+                                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+                            }
                         });
+                        return (Void) null;
                     });
-                    return future;
                 });
     }
 
@@ -527,37 +498,35 @@ public class HonorService {
 
         return profileService.resolveTargetIdentityAsync(targetInput)
                 .thenCompose(optTarget -> {
-                    CompletableFuture<Void> future = new CompletableFuture<>();
-                    mainThreadRunner.accept(() -> {
-                        if (optTarget.isEmpty()) {
-                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
-                                    Map.of("player", targetInput)));
-                            future.complete(null);
-                            return;
-                        }
+                    if (optTarget.isEmpty()) {
+                        mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
+                                Map.of("player", targetInput))));
+                        return CompletableFuture.completedFuture(null);
+                    }
 
-                        TargetIdentity target = optTarget.get();
-                        Instant now = clock.instant();
+                    TargetIdentity target = optTarget.get();
+                    Instant now = clock.instant();
 
-                        reputationRepository.executeAdminAdjustmentAsync(
-                                actorId,
-                                target.id(),
-                                HonorKind.ADMIN_TAKE,
-                                -amount,
-                                "admin_take",
-                                "admin take",
-                                now,
-                                auditRepository
-                        ).thenAccept(res -> mainThreadRunner.accept(() -> {
-                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.take-success",
-                                    Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(res.afterScore()))));
-                            future.complete(null);
-                        })).exceptionally(ex -> {
-                            mainThreadRunner.accept(() -> future.completeExceptionally(ex));
-                            return null;
+                    return reputationRepository.executeAdminAdjustmentAsync(
+                            actorId,
+                            target.id(),
+                            HonorKind.ADMIN_TAKE,
+                            -amount,
+                            "admin_take",
+                            "admin take",
+                            now,
+                            auditRepository
+                    ).handle((res, ex) -> {
+                        mainThreadRunner.accept(() -> {
+                            if (ex == null) {
+                                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.take-success",
+                                        Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(res.afterScore()))));
+                            } else {
+                                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+                            }
                         });
+                        return (Void) null;
                     });
-                    return future;
                 });
     }
 
@@ -582,37 +551,35 @@ public class HonorService {
 
         return profileService.resolveTargetIdentityAsync(targetInput)
                 .thenCompose(optTarget -> {
-                    CompletableFuture<Void> future = new CompletableFuture<>();
-                    mainThreadRunner.accept(() -> {
-                        if (optTarget.isEmpty()) {
-                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
-                                    Map.of("player", targetInput)));
-                            future.complete(null);
-                            return;
-                        }
+                    if (optTarget.isEmpty()) {
+                        mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
+                                Map.of("player", targetInput))));
+                        return CompletableFuture.completedFuture(null);
+                    }
 
-                        TargetIdentity target = optTarget.get();
-                        Instant now = clock.instant();
+                    TargetIdentity target = optTarget.get();
+                    Instant now = clock.instant();
 
-                        reputationRepository.executeAdminAdjustmentAsync(
-                                actorId,
-                                target.id(),
-                                HonorKind.ADMIN_RESET,
-                                0,
-                                "admin_reset",
-                                "admin reset",
-                                now,
-                                auditRepository
-                        ).thenAccept(res -> mainThreadRunner.accept(() -> {
-                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.reset-success",
-                                    Map.of("target", target.name())));
-                            future.complete(null);
-                        })).exceptionally(ex -> {
-                            mainThreadRunner.accept(() -> future.completeExceptionally(ex));
-                            return null;
+                    return reputationRepository.executeAdminAdjustmentAsync(
+                            actorId,
+                            target.id(),
+                            HonorKind.ADMIN_RESET,
+                            0,
+                            "admin_reset",
+                            "admin reset",
+                            now,
+                            auditRepository
+                    ).handle((res, ex) -> {
+                        mainThreadRunner.accept(() -> {
+                            if (ex == null) {
+                                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.reset-success",
+                                        Map.of("target", target.name())));
+                            } else {
+                                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+                            }
                         });
+                        return (Void) null;
                     });
-                    return future;
                 });
     }
 
@@ -632,9 +599,6 @@ public class HonorService {
 
     public static String formatCost(double cost) {
         cost = HonorCostCalculator.roundCurrency(cost);
-        if (cost == Math.floor(cost)) {
-            return String.format(Locale.ROOT, "%.0f", cost);
-        }
         return String.format(Locale.ROOT, "%.2f", cost);
     }
 }

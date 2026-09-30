@@ -84,15 +84,15 @@ public class StatusConfigCommand {
             return true;
         }
 
-        if (args.length == 0 || args.length > 2) {
+        if (args.length == 0) {
             sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.usage"));
             return true;
         }
 
-        String key = args[0];
+        String sub = args[0];
 
         // Reload command: /status config reload
-        if (args.length == 1 && "reload".equalsIgnoreCase(key)) {
+        if (args.length == 1 && "reload".equalsIgnoreCase(sub)) {
             try {
                 RuntimeSnapshot reloadedSnapshot = configManager.reload();
                 sender.sendMessage(messageRegistry.renderWithPrefix(reloadedSnapshot, "commands.config.reload-success"));
@@ -106,8 +106,31 @@ public class StatusConfigCommand {
             return true;
         }
 
-        // Get key value: /status config <key>
-        if (args.length == 1) {
+        String key;
+        String rawValue = null;
+
+        if ("set".equalsIgnoreCase(sub)) {
+            if (args.length < 3) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.usage"));
+                return true;
+            }
+            key = args[1];
+            rawValue = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length));
+        } else if ("get".equalsIgnoreCase(sub)) {
+            if (args.length != 2) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.usage"));
+                return true;
+            }
+            key = args[1];
+        } else if (args.length == 1) {
+            key = args[0];
+        } else {
+            key = args[0];
+            rawValue = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
+        }
+
+        // Get key value: /status config [get] <key>
+        if (rawValue == null) {
             try {
                 String value = configManager.get(snapshot, key);
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.get",
@@ -119,14 +142,13 @@ public class StatusConfigCommand {
             return true;
         }
 
-        // Set key value: /status config <key> <value>
+        // Set key value: /status config [set] <key> <value>
         if (!configManager.isEditableKey(snapshot, key)) {
             sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.invalid-key",
                     Map.of("key", key)));
             return true;
         }
 
-        String rawValue = args[1];
         try {
             String oldValue = "";
             try {
@@ -134,12 +156,13 @@ public class StatusConfigCommand {
             } catch (Exception ignored) {
             }
             RuntimeSnapshot updatedSnapshot = configManager.set(key, rawValue);
+            String newValue = configManager.get(updatedSnapshot, key);
             if (auditRepository != null) {
                 com.dasannn.socialblueprint.domain.PlayerId actor = (sender instanceof org.bukkit.entity.Player p)
                         ? com.dasannn.socialblueprint.domain.PlayerId.of(p.getUniqueId())
                         : com.dasannn.socialblueprint.domain.PlayerId.CONSOLE;
                 auditRepository.saveAsync(com.dasannn.socialblueprint.domain.AuditEvent.forConfigKey(
-                        actor, "config_set", key, oldValue, rawValue, java.time.Instant.now()
+                        actor, "config_set", key, oldValue, newValue, java.time.Instant.now()
                 ));
             }
             sender.sendMessage(messageRegistry.renderWithPrefix(updatedSnapshot, "commands.config.set-success",
@@ -167,6 +190,20 @@ public class StatusConfigCommand {
 
         if (args.length == 1) {
             String current = args[0].toLowerCase(Locale.ROOT);
+            List<String> suggestions = new ArrayList<>(SUGGESTED_KEYS);
+            suggestions.add(0, "set");
+            suggestions.add(0, "get");
+            List<String> matches = new ArrayList<>();
+            for (String s : suggestions) {
+                if (s.toLowerCase(Locale.ROOT).startsWith(current)) {
+                    matches.add(s);
+                }
+            }
+            return matches;
+        }
+
+        if (args.length == 2 && ("set".equalsIgnoreCase(args[0]) || "get".equalsIgnoreCase(args[0]))) {
+            String current = args[1].toLowerCase(Locale.ROOT);
             List<String> matches = new ArrayList<>();
             for (String key : SUGGESTED_KEYS) {
                 if (key.toLowerCase(Locale.ROOT).startsWith(current)) {
@@ -176,11 +213,12 @@ public class StatusConfigCommand {
             return matches;
         }
 
-        if (args.length == 2) {
-            String key = args[0].toLowerCase(Locale.ROOT);
-            if ("language".equals(key)) {
-                return List.of("en", "es");
-            }
+        if (args.length == 2 && "language".equalsIgnoreCase(args[0])) {
+            return List.of("en", "es");
+        }
+
+        if (args.length == 3 && "set".equalsIgnoreCase(args[0]) && "language".equalsIgnoreCase(args[1])) {
+            return List.of("en", "es");
         }
 
         return List.of();
