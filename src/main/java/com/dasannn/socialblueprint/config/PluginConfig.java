@@ -19,7 +19,8 @@ public record PluginConfig(
         HonorConfigSection honor,
         PermissionsConfig permissions,
         DuelConfigSection duel,
-        EffectsConfigSection effects
+        EffectsConfigSection effects,
+        UpdateConfig update
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -33,7 +34,7 @@ public record PluginConfig(
             PermissionsConfig permissions
     ) {
         this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                null, EffectsConfigSection.defaults());
+                null, EffectsConfigSection.defaults(), UpdateConfig.defaults());
     }
 
     /** P5 call sites: duel supplied, effects defaulted. */
@@ -48,7 +49,7 @@ public record PluginConfig(
             DuelConfigSection duel
     ) {
         this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                duel, EffectsConfigSection.defaults());
+                duel, EffectsConfigSection.defaults(), UpdateConfig.defaults());
     }
 
     /** P6 call sites: effects supplied, no duel configured. */
@@ -62,7 +63,7 @@ public record PluginConfig(
             PermissionsConfig permissions,
             EffectsConfigSection effects
     ) {
-        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null, effects);
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null, effects, UpdateConfig.defaults());
     }
 
     public PluginConfig {
@@ -74,6 +75,9 @@ public record PluginConfig(
         Objects.requireNonNull(honor, "honor must not be null");
         Objects.requireNonNull(permissions, "permissions must not be null");
         Objects.requireNonNull(effects, "effects must not be null");
+        if (update == null) {
+            update = UpdateConfig.defaults();
+        }
     }
 
     public static PluginConfig load(ConfigurationSection root) {
@@ -117,8 +121,9 @@ public record PluginConfig(
         EffectsConfigSection effects = root.contains("effects")
                 ? EffectsConfigSection.load(root)
                 : EffectsConfigSection.defaults();
+        UpdateConfig update = UpdateConfig.load(root);
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects, update);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -131,7 +136,8 @@ public record PluginConfig(
                 honor,
                 permissions,
                 duel,
-                effects
+                effects,
+                update
         );
     }
 
@@ -145,7 +151,8 @@ public record PluginConfig(
                 honor,
                 permissions,
                 duel,
-                effects
+                effects,
+                update
         );
     }
 
@@ -159,7 +166,23 @@ public record PluginConfig(
                 honor,
                 permissions,
                 duel,
-                Objects.requireNonNull(newEffects, "effects must not be null")
+                Objects.requireNonNull(newEffects, "effects must not be null"),
+                update
+        );
+    }
+
+    public PluginConfig withUpdate(UpdateConfig newUpdate) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                Objects.requireNonNull(newUpdate, "update must not be null")
         );
     }
 }

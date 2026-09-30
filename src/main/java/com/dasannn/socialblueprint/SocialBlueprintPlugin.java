@@ -45,6 +45,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private com.dasannn.socialblueprint.feature.duel.DuelService duelService;
     private ProfileService profileService;
     private HonorService honorService;
+    private com.dasannn.socialblueprint.feature.update.UpdateService updateService;
     private Economy economy;
     private AmbientEntityRegistry ambientEntityRegistry;
     private FakeSilverfishService fakeSilverfishService;
@@ -240,6 +241,24 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this
         );
 
+        this.updateService = new com.dasannn.socialblueprint.feature.update.UpdateService(
+                configManager,
+                messageRegistry,
+                storageEngine::submitAsync,
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    }
+                },
+                () -> getServer().getUpdateFolderFile(),
+                () -> getDescription().getVersion(),
+                this::getFile,
+                java.net.http.HttpClient.newBuilder()
+                        .connectTimeout(java.time.Duration.ofSeconds(10))
+                        .build(),
+                getLogger()
+        );
+
         PluginCommand statusCmd = getCommand("status");
         if (statusCmd != null) {
             StatusCommandExecutor executor = new StatusCommandExecutor(
@@ -250,11 +269,14 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     duelService,
                     auditRepository,
                     ambientEntityRegistry::cleanForPlayer,
-                    this
+                    this,
+                    updateService
             );
             statusCmd.setExecutor(executor);
             statusCmd.setTabCompleter(executor);
         }
+
+        this.updateService.onStartup(configManager.snapshot());
 
         getLogger().info("SocialBlueprint enabled.");
     }
@@ -358,5 +380,13 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     public com.dasannn.socialblueprint.feature.duel.DuelService getDuelService() {
         return duelService;
+    }
+
+    public com.dasannn.socialblueprint.feature.update.UpdateService getUpdateService() {
+        return updateService;
+    }
+
+    public File getPluginFile() {
+        return getFile();
     }
 }

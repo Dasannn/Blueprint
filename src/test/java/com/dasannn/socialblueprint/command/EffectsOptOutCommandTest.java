@@ -168,7 +168,8 @@ class EffectsOptOutCommandTest {
                 null,
                 Runnable::run,
                 Collections::emptyList,
-                cleanedPlayerUuids::add
+                cleanedPlayerUuids::add,
+                null
         );
     }
 

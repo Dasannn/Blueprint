@@ -363,7 +363,17 @@ public class ConfigManager {
         set.add("permissions.view-reputation");
         set.add("permissions.admin-adjust");
         set.add("permissions.admin-config");
+        set.add("permissions.version");
+        set.add("permissions.admin-update");
+
+        set.add("update.check-on-startup");
+        set.add("update.auto-download");
+        set.add("update.repository");
+        set.add("update.channel");
+        set.add("update.api-url");
+        set.add("update.max-download-bytes");
 
         return Collections.unmodifiableSet(set);
     }
+
 }

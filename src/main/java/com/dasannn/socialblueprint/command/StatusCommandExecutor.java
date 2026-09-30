@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.Tier;
 import com.dasannn.socialblueprint.feature.honor.HonorService;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
+import com.dasannn.socialblueprint.feature.update.UpdateService;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -53,6 +54,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final StatusConfirmCommand confirmCommand;
     private final com.dasannn.socialblueprint.feature.duel.DuelService duelService;
     private final StatusDuelCommand duelCommand;
+    private final StatusVersionCommand versionCommand;
+    private final StatusUpdateCommand updateCommand;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
     private final Consumer<UUID> optOutCleaner;
@@ -68,7 +71,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier,
-            Consumer<UUID> optOutCleaner
+            Consumer<UUID> optOutCleaner,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
@@ -83,6 +87,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
         this.duelCommand = duelService != null ? new StatusDuelCommand(duelService, messageRegistry, onlinePlayersSupplier) : null;
+        this.versionCommand = updateService != null ? new StatusVersionCommand(updateService, messageRegistry) : null;
+        this.updateCommand = updateService != null ? new StatusUpdateCommand(updateService, messageRegistry) : null;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
         this.optOutCleaner = optOutCleaner;
     }
@@ -94,9 +100,22 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             HonorService honorService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, null, auditRepository, mainThreadRunner, onlinePlayersSupplier, null, updateService);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
-        this(configManager, messageRegistry, profileService, honorService, null, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
+        this(configManager, messageRegistry, profileService, honorService, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
     }
 
     public StatusCommandExecutor(
@@ -144,7 +163,39 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     }
                 },
                 Bukkit::getOnlinePlayers,
+                null,
                 null
+        );
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<UUID> optOutCleaner,
+            Plugin plugin,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService
+    ) {
+        this(
+                configManager,
+                messageRegistry,
+                profileService,
+                honorService,
+                duelService,
+                auditRepository,
+                runnable -> {
+                    if (plugin != null && plugin.isEnabled()) {
+                        Bukkit.getScheduler().runTask(plugin, runnable);
+                    } else if (plugin == null) {
+                        runnable.run();
+                    }
+                },
+                Bukkit::getOnlinePlayers,
+                optOutCleaner,
+                updateService
         );
     }
 
@@ -173,7 +224,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     }
                 },
                 Bukkit::getOnlinePlayers,
-                optOutCleaner
+                optOutCleaner,
+                null
         );
     }
 
@@ -183,7 +235,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             ProfileService profileService,
             HonorService honorService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Plugin plugin
+            Plugin plugin,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
         this(
                 configManager,
@@ -198,8 +251,20 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                         runnable.run();
                     }
                 },
-                Bukkit::getOnlinePlayers
+                Bukkit::getOnlinePlayers,
+                updateService
         );
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Plugin plugin
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, auditRepository, plugin, null);
     }
 
     public StatusCommandExecutor(
@@ -356,6 +421,26 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // 7. Subcommand: /status version (SB-070, T-081)
+        if ("version".equals(sub)) {
+            if (versionCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = versionCommand.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
+        // 8. Subcommand: /status update (SB-071, T-082)
+        if ("update".equals(sub)) {
+            if (updateCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = updateCommand.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
         // 7. Legacy syntax: /status info <player> or /pstatus info <player>
         if ("info".equals(sub) && subArgs.length >= 1) {
             if (!PermissionChecker.hasPermission(sender, "show-others", snapshot)) {
@@ -499,6 +584,14 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
             if (PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) && "admin".startsWith(current)) {
                 suggestions.add("admin");
+            }
+
+            if (PermissionChecker.hasPermission(sender, "version", snapshot) && "version".startsWith(current)) {
+                suggestions.add("version");
+            }
+
+            if (PermissionChecker.hasPermission(sender, "admin-update", snapshot) && "update".startsWith(current)) {
+                suggestions.add("update");
             }
 
             if (sender instanceof Player) {
