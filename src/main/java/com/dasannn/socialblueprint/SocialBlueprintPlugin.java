@@ -22,6 +22,11 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.dasannn.socialblueprint.feature.effects.AmbientEffectsListener;
+import com.dasannn.socialblueprint.feature.effects.AmbientEntityRegistry;
+import com.dasannn.socialblueprint.feature.effects.AmbientEffectDispatcher;
+import com.dasannn.socialblueprint.feature.effects.AmbientEffectScheduler;
+import com.dasannn.socialblueprint.feature.effects.FakeSilverfishService;
 import com.dasannn.socialblueprint.storage.CompensationRepository;
 import java.io.File;
 
@@ -41,6 +46,10 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private ProfileService profileService;
     private HonorService honorService;
     private Economy economy;
+    private AmbientEntityRegistry ambientEntityRegistry;
+    private FakeSilverfishService fakeSilverfishService;
+    private AmbientEffectDispatcher ambientEffectDispatcher;
+    private AmbientEffectScheduler ambientEffectScheduler;
 
     @Override
     public void onEnable() {
@@ -213,6 +222,24 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this
         );
 
+        // Initialize Ambient Effects (SB-040 to SB-044)
+        this.ambientEntityRegistry = new AmbientEntityRegistry();
+        this.fakeSilverfishService = new FakeSilverfishService(this, ambientEntityRegistry, getLogger());
+        this.ambientEffectDispatcher = new AmbientEffectDispatcher(this, messageRegistry, configManager, fakeSilverfishService);
+        this.ambientEffectScheduler = new AmbientEffectScheduler(
+                this,
+                configManager,
+                profileService,
+                ambientEffectDispatcher,
+                getServer()::getOnlinePlayers
+        );
+        this.ambientEffectScheduler.start();
+
+        getServer().getPluginManager().registerEvents(
+                new AmbientEffectsListener(ambientEntityRegistry, ambientEffectScheduler),
+                this
+        );
+
         PluginCommand statusCmd = getCommand("status");
         if (statusCmd != null) {
             StatusCommandExecutor executor = new StatusCommandExecutor(
@@ -222,6 +249,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     honorService,
                     duelService,
                     auditRepository,
+                    ambientEntityRegistry::cleanForPlayer,
                     this
             );
             statusCmd.setExecutor(executor);
@@ -236,10 +264,32 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         if (duelService != null) {
             duelService.shutdown();
         }
+        if (ambientEffectScheduler != null) {
+            ambientEffectScheduler.stop();
+        }
+        if (ambientEntityRegistry != null) {
+            ambientEntityRegistry.cleanAll();
+        }
         if (storageEngine != null) {
             storageEngine.close();
         }
         getLogger().info("SocialBlueprint disabled.");
+    }
+
+    public AmbientEntityRegistry getAmbientEntityRegistry() {
+        return ambientEntityRegistry;
+    }
+
+    public FakeSilverfishService getFakeSilverfishService() {
+        return fakeSilverfishService;
+    }
+
+    public AmbientEffectDispatcher getAmbientEffectDispatcher() {
+        return ambientEffectDispatcher;
+    }
+
+    public AmbientEffectScheduler getAmbientEffectScheduler() {
+        return ambientEffectScheduler;
     }
 
     public ConfigManager getConfigManager() {

@@ -136,6 +136,7 @@ permissions:
   view-reputation: "socialblueprint.view"
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
+  effects: "socialblueprint.effects"
 
 # ==============================================================================
 # Duels (SB-030, SB-031, SB-032, SB-033, T-060, T-063)
@@ -156,3 +157,38 @@ duel:
     # Social action taken on combat log. Supported: 'broadcast', 'notify'
     action: broadcast
 
+
+# ==============================================================================
+# Low-Status Ambient Effects (SB-040, SB-043, Decision 0002)
+#
+# Private, cosmetic, rate-limited effects delivered only to players below the threshold.
+# ==============================================================================
+effects:
+  # Status threshold below which ambient effects can fire (default: -10).
+  threshold: -10
+
+  # How often the effect scheduler checks online low-status players (default: 30s).
+  check-interval: 30s
+
+  # Silverfish ambient effect (SB-040, SB-042)
+  silverfish:
+    cooldown: 10m
+    session-cap: 3
+    duration-ticks: 40
+
+  # Near-black whispered chat lines (SB-040)
+  whisper:
+    cooldown: 5m
+    session-cap: 5
+
+  # Creeper fuse sound effect (SB-040)
+  creeper:
+    cooldown: 8m
+    session-cap: 3
+
+  # Fake join and leave announcements (SB-040)
+  fake-announcement:
+    cooldown: 15m
+    session-cap: 2
+    fake-names:
+      - "Herobrine"

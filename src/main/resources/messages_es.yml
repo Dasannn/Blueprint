@@ -104,6 +104,11 @@ duel:
 effects:
   opt-out-enabled: '&7Efectos ambientales desactivados para ti.'
   opt-out-disabled: '&7Efectos ambientales activados para ti.'
+  fake-join: '&e{player} se ha unido a la partida'
+  fake-leave: '&e{player} ha salido de la partida'
+  whisper-1: '&#202020...'
+  whisper-2: '&#202020¿Escuchaste eso?'
+  whisper-3: '&#202020Mira detrás de ti.'
 
 updater:
   update-available: '&aNueva versión disponible: &f{version}'

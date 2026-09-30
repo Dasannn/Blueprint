@@ -18,7 +18,8 @@ public record PluginConfig(
         PsychosisConfigSection psychosis,
         HonorConfigSection honor,
         PermissionsConfig permissions,
-        DuelConfigSection duel
+        DuelConfigSection duel,
+        EffectsConfigSection effects
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -31,12 +32,48 @@ public record PluginConfig(
             HonorConfigSection honor,
             PermissionsConfig permissions
     ) {
-        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null);
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
+                null, EffectsConfigSection.defaults());
+    }
+
+    /** P5 call sites: duel supplied, effects defaulted. */
+    public PluginConfig(
+            String language,
+            String chatPrefix,
+            TiersConfig tiers,
+            ConfidenceConfigSection confidence,
+            PsychosisConfigSection psychosis,
+            HonorConfigSection honor,
+            PermissionsConfig permissions,
+            DuelConfigSection duel
+    ) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
+                duel, EffectsConfigSection.defaults());
+    }
+
+    /** P6 call sites: effects supplied, no duel configured. */
+    public PluginConfig(
+            String language,
+            String chatPrefix,
+            TiersConfig tiers,
+            ConfidenceConfigSection confidence,
+            PsychosisConfigSection psychosis,
+            HonorConfigSection honor,
+            PermissionsConfig permissions,
+            EffectsConfigSection effects
+    ) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null, effects);
     }
 
     public PluginConfig {
         Objects.requireNonNull(language, "language must not be null");
         Objects.requireNonNull(chatPrefix, "chatPrefix must not be null");
+        Objects.requireNonNull(tiers, "tiers must not be null");
+        Objects.requireNonNull(confidence, "confidence must not be null");
+        Objects.requireNonNull(psychosis, "psychosis must not be null");
+        Objects.requireNonNull(honor, "honor must not be null");
+        Objects.requireNonNull(permissions, "permissions must not be null");
+        Objects.requireNonNull(effects, "effects must not be null");
     }
 
     public static PluginConfig load(ConfigurationSection root) {
@@ -77,8 +114,11 @@ public record PluginConfig(
         HonorConfigSection honor = HonorConfigSection.load(root);
         PermissionsConfig permissions = PermissionsConfig.load(root);
         DuelConfigSection duel = root.contains("duel") ? DuelConfigSection.load(root) : null;
+        EffectsConfigSection effects = root.contains("effects")
+                ? EffectsConfigSection.load(root)
+                : EffectsConfigSection.defaults();
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -90,7 +130,8 @@ public record PluginConfig(
                 psychosis,
                 honor,
                 permissions,
-                duel
+                duel,
+                effects
         );
     }
 
@@ -103,7 +144,22 @@ public record PluginConfig(
                 psychosis,
                 honor,
                 permissions,
-                duel
+                duel,
+                effects
+        );
+    }
+
+    public PluginConfig withEffects(EffectsConfigSection newEffects) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                Objects.requireNonNull(newEffects, "effects must not be null")
         );
     }
 }

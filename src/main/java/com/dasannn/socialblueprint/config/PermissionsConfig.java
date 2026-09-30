@@ -31,7 +31,11 @@ public record PermissionsConfig(
     }
 
     public String node(String action) {
-        return nodes.get(action);
+        String node = nodes.get(action);
+        if (node == null && "effects".equals(action)) {
+            return "socialblueprint.effects";
+        }
+        return node;
     }
 
     public static PermissionsConfig load(ConfigurationSection root) {

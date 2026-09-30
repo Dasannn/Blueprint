@@ -67,6 +67,7 @@ public class ProfileService {
 
     private final ConcurrentMap<PlayerId, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
     private final ConcurrentMap<PlayerId, Integer> playerGenerations = new ConcurrentHashMap<>();
+    private final Set<PlayerId> optedOutCache = ConcurrentHashMap.newKeySet();
     private final Object loadLock = new Object();
 
     public ProfileService(
@@ -194,6 +195,13 @@ public class ProfileService {
 
         Optional<PlayerProfile> profile = profileRepository.findById(id);
         String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
+        if (profile.isPresent()) {
+            if (profile.get().effectsOptOut()) {
+                optedOutCache.add(id);
+            } else {
+                optedOutCache.remove(id);
+            }
+        }
 
         TierLadder ladder = cfg.tiers().ladder();
         Tier tier = ladder.resolve(status.value());
@@ -337,8 +345,16 @@ public class ProfileService {
         }
         storageEngine.submitAsync(() -> {
             Instant now = Instant.now();
-            PlayerProfile profile = PlayerProfile.create(id, name, now);
+            Optional<PlayerProfile> existing = profileRepository.findById(id);
+            PlayerProfile profile = existing
+                    .map(p -> p.withName(name, now))
+                    .orElseGet(() -> PlayerProfile.create(id, name, now));
             profileRepository.save(profile);
+            if (profile.effectsOptOut()) {
+                optedOutCache.add(id);
+            } else {
+                optedOutCache.remove(id);
+            }
             loadViewInternal(id, name, snapshot, gen);
         });
     }
@@ -361,6 +377,7 @@ public class ProfileService {
 
     public void evict(PlayerId id) {
         if (id != null) {
+            optedOutCache.remove(id);
             synchronized (loadLock) {
                 viewCache.remove(id);
                 playerGenerations.compute(id, (k, g) -> (g == null ? 0 : g) + 1);
@@ -379,6 +396,39 @@ public class ProfileService {
                 playerGenerations.remove(id);
             }
         }
+    }
+
+    public boolean isEffectsOptedOut(PlayerId id) {
+        if (id == null) return false;
+        return optedOutCache.contains(id);
+    }
+
+    public void setEffectsOptOutCache(PlayerId id, boolean optOut) {
+        if (id == null) return;
+        if (optOut) {
+            optedOutCache.add(id);
+        } else {
+            optedOutCache.remove(id);
+        }
+    }
+
+    public CompletableFuture<Boolean> toggleEffectsOptOutAsync(PlayerId id, String playerName) {
+        Objects.requireNonNull(id, "PlayerId must not be null");
+        return storageEngine.supplyAsync(() -> {
+            Instant now = Instant.now();
+            Optional<PlayerProfile> existing = profileRepository.findById(id);
+            boolean newOptOut = existing.map(p -> !p.effectsOptOut()).orElse(true);
+            PlayerProfile updated = existing
+                    .map(p -> p.withEffectsOptOut(newOptOut, now))
+                    .orElseGet(() -> new PlayerProfile(id, playerName != null ? playerName : id.toString(), newOptOut, now, now));
+            profileRepository.save(updated);
+            if (newOptOut) {
+                optedOutCache.add(id);
+            } else {
+                optedOutCache.remove(id);
+            }
+            return newOptOut;
+        });
     }
 
     public boolean isCached(PlayerId id) {

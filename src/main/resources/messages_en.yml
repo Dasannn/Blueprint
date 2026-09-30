@@ -104,6 +104,11 @@ duel:
 effects:
   opt-out-enabled: '&7Ambient effects disabled for you.'
   opt-out-disabled: '&7Ambient effects enabled for you.'
+  fake-join: '&e{player} joined the game'
+  fake-leave: '&e{player} left the game'
+  whisper-1: '&#202020...'
+  whisper-2: '&#202020Did you hear that?'
+  whisper-3: '&#202020Look behind you.'
 
 updater:
   update-available: '&aNew version available: &f{version}'
