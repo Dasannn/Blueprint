@@ -258,6 +258,8 @@ class SocialBlueprintPluginTest {
                 .isNotNull();
         assertThat(plugin.getProfileService()).isNotNull();
         assertThat(plugin.getReputationRepository()).isNotNull();
+        assertThat(plugin.getDuelRepository()).isNotNull();
+        assertThat(plugin.getDuelService()).isNotNull();
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

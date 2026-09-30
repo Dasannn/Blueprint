@@ -36,6 +36,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private PsychosisRepository psychosisRepository;
     private AuditRepository auditRepository;
     private CompensationRepository compensationRepository;
+    private com.dasannn.socialblueprint.storage.DuelRepository duelRepository;
+    private com.dasannn.socialblueprint.feature.duel.DuelService duelService;
     private ProfileService profileService;
     private HonorService honorService;
     private Economy economy;
@@ -131,6 +133,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         this.psychosisRepository = new PsychosisRepository(storageEngine);
         this.auditRepository = new AuditRepository(storageEngine);
         this.compensationRepository = new CompensationRepository(storageEngine);
+        this.duelRepository = new com.dasannn.socialblueprint.storage.DuelRepository(storageEngine);
+        this.duelRepository.cleanupStaleDuelsOnStartup(java.time.Instant.now());
 
         BukkitPlayerLookup playerLookup = new BukkitPlayerLookup(getServer());
         this.profileService = new ProfileService(
@@ -160,12 +164,52 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         );
         this.honorService.reconcileCompensationsAsync();
 
+        this.duelService = new com.dasannn.socialblueprint.feature.duel.DuelService(
+                duelRepository,
+                auditRepository,
+                psychosisRepository,
+                configManager,
+                messageRegistry,
+                playerLookup,
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    }
+                },
+                (delay, task) -> {
+                    if (isEnabled()) {
+                        org.bukkit.scheduler.BukkitTask bt = getServer().getScheduler().runTaskLater(
+                                this,
+                                task,
+                                Math.max(1L, delay.toMillis() / 50L)
+                        );
+                        return bt::cancel;
+                    }
+                    return () -> {};
+                },
+                (playerId, component) -> {
+                    org.bukkit.entity.Player p = getServer().getPlayer(playerId.uuid());
+                    if (p != null && p.isOnline()) {
+                        p.sendMessage(component);
+                    }
+                },
+                component -> getServer().broadcast(component)
+        );
+
         getServer().getPluginManager().registerEvents(
                 new AsyncChatListener(profileService, configManager, messageRegistry),
                 this
         );
         getServer().getPluginManager().registerEvents(
                 new PlayerLifecycleListener(profileService, configManager),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new com.dasannn.socialblueprint.platform.listener.DuelCombatListener(
+                        duelService,
+                        psychosisRepository,
+                        configManager
+                ),
                 this
         );
 
@@ -176,6 +220,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     messageRegistry,
                     profileService,
                     honorService,
+                    duelService,
                     auditRepository,
                     this
             );
@@ -188,6 +233,9 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (duelService != null) {
+            duelService.shutdown();
+        }
         if (storageEngine != null) {
             storageEngine.close();
         }
@@ -252,5 +300,13 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             honorService.setEconomy(economy);
             honorService.reconcileCompensationsAsync();
         }
+    }
+
+    public com.dasannn.socialblueprint.storage.DuelRepository getDuelRepository() {
+        return duelRepository;
+    }
+
+    public com.dasannn.socialblueprint.feature.duel.DuelService getDuelService() {
+        return duelService;
     }
 }

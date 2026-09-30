@@ -54,7 +54,11 @@ public class StatusConfigCommand {
             "tiers.tier3.prefix",
             "tiers.tier3.threshold",
             "tiers.tier4.prefix",
-            "tiers.tier4.threshold"
+            "tiers.tier4.threshold",
+            "duel.challenge-timeout",
+            "duel.disconnect.combat-log-window",
+            "duel.disconnect.reconnect-grace-period",
+            "duel.disconnect.action"
     );
 
     private final ConfigManager configManager;

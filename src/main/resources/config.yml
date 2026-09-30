@@ -136,3 +136,23 @@ permissions:
   view-reputation: "socialblueprint.view"
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
+
+# ==============================================================================
+# Duels (SB-030, SB-031, SB-032, SB-033, T-060, T-063)
+# ==============================================================================
+duel:
+  # Duration a challenge stays open before expiring if unaccepted (default: 60s).
+  challenge-timeout: 60s
+
+  # Disconnect handling during an active duel (SB-033, T-063).
+  disconnect:
+    # Time window after taking combat damage within which a disconnect is classified as a combat log (default: 10s).
+    combat-log-window: 10s
+
+    # Grace period to allow a disconnected player to reconnect before forfeiting the duel (default: 30s).
+    # If set to 0s, the player immediately forfeits on disconnect.
+    reconnect-grace-period: 30s
+
+    # Social action taken on combat log. Supported: 'broadcast', 'notify'
+    action: broadcast
+

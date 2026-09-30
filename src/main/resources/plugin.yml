@@ -21,6 +21,7 @@ permissions:
       socialblueprint.give: true
       socialblueprint.take: true
       socialblueprint.view: true
+      socialblueprint.duel: true
       socialblueprint.admin: true
 
   socialblueprint.admin:
@@ -51,6 +52,10 @@ permissions:
   socialblueprint.admin.config:
     description: Permite al administrador ver y editar la configuración
     default: op
+  socialblueprint.duel:
+    description: Permite al jugador participar en duelos
+    default: true
+
 
   pstatus.show:
     children:
