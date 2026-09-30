@@ -107,6 +107,7 @@ class UpdateServiceTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        UpdateConfig.setAllowInsecureHttpForTesting(true);
         logRecords = Collections.synchronizedList(new ArrayList<>());
         testLogger = Logger.getLogger("UpdateServiceTest-" + System.nanoTime());
         testLogger.setUseParentHandlers(false);
@@ -165,6 +166,7 @@ class UpdateServiceTest {
 
     @AfterEach
     void tearDown() {
+        UpdateConfig.setAllowInsecureHttpForTesting(false);
         if (mockServer != null) {
             mockServer.stop(0);
         }
@@ -207,6 +209,22 @@ class UpdateServiceTest {
             Files.copy(in, destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
     }
+
+    private byte[] createValidPluginJarBytes(String name, String version) {
+        try {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            try (java.util.jar.JarOutputStream jos = new java.util.jar.JarOutputStream(baos)) {
+                jos.putNextEntry(new java.util.zip.ZipEntry("plugin.yml"));
+                String yml = "name: " + name + "\nversion: " + version + "\nmain: com.dasannn.socialblueprint.SocialBlueprintPlugin\n";
+                jos.write(yml.getBytes(StandardCharsets.UTF_8));
+                jos.closeEntry();
+            }
+            return baos.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
 
     // =========================================================================
     // DoD 1 & T-080: Off-Thread Execution & Stalled HTTP Connection
@@ -496,7 +514,7 @@ class UpdateServiceTest {
     @Test
     @DisplayName("T-082 / T-083: Verified jar asset is written to plugins/update/ and restart-required is reported")
     void successfulUpdateWritesVerifiedJarAndReportsRestart() throws Exception {
-        byte[] jarContent = "valid new release jar content".getBytes(StandardCharsets.UTF_8);
+        byte[] jarContent = createValidPluginJarBytes("SocialBlueprint", "1.1");
         String expectedHash = ChecksumVerifier.computeSha256(jarContent);
 
         String releaseJson = """
@@ -562,7 +580,7 @@ class UpdateServiceTest {
     @Test
     @DisplayName("T-084 / SB-075: onStartup triggers check and respects auto-download setting")
     void onStartupRespectsCheckAndAutoDownload() throws Exception {
-        byte[] jarContent = "auto jar".getBytes(StandardCharsets.UTF_8);
+        byte[] jarContent = createValidPluginJarBytes("SocialBlueprint", "1.1");
         String expectedHash = ChecksumVerifier.computeSha256(jarContent);
 
         String releaseJson = """
@@ -640,4 +658,399 @@ class UpdateServiceTest {
         assertThat(stagedJar).exists();
         assertThat(Files.readAllBytes(stagedJar.toPath())).isEqualTo(jarContent);
     }
+
+    // =========================================================================
+    // Finding 1: Bounded Remote Responses
+    // =========================================================================
+
+    @Test
+    @DisplayName("Finding 1: Streamed download exceeding byte cap aborts immediately and writes nothing")
+    void downloadOverLimitBodyAbortsAndWritesNothing() {
+        configManager.set("update.max-download-bytes", "500");
+
+        byte[] largeContent = new byte[2000];
+        String expectedHash = ChecksumVerifier.computeSha256(largeContent);
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.1",
+                  "name": "SocialBlueprint 1.1",
+                  "body": "SHA256: %s",
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint.jar",
+                      "size": 200
+                    }
+                  ]
+                }
+                """.formatted(expectedHash, serverBaseUrl);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        // Server sends 2000 bytes chunked
+        mockServer.createContext("/download/SocialBlueprint.jar", exchange -> {
+            exchange.sendResponseHeaders(200, 0);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(largeContent);
+            }
+        });
+
+        UpdateService updateService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                () -> updateFolder,
+                () -> "1.0",
+                () -> currentJarFile,
+                httpClient,
+                testLogger
+        );
+
+        List<String> messages = new ArrayList<>();
+        CommandSender sender = mockSender(messages);
+
+        boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+        drainMainThread();
+
+        assertThat(success).isFalse();
+        if (updateFolder.exists()) {
+            assertThat(updateFolder.listFiles()).isNullOrEmpty();
+        }
+        assertThat(messageRegistry.hasKey("updater.failed")).isTrue();
+        assertThat(logRecords).anyMatch(r -> r.getLevel() == Level.WARNING
+                && r.getMessage().contains("Download exceeded maximum configured limit"));
+    }
+
+    @Test
+    @DisplayName("Finding 1: Advertised asset size exceeding byte cap aborts before sending download request")
+    void advertisedSizeOverLimitAbortsBeforeDownload() {
+        configManager.set("update.max-download-bytes", "500");
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.1",
+                  "name": "SocialBlueprint 1.1",
+                  "body": "Release 1.1",
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint.jar",
+                      "size": 100000
+                    }
+                  ]
+                }
+                """.formatted(serverBaseUrl);
+
+        AtomicBoolean downloadRequested = new AtomicBoolean(false);
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        mockServer.createContext("/download/SocialBlueprint.jar", exchange -> {
+            downloadRequested.set(true);
+            exchange.sendResponseHeaders(200, 10);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(new byte[10]); }
+        });
+
+        UpdateService updateService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                () -> updateFolder,
+                () -> "1.0",
+                () -> currentJarFile,
+                httpClient,
+                testLogger
+        );
+
+        List<String> messages = new ArrayList<>();
+        CommandSender sender = mockSender(messages);
+
+        boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+        drainMainThread();
+
+        assertThat(success).isFalse();
+        assertThat(downloadRequested.get()).isFalse();
+        if (updateFolder.exists()) {
+            assertThat(updateFolder.listFiles()).isNullOrEmpty();
+        }
+        assertThat(logRecords).anyMatch(r -> r.getLevel() == Level.WARNING
+                && r.getMessage().contains("advertised asset size"));
+    }
+
+    // =========================================================================
+    // Finding 2: Insecure HTTP Refusal
+    // =========================================================================
+
+    @Test
+    @DisplayName("Finding 2: Insecure HTTP update API URL is refused when testing seam is disabled")
+    void insecureHttpUrlRefusedWhenTestingSeamDisabled() {
+        UpdateService secureService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                () -> updateFolder,
+                () -> "1.0",
+                () -> currentJarFile,
+                httpClient,
+                testLogger,
+                false // allowInsecureHttpForTesting = false
+        );
+
+        VersionCheckResult result = secureService.checkForUpdateAsync().join();
+        assertThat(result.comparison()).isEqualTo(VersionComparison.UNKNOWN);
+        assertThat(logRecords).anyMatch(r -> r.getLevel() == Level.WARNING
+                && r.getMessage().contains("Rejecting insecure HTTP update API URL"));
+    }
+
+    @Test
+    @DisplayName("Finding 2: Insecure HTTP jar download URL is refused")
+    void insecureHttpDownloadUrlRefused() {
+        byte[] validJar = createValidPluginJarBytes("SocialBlueprint", "1.1");
+        String hash = ChecksumVerifier.computeSha256(validJar);
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.1",
+                  "name": "SocialBlueprint 1.1",
+                  "body": "SHA256: %s",
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint.jar",
+                      "browser_download_url": "http://external-insecure.com/SocialBlueprint.jar",
+                      "size": %d
+                    }
+                  ]
+                }
+                """.formatted(hash, validJar.length);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        UpdateService updateService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                () -> updateFolder,
+                () -> "1.0",
+                () -> currentJarFile,
+                httpClient,
+                testLogger,
+                // the local mock server is reachable over http under the seam;
+                // the remote download URL in this release is not
+                true
+        );
+
+        List<String> messages = new ArrayList<>();
+        CommandSender sender = mockSender(messages);
+
+        boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+        drainMainThread();
+
+        assertThat(success).isFalse();
+        if (updateFolder.exists()) {
+            assertThat(updateFolder.listFiles()).isNullOrEmpty();
+        }
+        assertThat(logRecords).anyMatch(r -> r.getLevel() == Level.WARNING
+                && r.getMessage().toLowerCase(java.util.Locale.ROOT).contains("insecure http"));
+    }
+
+    @Test
+    @DisplayName("Finding 2: Insecure HTTP redirect target is refused")
+    void insecureHttpRedirectRefused() {
+        String releaseJson = """
+                {
+                  "tag_name": "v1.1",
+                  "name": "SocialBlueprint 1.1",
+                  "body": "SHA256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint.jar",
+                      "size": 500
+                    }
+                  ]
+                }
+                """.formatted(serverBaseUrl);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        // Server sends 302 redirect to http://insecure-target.com
+        mockServer.createContext("/download/SocialBlueprint.jar", exchange -> {
+            exchange.getResponseHeaders().set("Location", "http://insecure-target.com/SocialBlueprint.jar");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+
+        UpdateService updateService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                () -> updateFolder,
+                () -> "1.0",
+                () -> currentJarFile,
+                httpClient,
+                testLogger,
+                false // do not allow insecure http
+        );
+
+        List<String> messages = new ArrayList<>();
+        CommandSender sender = mockSender(messages);
+
+        boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+        drainMainThread();
+
+        assertThat(success).isFalse();
+        if (updateFolder.exists()) {
+            assertThat(updateFolder.listFiles()).isNullOrEmpty();
+        }
+    }
+
+    // =========================================================================
+    // Finding 3: Atomicity and Jar Verification
+    // =========================================================================
+
+    @Test
+    @DisplayName("Finding 3: Mid-write network failure leaves previously staged jar intact")
+    void midWriteFailureLeavesPreviouslyStagedJarIntact() throws Exception {
+        byte[] originalStagedBytes = createValidPluginJarBytes("SocialBlueprint", "1.0");
+        updateFolder.mkdirs();
+        File stagedJar = new File(updateFolder, "SocialBlueprint.jar");
+        Files.write(stagedJar.toPath(), originalStagedBytes);
+
+        byte[] newJarBytes = createValidPluginJarBytes("SocialBlueprint", "1.1");
+        String hash = ChecksumVerifier.computeSha256(newJarBytes);
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.1",
+                  "name": "SocialBlueprint 1.1",
+                  "body": "SHA256: %s",
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint.jar",
+                      "size": %d
+                    }
+                  ]
+                }
+                """.formatted(hash, serverBaseUrl, newJarBytes.length);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        // Server abruptly closes connection midway
+        mockServer.createContext("/download/SocialBlueprint.jar", exchange -> {
+            exchange.sendResponseHeaders(200, newJarBytes.length);
+            OutputStream os = exchange.getResponseBody();
+            os.write(newJarBytes, 0, Math.min(10, newJarBytes.length));
+            os.flush();
+            exchange.close();
+        });
+
+        UpdateService updateService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                () -> updateFolder,
+                () -> "1.0",
+                () -> currentJarFile,
+                httpClient,
+                testLogger
+        );
+
+        List<String> messages = new ArrayList<>();
+        CommandSender sender = mockSender(messages);
+
+        boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+        drainMainThread();
+
+        assertThat(success).isFalse();
+        // Previously staged jar is completely intact!
+        assertThat(stagedJar).exists();
+        assertThat(Files.readAllBytes(stagedJar.toPath())).isEqualTo(originalStagedBytes);
+    }
+
+    @Test
+    @DisplayName("Finding 3: Matching-hash non-jar is refused and leaves update directory untouched")
+    void matchingHashNonJarRefusedAndLeavesDirectoryUntouched() {
+        byte[] nonJarContent = "This is plain text and definitely not a valid jar file".getBytes(StandardCharsets.UTF_8);
+        String expectedHash = ChecksumVerifier.computeSha256(nonJarContent);
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.1",
+                  "name": "SocialBlueprint 1.1",
+                  "body": "SHA256: %s",
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint.jar",
+                      "size": %d
+                    }
+                  ]
+                }
+                """.formatted(expectedHash, serverBaseUrl, nonJarContent.length);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        mockServer.createContext("/download/SocialBlueprint.jar", exchange -> {
+            exchange.sendResponseHeaders(200, nonJarContent.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(nonJarContent); }
+        });
+
+        UpdateService updateService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                () -> updateFolder,
+                () -> "1.0",
+                () -> currentJarFile,
+                httpClient,
+                testLogger
+        );
+
+        List<String> messages = new ArrayList<>();
+        CommandSender sender = mockSender(messages);
+
+        boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+        drainMainThread();
+
+        assertThat(success).isFalse();
+        if (updateFolder.exists()) {
+            assertThat(updateFolder.listFiles()).isNullOrEmpty();
+        }
+        assertThat(messageRegistry.hasKey("updater.failed")).isTrue();
+        assertThat(logRecords).anyMatch(r -> r.getLevel() == Level.WARNING
+                && r.getMessage().contains("not a valid plugin JAR"));
+    }
 }
+

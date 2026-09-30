@@ -306,7 +306,9 @@ public class ConfigManager {
         set.add("update.repository");
         set.add("update.channel");
         set.add("update.api-url");
+        set.add("update.max-download-bytes");
 
         return Collections.unmodifiableSet(set);
     }
+
 }

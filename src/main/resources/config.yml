@@ -158,3 +158,5 @@ update:
   # Base API URL (configurable for private mirrors or testing). Default: https://api.github.com
   api-url: "https://api.github.com"
 
+  # Maximum allowed download size in bytes for release assets (SB-074). Default: 10485760 (10 MB).
+  max-download-bytes: 10485760

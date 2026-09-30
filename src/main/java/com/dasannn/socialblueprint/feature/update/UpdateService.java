@@ -8,12 +8,21 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonParser;
 import org.bukkit.command.CommandSender;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
@@ -25,13 +34,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.logging.Logger;
 
 /**
  * Service managing GitHub updates, version checks, and checksum-verified downloads per P7 (SB-070 to SB-076).
  * - All HTTP and disk I/O runs on the async/storage executor, NEVER on the main thread (SB-073, T-080).
  * - Checksum is verified in memory before writing anything to plugins/update/ (SB-074, T-082).
- * - A mismatch aborts and leaves the update directory untouched.
+ * - Streamed downloads enforce hard byte caps before allocating or writing (Finding 1).
+ * - All remote connections and redirects require HTTPS (Finding 2).
+ * - Staging writes to a temp file outside Paper's scan directory, verifies JAR structure, and atomically moves (Finding 3).
+ * - A mismatch or failure aborts and leaves any existing staged jar untouched.
  * - Failure is quiet: logged as a warning only (SB-073, T-085).
  * - Player-facing messages and Bukkit calls run on the main thread via mainThreadRunner.
  */
@@ -39,6 +53,8 @@ public class UpdateService {
 
     public static final Duration DEFAULT_HTTP_TIMEOUT = Duration.ofSeconds(10);
     public static final Duration DEFAULT_DOWNLOAD_TIMEOUT = Duration.ofSeconds(60);
+    public static final long MAX_METADATA_BYTES = 2 * 1024 * 1024L; // 2 MiB
+    public static final long MAX_CHECKSUM_BYTES = 512 * 1024L; // 512 KiB
 
     private final ConfigManager configManager;
     private final MessageRegistry messageRegistry;
@@ -49,6 +65,7 @@ public class UpdateService {
     private final Supplier<File> currentJarSupplier;
     private final HttpClient httpClient;
     private final Logger logger;
+    private final boolean allowInsecureHttpForTesting;
 
     private final AtomicReference<VersionCheckResult> lastResult = new AtomicReference<>(null);
     private final AtomicBoolean checkInProgress = new AtomicBoolean(false);
@@ -65,6 +82,22 @@ public class UpdateService {
             HttpClient httpClient,
             Logger logger
     ) {
+        this(configManager, messageRegistry, asyncExecutor, mainThreadRunner, updateFolderSupplier,
+                currentVersionSupplier, currentJarSupplier, httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting());
+    }
+
+    public UpdateService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            Executor asyncExecutor,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<File> updateFolderSupplier,
+            Supplier<String> currentVersionSupplier,
+            Supplier<File> currentJarSupplier,
+            HttpClient httpClient,
+            Logger logger,
+            boolean allowInsecureHttpForTesting
+    ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
         this.asyncExecutor = Objects.requireNonNull(asyncExecutor, "asyncExecutor must not be null");
@@ -76,6 +109,7 @@ public class UpdateService {
                 .connectTimeout(DEFAULT_HTTP_TIMEOUT)
                 .build();
         this.logger = logger != null ? logger : Logger.getLogger(UpdateService.class.getName());
+        this.allowInsecureHttpForTesting = allowInsecureHttpForTesting;
     }
 
     public String getCurrentVersion() {
@@ -85,6 +119,90 @@ public class UpdateService {
 
     public VersionCheckResult getLastCheckResult() {
         return lastResult.get();
+    }
+
+    private boolean isSecureUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+        String lower = url.trim().toLowerCase(Locale.ROOT);
+        if (lower.startsWith("https://")) {
+            return true;
+        }
+        // Only this instance's flag decides. The constructor captures the
+        // static seam once; re-reading it here would let anything that
+        // switches the static on disable HTTPS enforcement for every
+        // service already built, including one constructed to require it.
+        //
+        // And the seam only ever reaches a loopback address. A test needs its
+        // own mock server over http; nothing needs plain http to a remote
+        // host, and allowing it would let a switched-on seam expose the real
+        // download path to a network attacker.
+        if (allowInsecureHttpForTesting && lower.startsWith("http://")) {
+            try {
+                String host = URI.create(url.trim()).getHost();
+                return host != null
+                        && (host.equals("127.0.0.1") || host.equals("localhost") || host.equals("::1"));
+            } catch (IllegalArgumentException malformed) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private void checkResponseSecurity(HttpResponse<?> response) throws IOException {
+        if (!isSecureUrl(response.uri().toString())) {
+            throw new IOException("Insecure HTTP response target rejected: " + response.uri());
+        }
+        int status = response.statusCode();
+        if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+            Optional<String> location = response.headers().firstValue("Location");
+            if (location.isPresent() && !isSecureUrl(location.get())) {
+                throw new IOException("Insecure HTTP redirect target rejected: " + location.get());
+            }
+        }
+    }
+
+    private static String readBoundedString(InputStream in, long maxBytes) throws IOException {
+        try (in) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            long total = 0;
+            int read;
+            while ((read = in.read(buf)) != -1) {
+                total += read;
+                if (total > maxBytes) {
+                    throw new IOException("Response body exceeded maximum allowed limit of " + maxBytes + " bytes");
+                }
+                baos.write(buf, 0, read);
+            }
+            return baos.toString(StandardCharsets.UTF_8);
+        }
+    }
+
+    public static boolean isReadablePluginJar(File file) {
+        if (file == null || !file.exists() || file.length() == 0) {
+            return false;
+        }
+        try (JarFile jar = new JarFile(file)) {
+            JarEntry entry = jar.getJarEntry("plugin.yml");
+            if (entry == null) {
+                entry = jar.getJarEntry("paper-plugin.yml");
+            }
+            if (entry == null) {
+                return false;
+            }
+            try (InputStream in = jar.getInputStream(entry)) {
+                byte[] header = in.readNBytes(512);
+                if (header.length == 0) {
+                    return false;
+                }
+                String content = new String(header, StandardCharsets.UTF_8);
+                return content.contains("name:") || content.contains("main:");
+            }
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -113,6 +231,13 @@ public class UpdateService {
                 endpoint = apiUrl + "/repos/" + repo + "/releases/latest";
             }
 
+            if (!isSecureUrl(endpoint)) {
+                logger.warning("Rejecting insecure HTTP update API URL: " + endpoint);
+                VersionCheckResult res = VersionCheckResult.unknown(runningVersion, "Insecure HTTP URL rejected");
+                lastResult.set(res);
+                return res;
+            }
+
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint))
                     .header("Accept", "application/vnd.github+json")
@@ -121,7 +246,8 @@ public class UpdateService {
                     .GET()
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            checkResponseSecurity(response);
             int status = response.statusCode();
 
             if (status == 403 || status == 429) {
@@ -143,7 +269,15 @@ public class UpdateService {
                 return res;
             }
 
-            String body = response.body();
+            long cl = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
+            if (cl > MAX_METADATA_BYTES) {
+                logger.warning("Update metadata response Content-Length (" + cl + ") exceeds limit of " + MAX_METADATA_BYTES + " bytes");
+                VersionCheckResult res = VersionCheckResult.unknown(runningVersion, "Metadata response too large");
+                lastResult.set(res);
+                return res;
+            }
+
+            String body = readBoundedString(response.body(), MAX_METADATA_BYTES);
             ReleaseInfo release;
             if ("beta".equalsIgnoreCase(channel) || "prerelease".equalsIgnoreCase(channel)) {
                 JsonArray array = JsonParser.parseString(body).getAsJsonArray();
@@ -182,6 +316,7 @@ public class UpdateService {
         }
 
         return CompletableFuture.supplyAsync(() -> {
+            File tempFile = null;
             try {
                 // 1. Ensure latest release metadata is available
                 VersionCheckResult check = lastResult.get();
@@ -203,6 +338,20 @@ public class UpdateService {
                 }
                 ReleaseAsset jarAsset = optJar.get();
 
+                long maxDownloadBytes = currentSnapshot.config().update().maxDownloadBytes();
+                if (jarAsset.size() > maxDownloadBytes) {
+                    logger.warning("Rejecting update download: advertised asset size (" + jarAsset.size()
+                            + " bytes) exceeds maximum configured limit (" + maxDownloadBytes + " bytes).");
+                    sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Asset exceeds maximum allowed size"));
+                    return false;
+                }
+
+                if (!isSecureUrl(jarAsset.downloadUrl())) {
+                    logger.warning("Rejecting insecure HTTP download URL for asset " + jarAsset.name() + ": " + jarAsset.downloadUrl());
+                    sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Insecure HTTP download URL rejected"));
+                    return false;
+                }
+
                 // 2. Locate expected checksum
                 Optional<String> optExpectedHash = findExpectedChecksum(release, jarAsset);
                 if (optExpectedHash.isEmpty()) {
@@ -212,7 +361,9 @@ public class UpdateService {
                 }
                 String expectedHash = optExpectedHash.get();
 
-                // 3. Download release asset into memory (byte array)
+                // 3. Download release asset into temp file outside update folder with streamed hard byte cap
+                tempFile = File.createTempFile("socialblueprint-update-", ".tmp");
+
                 HttpRequest jarRequest = HttpRequest.newBuilder()
                         .uri(URI.create(jarAsset.downloadUrl()))
                         .header("Accept", "application/octet-stream")
@@ -221,18 +372,53 @@ public class UpdateService {
                         .GET()
                         .build();
 
-                HttpResponse<byte[]> jarResponse = httpClient.send(jarRequest, HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<InputStream> jarResponse = httpClient.send(jarRequest, HttpResponse.BodyHandlers.ofInputStream());
+                checkResponseSecurity(jarResponse);
                 if (jarResponse.statusCode() != 200) {
                     logger.warning("Failed to download jar asset from GitHub: HTTP " + jarResponse.statusCode());
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Download failed: HTTP " + jarResponse.statusCode()));
                     return false;
                 }
-                byte[] jarBytes = jarResponse.body();
 
-                // 4. Verify checksum BEFORE writing anything to disk (SB-074, T-082)
-                String computedHash = ChecksumVerifier.computeSha256(jarBytes);
+                long cl = jarResponse.headers().firstValueAsLong("Content-Length").orElse(-1L);
+                if (cl > maxDownloadBytes) {
+                    logger.warning("Download Content-Length (" + cl + " bytes) exceeds maximum configured limit of " + maxDownloadBytes + " bytes");
+                    sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Asset exceeds maximum allowed size"));
+                    return false;
+                }
+
+                MessageDigest md;
+                try {
+                    md = MessageDigest.getInstance("SHA-256");
+                } catch (NoSuchAlgorithmException e) {
+                    throw new IllegalStateException("SHA-256 MessageDigest not available", e);
+                }
+
+                long totalBytes = 0;
+                byte[] buf = new byte[8192];
+                try (InputStream in = jarResponse.body();
+                     FileOutputStream fos = new FileOutputStream(tempFile)) {
+                    int read;
+                    while ((read = in.read(buf)) != -1) {
+                        totalBytes += read;
+                        if (totalBytes > maxDownloadBytes) {
+                            throw new IOException("Download exceeded maximum configured limit of " + maxDownloadBytes + " bytes");
+                        }
+                        md.update(buf, 0, read);
+                        fos.write(buf, 0, read);
+                    }
+                    fos.flush();
+                }
+
+                if (totalBytes == 0) {
+                    logger.warning("Downloaded empty asset from GitHub");
+                    sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Empty download"));
+                    return false;
+                }
+
+                // 4. Verify checksum BEFORE staging to plugins/update/ (SB-074, T-082)
+                String computedHash = ChecksumVerifier.bytesToHex(md.digest());
                 if (!computedHash.equalsIgnoreCase(expectedHash)) {
-                    // Checksum mismatch: treat as hostile, abort, log loudly, write nothing!
                     logger.severe("HOSTILE / CORRUPTED UPDATE: Checksum mismatch for " + jarAsset.name()
                             + "! Expected: " + expectedHash + ", computed: " + computedHash
                             + ". Aborting update. No files written to disk.");
@@ -240,7 +426,14 @@ public class UpdateService {
                     return false;
                 }
 
-                // 5. Checksum verified: write into plugins/update/
+                // 5. Verify jar structure and plugin metadata on temp file (Finding 3)
+                if (!isReadablePluginJar(tempFile)) {
+                    logger.warning("Downloaded asset is not a valid plugin JAR or lacks required plugin metadata: " + jarAsset.name());
+                    sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Invalid plugin jar"));
+                    return false;
+                }
+
+                // 6. Checksum and JAR verified: write into plugins/update/
                 File updateFolder = updateFolderSupplier.get();
                 if (updateFolder == null) {
                     logger.warning("Update folder could not be determined. Aborting update.");
@@ -257,7 +450,13 @@ public class UpdateService {
                         : jarAsset.name();
 
                 File targetFile = new File(updateFolder, targetFileName);
-                Files.write(targetFile.toPath(), jarBytes);
+                try {
+                    Files.move(tempFile.toPath(), targetFile.toPath(),
+                            StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(tempFile.toPath(), targetFile.toPath(),
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
 
                 logger.info("Successfully downloaded and verified SocialBlueprint update to "
                         + targetFile.getAbsolutePath() + ". Server restart is required to apply.");
@@ -269,6 +468,11 @@ public class UpdateService {
                 sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", msg));
                 return false;
             } finally {
+                if (tempFile != null) {
+                    try {
+                        Files.deleteIfExists(tempFile.toPath());
+                    } catch (Exception ignored) {}
+                }
                 downloadInProgress.set(false);
             }
         }, asyncExecutor);
@@ -280,6 +484,10 @@ public class UpdateService {
         String expectedAssetName2 = jarAsset.name() + ".sha256sum";
         for (ReleaseAsset asset : release.assets()) {
             if (asset.name().equalsIgnoreCase(expectedAssetName1) || asset.name().equalsIgnoreCase(expectedAssetName2)) {
+                if (!isSecureUrl(asset.downloadUrl())) {
+                    logger.warning("Rejecting insecure HTTP checksum asset URL: " + asset.downloadUrl());
+                    continue;
+                }
                 try {
                     HttpRequest req = HttpRequest.newBuilder()
                             .uri(URI.create(asset.downloadUrl()))
@@ -287,11 +495,16 @@ public class UpdateService {
                             .timeout(DEFAULT_HTTP_TIMEOUT)
                             .GET()
                             .build();
-                    HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+                    HttpResponse<InputStream> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
+                    checkResponseSecurity(resp);
                     if (resp.statusCode() == 200) {
-                        Optional<String> hash = ChecksumVerifier.extractHashFromText(resp.body(), jarAsset.name());
-                        if (hash.isPresent()) {
-                            return hash;
+                        long cl = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
+                        if (cl <= MAX_CHECKSUM_BYTES) {
+                            String text = readBoundedString(resp.body(), MAX_CHECKSUM_BYTES);
+                            Optional<String> hash = ChecksumVerifier.extractHashFromText(text, jarAsset.name());
+                            if (hash.isPresent()) {
+                                return hash;
+                            }
                         }
                     }
                 } catch (Exception ignored) {
@@ -303,6 +516,10 @@ public class UpdateService {
         for (ReleaseAsset asset : release.assets()) {
             String an = asset.name().toLowerCase(Locale.ROOT);
             if (an.equals("sha256sums.txt") || an.equals("checksums.txt") || an.equals("sha256sums") || an.equals("checksums")) {
+                if (!isSecureUrl(asset.downloadUrl())) {
+                    logger.warning("Rejecting insecure HTTP checksum asset URL: " + asset.downloadUrl());
+                    continue;
+                }
                 try {
                     HttpRequest req = HttpRequest.newBuilder()
                             .uri(URI.create(asset.downloadUrl()))
@@ -310,11 +527,16 @@ public class UpdateService {
                             .timeout(DEFAULT_HTTP_TIMEOUT)
                             .GET()
                             .build();
-                    HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+                    HttpResponse<InputStream> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
+                    checkResponseSecurity(resp);
                     if (resp.statusCode() == 200) {
-                        Optional<String> hash = ChecksumVerifier.extractHashFromText(resp.body(), jarAsset.name());
-                        if (hash.isPresent()) {
-                            return hash;
+                        long cl = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
+                        if (cl <= MAX_CHECKSUM_BYTES) {
+                            String text = readBoundedString(resp.body(), MAX_CHECKSUM_BYTES);
+                            Optional<String> hash = ChecksumVerifier.extractHashFromText(text, jarAsset.name());
+                            if (hash.isPresent()) {
+                                return hash;
+                            }
                         }
                     }
                 } catch (Exception ignored) {
@@ -356,3 +578,4 @@ public class UpdateService {
         });
     }
 }
+

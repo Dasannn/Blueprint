@@ -2,6 +2,7 @@ package com.dasannn.socialblueprint.config;
 
 import org.bukkit.configuration.ConfigurationSection;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -9,22 +10,54 @@ import java.util.Objects;
  * - Startup check defaults to on (true).
  * - Automatic download defaults to off (false).
  * - Repository, channel and API URL are configurable.
+ * - API URL must use HTTPS in production.
+ * - Enforces hard byte cap on downloads.
  */
 public record UpdateConfig(
         boolean checkOnStartup,
         boolean autoDownload,
         String repository,
         String channel,
-        String apiUrl
+        String apiUrl,
+        long maxDownloadBytes
 ) {
     public static final String DEFAULT_REPOSITORY = "Dasannn/SocialBlueprint";
     public static final String DEFAULT_CHANNEL = "stable";
     public static final String DEFAULT_API_URL = "https://api.github.com";
+    public static final long DEFAULT_MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024L; // 10 MiB
+
+    private static volatile boolean allowInsecureHttpForTesting = false;
+
+    public static void setAllowInsecureHttpForTesting(boolean allow) {
+        allowInsecureHttpForTesting = allow;
+    }
+
+    public static boolean isAllowInsecureHttpForTesting() {
+        return allowInsecureHttpForTesting;
+    }
+
+    public UpdateConfig(
+            boolean checkOnStartup,
+            boolean autoDownload,
+            String repository,
+            String channel,
+            String apiUrl
+    ) {
+        this(checkOnStartup, autoDownload, repository, channel, apiUrl, DEFAULT_MAX_DOWNLOAD_BYTES);
+    }
 
     public UpdateConfig {
         Objects.requireNonNull(repository, "repository must not be null");
         Objects.requireNonNull(channel, "channel must not be null");
         Objects.requireNonNull(apiUrl, "apiUrl must not be null");
+
+        if (!allowInsecureHttpForTesting && !apiUrl.toLowerCase(Locale.ROOT).startsWith("https://")) {
+            throw new ConfigValidationException("update.api-url", "Update API URL must use HTTPS: " + apiUrl);
+        }
+
+        if (maxDownloadBytes <= 0) {
+            maxDownloadBytes = DEFAULT_MAX_DOWNLOAD_BYTES;
+        }
     }
 
     public static UpdateConfig load(ConfigurationSection root) {
@@ -52,10 +85,16 @@ public record UpdateConfig(
             apiUrl = apiUrl.substring(0, apiUrl.length() - 1);
         }
 
-        return new UpdateConfig(checkOnStartup, autoDownload, repository.trim(), channel.trim(), apiUrl.trim());
+        long maxDownloadBytes = section.getLong("max-download-bytes", DEFAULT_MAX_DOWNLOAD_BYTES);
+        if (maxDownloadBytes <= 0) {
+            maxDownloadBytes = DEFAULT_MAX_DOWNLOAD_BYTES;
+        }
+
+        return new UpdateConfig(checkOnStartup, autoDownload, repository.trim(), channel.trim(), apiUrl.trim(), maxDownloadBytes);
     }
 
     public static UpdateConfig defaults() {
-        return new UpdateConfig(true, false, DEFAULT_REPOSITORY, DEFAULT_CHANNEL, DEFAULT_API_URL);
+        return new UpdateConfig(true, false, DEFAULT_REPOSITORY, DEFAULT_CHANNEL, DEFAULT_API_URL, DEFAULT_MAX_DOWNLOAD_BYTES);
     }
 }
+

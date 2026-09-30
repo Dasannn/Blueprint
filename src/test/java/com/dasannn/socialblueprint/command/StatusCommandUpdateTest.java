@@ -50,6 +50,7 @@ import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import com.dasannn.socialblueprint.config.UpdateConfig;
 
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
 class StatusCommandUpdateTest {
@@ -112,6 +113,7 @@ class StatusCommandUpdateTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        UpdateConfig.setAllowInsecureHttpForTesting(true);
         testLogger = Logger.getLogger("StatusCommandUpdateTest-" + System.nanoTime());
 
         mockServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -175,11 +177,27 @@ class StatusCommandUpdateTest {
 
     @AfterEach
     void tearDown() {
+        UpdateConfig.setAllowInsecureHttpForTesting(false);
         if (mockServer != null) {
             mockServer.stop(0);
         }
         if (asyncExecutor != null) {
             asyncExecutor.shutdownNow();
+        }
+    }
+
+    private byte[] createValidPluginJarBytes(String name, String version) {
+        try {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            try (java.util.jar.JarOutputStream jos = new java.util.jar.JarOutputStream(baos)) {
+                jos.putNextEntry(new java.util.zip.ZipEntry("plugin.yml"));
+                String yml = "name: " + name + "\nversion: " + version + "\nmain: com.dasannn.socialblueprint.SocialBlueprintPlugin\n";
+                jos.write(yml.getBytes(StandardCharsets.UTF_8));
+                jos.closeEntry();
+            }
+            return baos.toByteArray();
+        } catch (java.io.IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -377,7 +395,7 @@ class StatusCommandUpdateTest {
     @Test
     @DisplayName("T-082 / T-083: /status update with permission downloads, verifies, and reports restart-required")
     void statusUpdateSuccess() throws Exception {
-        byte[] jarBytes = "new verified release jar".getBytes(StandardCharsets.UTF_8);
+        byte[] jarBytes = createValidPluginJarBytes("SocialBlueprint", "1.1");
         String hash = ChecksumVerifier.computeSha256(jarBytes);
 
         String releaseJson = """
@@ -429,7 +447,7 @@ class StatusCommandUpdateTest {
     @Test
     @DisplayName("DoD 2: Console runs /status update successfully without exception")
     void consoleRunsStatusUpdateSuccessfully() throws Exception {
-        byte[] jarBytes = "console jar".getBytes(StandardCharsets.UTF_8);
+        byte[] jarBytes = createValidPluginJarBytes("SocialBlueprint", "1.1");
         String hash = ChecksumVerifier.computeSha256(jarBytes);
 
         String releaseJson = """

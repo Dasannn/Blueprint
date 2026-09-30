@@ -94,7 +94,9 @@ class ConfigValidationTest {
         assertThat(config.update().repository()).isEqualTo("Dasannn/SocialBlueprint");
         assertThat(config.update().channel()).isEqualTo("stable");
         assertThat(config.update().apiUrl()).isEqualTo("https://api.github.com");
+        assertThat(config.update().maxDownloadBytes()).isEqualTo(10485760L);
     }
+
 
     @Test
     @DisplayName("T-031 / DoD 2: Baseline positive thresholds on negative tiers fails enable, naming the offending key")
@@ -471,6 +473,18 @@ class ConfigValidationTest {
         yamlLonger.set("honor.max-per-target", 3);
 
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> PluginConfig.load(yamlLonger));
+    }
+
+    @Test
+    @DisplayName("Finding 2: Insecure HTTP update API URL fails config validation")
+    void insecureHttpApiUrlFailsValidation() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("update.api-url", "http://insecure.example.com");
+
+        assertThatThrownBy(() -> PluginConfig.load(yaml))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("update.api-url")
+                .matches(e -> ((ConfigValidationException) e).key().equals("update.api-url"));
     }
 
     private static YamlConfiguration loadValidYaml() {

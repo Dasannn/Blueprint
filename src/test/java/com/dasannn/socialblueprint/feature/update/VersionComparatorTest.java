@@ -25,10 +25,15 @@ class VersionComparatorTest {
             "1.1, 1.0, AHEAD",
             "v1.1, 1.0, AHEAD",
             "1.0.1, 1.0.0, AHEAD",
+            "1.10, 1.9, AHEAD",
             "2.0-SNAPSHOT, 1.0, AHEAD",
-            "1.0, 1.0-beta, AHEAD"
+            "1.0, 1.0-beta, AHEAD",
+            "1.0-beta.10, 1.0-beta.2, AHEAD",
+            "1.0-beta.2, 1.0-beta.10, OUTDATED",
+            "1.0, banana, UNKNOWN",
+            "banana, banana, UNKNOWN"
     })
-    @DisplayName("T-081: VersionComparator correctly identifies UP_TO_DATE, OUTDATED, and AHEAD")
+    @DisplayName("T-081: VersionComparator correctly identifies UP_TO_DATE, OUTDATED, AHEAD, and UNKNOWN")
     void testVersionComparison(String running, String latest, VersionComparison expected) {
         VersionComparison actual = VersionComparator.compare(running, latest);
         assertThat(actual).isEqualTo(expected);
@@ -42,6 +47,22 @@ class VersionComparatorTest {
         assertThat(VersionComparator.compare("", "1.0")).isEqualTo(VersionComparison.UNKNOWN);
         assertThat(VersionComparator.compare("1.0", "  ")).isEqualTo(VersionComparison.UNKNOWN);
         assertThat(VersionComparator.compare(null, null)).isEqualTo(VersionComparison.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("Finding 4: Unparseable version tags produce UNKNOWN rather than guessing")
+    void unparseableVersionTagsReturnUnknown() {
+        assertThat(VersionComparator.compare("1.0", "banana")).isEqualTo(VersionComparison.UNKNOWN);
+        assertThat(VersionComparator.compare("banana", "banana")).isEqualTo(VersionComparison.UNKNOWN);
+        assertThat(VersionComparator.compare("banana", "1.0")).isEqualTo(VersionComparison.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("Finding 4: Numeric qualifiers are compared numerically")
+    void numericQualifiersComparedNumerically() {
+        assertThat(VersionComparator.compare("1.0-beta.10", "1.0-beta.2")).isEqualTo(VersionComparison.AHEAD);
+        assertThat(VersionComparator.compare("1.0-beta.2", "1.0-beta.10")).isEqualTo(VersionComparison.OUTDATED);
+        assertThat(VersionComparator.compare("1.0-beta.10", "1.0-beta.10")).isEqualTo(VersionComparison.UP_TO_DATE);
     }
 
     @Test

@@ -100,4 +100,3 @@ updater:
   checksum-mismatch: '&cUpdate failed: Checksum mismatch. Download was rejected for security.'
   failed: '&cUpdate check or download failed: &f{error}'
   no-update: '&7SocialBlueprint is already up to date (&b{current}&7).'
-

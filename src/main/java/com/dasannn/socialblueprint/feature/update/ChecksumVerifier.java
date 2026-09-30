@@ -17,6 +17,20 @@ public final class ChecksumVerifier {
     private ChecksumVerifier() {}
 
     /**
+     * Converts a byte array to a lowercase hexadecimal string.
+     */
+    public static String bytesToHex(byte[] bytes) {
+        if (bytes == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    /**
      * Computes the SHA-256 hexadecimal hash string of the given byte array.
      */
     public static String computeSha256(byte[] data) {
@@ -26,11 +40,7 @@ public final class ChecksumVerifier {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] digest = md.digest(data);
-            StringBuilder sb = new StringBuilder(64);
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
+            return bytesToHex(digest);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 MessageDigest not available", e);
         }
