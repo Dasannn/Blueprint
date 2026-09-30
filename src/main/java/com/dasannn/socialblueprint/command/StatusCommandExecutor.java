@@ -96,19 +96,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
-        this(configManager, messageRegistry, profileService, honorService, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
-    }
-
-    public StatusCommandExecutor(
-            ConfigManager configManager,
-            MessageRegistry messageRegistry,
-            ProfileService profileService,
-            HonorService honorService,
-            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Consumer<Runnable> mainThreadRunner,
-            Supplier<Collection<? extends Player>> onlinePlayersSupplier
-    ) {
-        this(configManager, messageRegistry, profileService, honorService, null, auditRepository, mainThreadRunner, onlinePlayersSupplier);
+        this(configManager, messageRegistry, profileService, honorService, null, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
     }
 
     public StatusCommandExecutor(
@@ -155,7 +143,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                         runnable.run();
                     }
                 },
-                Bukkit::getOnlinePlayers
+                Bukkit::getOnlinePlayers,
+                null
         );
     }
 
@@ -164,6 +153,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             MessageRegistry messageRegistry,
             ProfileService profileService,
             HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<UUID> optOutCleaner,
             Plugin plugin
@@ -173,6 +163,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 messageRegistry,
                 profileService,
                 honorService,
+                duelService,
                 auditRepository,
                 runnable -> {
                     if (plugin != null && plugin.isEnabled()) {

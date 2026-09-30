@@ -211,7 +211,8 @@ class StatusDuelCommandTest {
                 duelService,
                 auditRepo,
                 Runnable::run,
-                () -> onlinePlayers
+                () -> onlinePlayers,
+                null
         );
     }
 

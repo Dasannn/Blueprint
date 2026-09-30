@@ -165,6 +165,7 @@ class EffectsOptOutCommandTest {
                 profileService,
                 null,
                 null,
+                null,
                 Runnable::run,
                 Collections::emptyList,
                 cleanedPlayerUuids::add
