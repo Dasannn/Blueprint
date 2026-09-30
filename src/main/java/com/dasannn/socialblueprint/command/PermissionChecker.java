@@ -61,6 +61,8 @@ public final class PermissionChecker {
             case "view-reputation" -> List.of("pstatus.viewReputation");
             case "admin-adjust" -> List.of("pstatus.addRemoveRep", "pstatus.setReputation", "pstatus.admin");
             case "admin-config" -> List.of("pstatus.admin");
+            case "admin-update" -> List.of("pstatus.admin");
+            case "version" -> List.of("pstatus.admin", "pstatus.show");
             default -> List.of();
         };
     }

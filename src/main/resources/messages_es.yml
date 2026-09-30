@@ -93,3 +93,11 @@ updater:
   update-available: '&aNueva versión disponible: &f{version}'
   downloading: '&7Descargando actualización...'
   restart-required: '&aActualización completada. Reinicia el servidor para aplicarla.'
+  version-current: '&7Versión en ejecución: &b{current}&7. SocialBlueprint está actualizado.'
+  version-outdated: '&7Versión en ejecución: &b{current}&7. Nueva versión disponible: &a{latest}&7. Escribe &b/status update&7 para actualizar.'
+  version-ahead: '&7Versión en ejecución: &b{current}&7. La versión en ejecución es más reciente que el lanzamiento (&b{latest}&7).'
+  version-unknown: '&7Versión en ejecución: &b{current}&7. Último lanzamiento: &cdesconocido&7.'
+  checksum-mismatch: '&cActualización fallida: No coincide la suma de verificación. La descarga fue rechazada por seguridad.'
+  failed: '&cError en la verificación o descarga de la actualización: &f{error}'
+  no-update: '&7SocialBlueprint ya está actualizado (&b{current}&7).'
+

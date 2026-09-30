@@ -21,6 +21,7 @@ permissions:
       socialblueprint.give: true
       socialblueprint.take: true
       socialblueprint.view: true
+      socialblueprint.version: true
       socialblueprint.admin: true
 
   socialblueprint.admin:
@@ -29,6 +30,7 @@ permissions:
     children:
       socialblueprint.admin.adjust: true
       socialblueprint.admin.config: true
+      socialblueprint.admin.update: true
 
   socialblueprint.show:
     description: Permite al jugador ver su propio estatus social
@@ -45,11 +47,17 @@ permissions:
   socialblueprint.view:
     description: Permite al jugador ver la reputación de otros jugadores
     default: true
+  socialblueprint.version:
+    description: Permite ver la versión del plugin y el estado de actualización
+    default: true
   socialblueprint.admin.adjust:
     description: Permite al administrador ajustar o restablecer el estatus
     default: op
   socialblueprint.admin.config:
     description: Permite al administrador ver y editar la configuración
+    default: op
+  socialblueprint.admin.update:
+    description: Permite al administrador descargar actualizaciones del plugin
     default: op
 
   pstatus.show:

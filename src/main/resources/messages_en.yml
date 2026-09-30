@@ -93,3 +93,11 @@ updater:
   update-available: '&aNew version available: &f{version}'
   downloading: '&7Downloading update...'
   restart-required: '&aUpdate completed. Restart the server to apply.'
+  version-current: '&7Running version: &b{current}&7. SocialBlueprint is up to date.'
+  version-outdated: '&7Running version: &b{current}&7. Newer version available: &a{latest}&7. Type &b/status update&7 to update.'
+  version-ahead: '&7Running version: &b{current}&7. Running version is newer than latest release (&b{latest}&7).'
+  version-unknown: '&7Running version: &b{current}&7. Latest release: &cunknown&7.'
+  checksum-mismatch: '&cUpdate failed: Checksum mismatch. Download was rejected for security.'
+  failed: '&cUpdate check or download failed: &f{error}'
+  no-update: '&7SocialBlueprint is already up to date (&b{current}&7).'
+

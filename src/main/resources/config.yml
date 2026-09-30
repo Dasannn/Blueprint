@@ -136,3 +136,25 @@ permissions:
   view-reputation: "socialblueprint.view"
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
+  version: "socialblueprint.version"
+  admin-update: "socialblueprint.admin.update"
+
+# ==============================================================================
+# Updates from GitHub (SB-070 to SB-076, T-080 to T-085)
+# ==============================================================================
+update:
+  # Check for updates from GitHub on server startup (SB-075, T-084). Default: true.
+  check-on-startup: true
+
+  # Automatically download updates to plugins/update/ on startup (SB-075, T-084). Default: false.
+  auto-download: false
+
+  # GitHub repository in <owner>/<repo> format (SB-076, T-080).
+  repository: "Dasannn/SocialBlueprint"
+
+  # Release channel: 'stable' or 'beta' (SB-076, T-080). Default: stable.
+  channel: "stable"
+
+  # Base API URL (configurable for private mirrors or testing). Default: https://api.github.com
+  api-url: "https://api.github.com"
+

@@ -38,6 +38,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private CompensationRepository compensationRepository;
     private ProfileService profileService;
     private HonorService honorService;
+    private com.dasannn.socialblueprint.feature.update.UpdateService updateService;
     private Economy economy;
 
     @Override
@@ -169,6 +170,24 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this
         );
 
+        this.updateService = new com.dasannn.socialblueprint.feature.update.UpdateService(
+                configManager,
+                messageRegistry,
+                storageEngine::submitAsync,
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    }
+                },
+                () -> getServer().getUpdateFolderFile(),
+                () -> getDescription().getVersion(),
+                this::getFile,
+                java.net.http.HttpClient.newBuilder()
+                        .connectTimeout(java.time.Duration.ofSeconds(10))
+                        .build(),
+                getLogger()
+        );
+
         PluginCommand statusCmd = getCommand("status");
         if (statusCmd != null) {
             StatusCommandExecutor executor = new StatusCommandExecutor(
@@ -177,11 +196,14 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     profileService,
                     honorService,
                     auditRepository,
-                    this
+                    this,
+                    updateService
             );
             statusCmd.setExecutor(executor);
             statusCmd.setTabCompleter(executor);
         }
+
+        this.updateService.onStartup(configManager.snapshot());
 
         getLogger().info("SocialBlueprint enabled.");
     }
@@ -252,5 +274,13 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             honorService.setEconomy(economy);
             honorService.reconcileCompensationsAsync();
         }
+    }
+
+    public com.dasannn.socialblueprint.feature.update.UpdateService getUpdateService() {
+        return updateService;
+    }
+
+    public File getPluginFile() {
+        return getFile();
     }
 }

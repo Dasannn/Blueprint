@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.Tier;
 import com.dasannn.socialblueprint.feature.honor.HonorService;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
+import com.dasannn.socialblueprint.feature.update.UpdateService;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -48,6 +49,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final StatusGiveCommand giveCommand;
     private final StatusTakeCommand takeCommand;
     private final StatusConfirmCommand confirmCommand;
+    private final StatusVersionCommand versionCommand;
+    private final StatusUpdateCommand updateCommand;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
 
@@ -60,7 +63,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             HonorService honorService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
-            Supplier<Collection<? extends Player>> onlinePlayersSupplier
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
@@ -72,8 +76,22 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
+        this.versionCommand = updateService != null ? new StatusVersionCommand(updateService, messageRegistry) : null;
+        this.updateCommand = updateService != null ? new StatusUpdateCommand(updateService, messageRegistry) : null;
         this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
     }
 
     public StatusCommandExecutor(
@@ -103,7 +121,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             ProfileService profileService,
             HonorService honorService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Plugin plugin
+            Plugin plugin,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
         this(
                 configManager,
@@ -118,8 +137,20 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                         runnable.run();
                     }
                 },
-                Bukkit::getOnlinePlayers
+                Bukkit::getOnlinePlayers,
+                updateService
         );
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Plugin plugin
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, auditRepository, plugin, null);
     }
 
     public StatusCommandExecutor(
@@ -218,6 +249,26 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 return true;
             }
             this.lastExecution = confirmCommand.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
+        // 7. Subcommand: /status version (SB-070, T-081)
+        if ("version".equals(sub)) {
+            if (versionCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = versionCommand.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
+        // 8. Subcommand: /status update (SB-071, T-082)
+        if ("update".equals(sub)) {
+            if (updateCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = updateCommand.execute(sender, subArgs, snapshot);
             return true;
         }
 
@@ -346,6 +397,14 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
             if (PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) && "admin".startsWith(current)) {
                 suggestions.add("admin");
+            }
+
+            if (PermissionChecker.hasPermission(sender, "version", snapshot) && "version".startsWith(current)) {
+                suggestions.add("version");
+            }
+
+            if (PermissionChecker.hasPermission(sender, "admin-update", snapshot) && "update".startsWith(current)) {
+                suggestions.add("update");
             }
 
             if (sender instanceof Player) {

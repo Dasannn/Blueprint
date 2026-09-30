@@ -87,6 +87,13 @@ class ConfigValidationTest {
         assertThat(config.honor().capWindow()).isEqualTo(Duration.ofDays(7));
         assertThat(config.honor().cooldownPerPair()).isEqualTo(Duration.ofHours(24));
         assertThat(config.honor().maxPerTarget()).isEqualTo(3);
+
+        // Verify Update settings (T-084, SB-075, SB-076)
+        assertThat(config.update().checkOnStartup()).isTrue();
+        assertThat(config.update().autoDownload()).isFalse();
+        assertThat(config.update().repository()).isEqualTo("Dasannn/SocialBlueprint");
+        assertThat(config.update().channel()).isEqualTo("stable");
+        assertThat(config.update().apiUrl()).isEqualTo("https://api.github.com");
     }
 
     @Test

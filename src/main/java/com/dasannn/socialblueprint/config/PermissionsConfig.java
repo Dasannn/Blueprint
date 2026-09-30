@@ -31,7 +31,15 @@ public record PermissionsConfig(
     }
 
     public String node(String action) {
-        return nodes.get(action);
+        String val = nodes.get(action);
+        if (val != null) {
+            return val;
+        }
+        return switch (action) {
+            case "version" -> "socialblueprint.version";
+            case "admin-update" -> "socialblueprint.admin.update";
+            default -> null;
+        };
     }
 
     public static PermissionsConfig load(ConfigurationSection root) {
