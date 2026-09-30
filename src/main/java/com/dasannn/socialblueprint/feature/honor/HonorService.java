@@ -5,6 +5,7 @@ import com.dasannn.socialblueprint.config.ConfigManager;
 import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.AuditEvent;
+import com.dasannn.socialblueprint.domain.CompensationRecord;
 import com.dasannn.socialblueprint.domain.HonorAllowanceTracker;
 import com.dasannn.socialblueprint.domain.HonorCostCalculator;
 import com.dasannn.socialblueprint.domain.HonorKind;
@@ -14,6 +15,7 @@ import com.dasannn.socialblueprint.domain.Status;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
 import com.dasannn.socialblueprint.feature.profile.ProfileService.TargetIdentity;
 import com.dasannn.socialblueprint.storage.AuditRepository;
+import com.dasannn.socialblueprint.storage.CompensationRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -36,6 +38,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Service managing the honor economy per SB-050 to SB-058 and Decision 0001:
@@ -53,12 +56,57 @@ public class HonorService {
     private final MessageRegistry messageRegistry;
     private final ReputationRepository reputationRepository;
     private final AuditRepository auditRepository;
+    private final CompensationRepository compensationRepository;
     private final ProfileService profileService;
     private final Consumer<Runnable> mainThreadRunner;
     private final Clock clock;
+    private final Function<UUID, org.bukkit.OfflinePlayer> offlinePlayerResolver;
     private volatile Economy economy;
 
     private final ConcurrentMap<UUID, PendingConfirmation> pendingConfirmations = new ConcurrentHashMap<>();
+
+    public HonorService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ReputationRepository reputationRepository,
+            AuditRepository auditRepository,
+            CompensationRepository compensationRepository,
+            ProfileService profileService,
+            Economy economy,
+            Consumer<Runnable> mainThreadRunner,
+            Clock clock,
+            Function<UUID, org.bukkit.OfflinePlayer> offlinePlayerResolver
+    ) {
+        this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
+        this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
+        this.reputationRepository = Objects.requireNonNull(reputationRepository, "reputationRepository must not be null");
+        this.auditRepository = Objects.requireNonNull(auditRepository, "auditRepository must not be null");
+        this.compensationRepository = compensationRepository;
+        this.profileService = Objects.requireNonNull(profileService, "profileService must not be null");
+        this.economy = economy;
+        this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+        this.offlinePlayerResolver = offlinePlayerResolver != null ? offlinePlayerResolver : uuid -> {
+            if (org.bukkit.Bukkit.getServer() != null) {
+                return org.bukkit.Bukkit.getOfflinePlayer(uuid);
+            }
+            return null;
+        };
+    }
+
+    public HonorService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ReputationRepository reputationRepository,
+            AuditRepository auditRepository,
+            CompensationRepository compensationRepository,
+            ProfileService profileService,
+            Economy economy,
+            Consumer<Runnable> mainThreadRunner,
+            Clock clock
+    ) {
+        this(configManager, messageRegistry, reputationRepository, auditRepository, compensationRepository, profileService, economy, mainThreadRunner, clock, null);
+    }
 
     public HonorService(
             ConfigManager configManager,
@@ -70,14 +118,20 @@ public class HonorService {
             Consumer<Runnable> mainThreadRunner,
             Clock clock
     ) {
-        this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
-        this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
-        this.reputationRepository = Objects.requireNonNull(reputationRepository, "reputationRepository must not be null");
-        this.auditRepository = Objects.requireNonNull(auditRepository, "auditRepository must not be null");
-        this.profileService = Objects.requireNonNull(profileService, "profileService must not be null");
-        this.economy = economy;
-        this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
-        this.clock = clock != null ? clock : Clock.systemUTC();
+        this(configManager, messageRegistry, reputationRepository, auditRepository, null, profileService, economy, mainThreadRunner, clock);
+    }
+
+    public HonorService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ReputationRepository reputationRepository,
+            AuditRepository auditRepository,
+            CompensationRepository compensationRepository,
+            ProfileService profileService,
+            Economy economy,
+            Consumer<Runnable> mainThreadRunner
+    ) {
+        this(configManager, messageRegistry, reputationRepository, auditRepository, compensationRepository, profileService, economy, mainThreadRunner, Clock.systemUTC());
     }
 
     public HonorService(
@@ -89,7 +143,7 @@ public class HonorService {
             Economy economy,
             Consumer<Runnable> mainThreadRunner
     ) {
-        this(configManager, messageRegistry, reputationRepository, auditRepository, profileService, economy, mainThreadRunner, Clock.systemUTC());
+        this(configManager, messageRegistry, reputationRepository, auditRepository, null, profileService, economy, mainThreadRunner, Clock.systemUTC());
     }
 
     public void setEconomy(Economy economy) {
@@ -166,9 +220,16 @@ public class HonorService {
                         }
 
                         // Query actor's ratings in rolling window on storage executor
-                        Duration window = snapshot.config().honor().window();
+                        Duration multWindow = snapshot.config().honor().multiplierWindow();
+                        Duration capWindow = snapshot.config().honor().capWindow();
                         Duration cooldown = snapshot.config().honor().cooldownPerPair();
-                        Duration maxDuration = window.compareTo(cooldown) >= 0 ? window : cooldown;
+                        Duration maxDuration = multWindow;
+                        if (capWindow.compareTo(maxDuration) > 0) {
+                            maxDuration = capWindow;
+                        }
+                        if (cooldown.compareTo(maxDuration) > 0) {
+                            maxDuration = cooldown;
+                        }
                         Instant now = clock.instant();
                         Instant since = now.minus(maxDuration);
 
@@ -257,7 +318,7 @@ public class HonorService {
     /**
      * Confirms and commits a pending player honor action per SB-057:
      * charges the actor via Vault, verifies EconomyResponse, persists ReputationEvent asynchronously,
-     * and refunds on write failure.
+     * and refunds on write failure. Compensation is persisted to survive crashes and restarts.
      */
     public CompletableFuture<Void> confirmPlayerHonor(Player actor, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(actor, "actor must not be null");
@@ -278,20 +339,24 @@ public class HonorService {
             return CompletableFuture.completedFuture(null);
         }
 
+        double exactCost = HonorCostCalculator.roundCurrency(pending.cost());
+
         // Re-check economy provider and balance
-        if (economy == null || !economy.has(actor, pending.cost())) {
+        if (economy == null || !economy.has(actor, exactCost)) {
             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.insufficient-funds",
-                    Map.of("cost", formatCost(pending.cost()))));
+                    Map.of("cost", formatCost(exactCost))));
             return CompletableFuture.completedFuture(null);
         }
 
         // Main thread charges player via Vault (SB-057, ARCHITECTURE.md §9)
-        EconomyResponse response = economy.withdrawPlayer(actor, pending.cost());
-        if (response == null || !response.transactionSuccess()) {
+        EconomyResponse response = economy.withdrawPlayer(actor, exactCost);
+        if (response == null || !response.transactionSuccess() || response.amount <= 0) {
             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.insufficient-funds",
-                    Map.of("cost", formatCost(pending.cost()))));
+                    Map.of("cost", formatCost(exactCost))));
             return CompletableFuture.completedFuture(null);
         }
+
+        double actualCharged = response.amount;
 
         // Charge succeeded; persist event asynchronously on storage executor
         ReputationEvent event = new ReputationEvent(
@@ -299,40 +364,89 @@ public class HonorService {
                 pending.targetId(),
                 pending.delta(),
                 pending.kind(),
-                pending.cost(),
+                actualCharged,
                 pending.reason(),
                 now
         );
 
-        CompletableFuture<ReputationEvent> saveFuture;
-        try {
-            saveFuture = reputationRepository.saveAsync(event);
-        } catch (Exception ex) {
-            saveFuture = CompletableFuture.failedFuture(ex);
+        CompletableFuture<Void> future = new CompletableFuture<>();
+
+        CompletableFuture<Long> compSaveFuture;
+        if (compensationRepository != null) {
+            try {
+                compSaveFuture = compensationRepository.saveCompensationAsync(actor.getUniqueId(), actualCharged, "honor_charge", now);
+            } catch (Exception ex) {
+                compSaveFuture = CompletableFuture.failedFuture(ex);
+            }
+        } else {
+            compSaveFuture = CompletableFuture.completedFuture(null);
         }
 
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        saveFuture.whenComplete((saved, error) -> {
-            mainThreadRunner.accept(() -> {
-                try {
-                    if (error != null) {
-                        // Write failed: refund on main thread (SB-057)
-                        if (economy != null) {
-                            economy.depositPlayer(actor, pending.cost());
+        final CompletableFuture<Long> pendingCompensation = compSaveFuture;
+        pendingCompensation.thenCompose(compId -> reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository))
+                .thenAccept(saved -> {
+                    mainThreadRunner.accept(() -> {
+                        try {
+                            String msgKey = pending.kind() == HonorKind.POSITIVE ? "honor.given" : "honor.removed";
+                            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, msgKey,
+                                    Map.of("target", pending.targetName())));
+                        } finally {
+                            future.complete(null);
                         }
-                        actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
-                    } else {
-                        // Write succeeded: notify actor on main thread
-                        String msgKey = pending.kind() == HonorKind.POSITIVE ? "honor.given" : "honor.removed";
-                        actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, msgKey,
-                                Map.of("target", pending.targetName())));
+                    });
+                })
+                .exceptionally(error -> {
+                    mainThreadRunner.accept(() -> {
+                        try {
+                            if (economy != null) {
+                                EconomyResponse refundResp = economy.depositPlayer(actor, actualCharged);
+                                if (refundResp != null && refundResp.transactionSuccess()
+                                        && Math.abs(refundResp.amount - actualCharged) < 0.0001
+                                        && compensationRepository != null) {
+                                    pendingCompensation.thenAccept(compId -> {
+                                        if (compId != null) {
+                                            compensationRepository.deleteCompensationAsync(compId);
+                                        }
+                                    });
+                                }
+                            }
+                            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+                        } finally {
+                            future.complete(null);
+                        }
+                    });
+                    return null;
+                });
+
+        return future;
+    }
+
+    /**
+     * Reconciles outstanding pending refund compensations across restarts per SB-057.
+     */
+    public CompletableFuture<Void> reconcileCompensationsAsync() {
+        if (compensationRepository == null || economy == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return compensationRepository.findAllAsync().thenAccept(records -> {
+            if (records.isEmpty()) {
+                return;
+            }
+            mainThreadRunner.accept(() -> {
+                for (CompensationRecord record : records) {
+                    try {
+                        org.bukkit.OfflinePlayer op = offlinePlayerResolver.apply(record.playerUuid());
+                        if (op != null) {
+                            EconomyResponse resp = economy.depositPlayer(op, record.amount());
+                            if (resp != null && resp.transactionSuccess() && Math.abs(resp.amount - record.amount()) < 0.0001) {
+                                compensationRepository.deleteCompensationAsync(record.id());
+                            }
+                        }
+                    } catch (Exception ignored) {
                     }
-                } finally {
-                    future.complete(null);
                 }
             });
         });
-        return future;
     }
 
     /**
@@ -369,43 +483,23 @@ public class HonorService {
                         TargetIdentity target = optTarget.get();
                         Instant now = clock.instant();
 
-                        reputationRepository.findByTargetAsync(target.id())
-                                .thenCompose(events -> {
-                                    Status before = Status.fromEvents(events);
-                                    int afterScore = before.value() + amount;
-                                    ReputationEvent repEvent = new ReputationEvent(
-                                            actorId,
-                                            target.id(),
-                                            amount,
-                                            HonorKind.ADMIN_GIVE,
-                                            0.0,
-                                            "admin give",
-                                            now
-                                    );
-
-                                    return reputationRepository.saveAsync(repEvent)
-                                            .thenCompose(saved -> {
-                                                AuditEvent audit = new AuditEvent(
-                                                        actorId,
-                                                        "admin_give",
-                                                        target.id(),
-                                                        String.valueOf(before.value()),
-                                                        String.valueOf(afterScore),
-                                                        now
-                                                );
-                                                return auditRepository.saveAsync(audit)
-                                                        .thenApply(a -> afterScore);
-                                            });
-                                })
-                                .thenAccept(afterVal -> mainThreadRunner.accept(() -> {
-                                    sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.give-success",
-                                            Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(afterVal))));
-                                    future.complete(null);
-                                }))
-                                .exceptionally(ex -> {
-                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
-                                    return null;
-                                });
+                        reputationRepository.executeAdminAdjustmentAsync(
+                                actorId,
+                                target.id(),
+                                HonorKind.ADMIN_GIVE,
+                                amount,
+                                "admin_give",
+                                "admin give",
+                                now,
+                                auditRepository
+                        ).thenAccept(res -> mainThreadRunner.accept(() -> {
+                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.give-success",
+                                    Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(res.afterScore()))));
+                            future.complete(null);
+                        })).exceptionally(ex -> {
+                            mainThreadRunner.accept(() -> future.completeExceptionally(ex));
+                            return null;
+                        });
                     });
                     return future;
                 });
@@ -445,43 +539,23 @@ public class HonorService {
                         TargetIdentity target = optTarget.get();
                         Instant now = clock.instant();
 
-                        reputationRepository.findByTargetAsync(target.id())
-                                .thenCompose(events -> {
-                                    Status before = Status.fromEvents(events);
-                                    int afterScore = before.value() - amount;
-                                    ReputationEvent repEvent = new ReputationEvent(
-                                            actorId,
-                                            target.id(),
-                                            -amount,
-                                            HonorKind.ADMIN_TAKE,
-                                            0.0,
-                                            "admin take",
-                                            now
-                                    );
-
-                                    return reputationRepository.saveAsync(repEvent)
-                                            .thenCompose(saved -> {
-                                                AuditEvent audit = new AuditEvent(
-                                                        actorId,
-                                                        "admin_take",
-                                                        target.id(),
-                                                        String.valueOf(before.value()),
-                                                        String.valueOf(afterScore),
-                                                        now
-                                                );
-                                                return auditRepository.saveAsync(audit)
-                                                        .thenApply(a -> afterScore);
-                                            });
-                                })
-                                .thenAccept(afterVal -> mainThreadRunner.accept(() -> {
-                                    sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.take-success",
-                                            Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(afterVal))));
-                                    future.complete(null);
-                                }))
-                                .exceptionally(ex -> {
-                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
-                                    return null;
-                                });
+                        reputationRepository.executeAdminAdjustmentAsync(
+                                actorId,
+                                target.id(),
+                                HonorKind.ADMIN_TAKE,
+                                -amount,
+                                "admin_take",
+                                "admin take",
+                                now,
+                                auditRepository
+                        ).thenAccept(res -> mainThreadRunner.accept(() -> {
+                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.take-success",
+                                    Map.of("amount", String.valueOf(amount), "target", target.name(), "status", String.valueOf(res.afterScore()))));
+                            future.complete(null);
+                        })).exceptionally(ex -> {
+                            mainThreadRunner.accept(() -> future.completeExceptionally(ex));
+                            return null;
+                        });
                     });
                     return future;
                 });
@@ -520,42 +594,23 @@ public class HonorService {
                         TargetIdentity target = optTarget.get();
                         Instant now = clock.instant();
 
-                        reputationRepository.findByTargetAsync(target.id())
-                                .thenCompose(events -> {
-                                    Status before = Status.fromEvents(events);
-                                    int compensatingDelta = -before.value();
-                                    ReputationEvent compensatingEvent = new ReputationEvent(
-                                            actorId,
-                                            target.id(),
-                                            compensatingDelta,
-                                            HonorKind.ADMIN_RESET,
-                                            0.0,
-                                            "admin reset",
-                                            now
-                                    );
-
-                                    return reputationRepository.saveAsync(compensatingEvent)
-                                            .thenCompose(saved -> {
-                                                AuditEvent audit = new AuditEvent(
-                                                        actorId,
-                                                        "admin_reset",
-                                                        target.id(),
-                                                        String.valueOf(before.value()),
-                                                        "0",
-                                                        now
-                                                );
-                                                return auditRepository.saveAsync(audit);
-                                            });
-                                })
-                                .thenAccept(auditSaved -> mainThreadRunner.accept(() -> {
-                                    sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.reset-success",
-                                            Map.of("target", target.name())));
-                                    future.complete(null);
-                                }))
-                                .exceptionally(ex -> {
-                                    mainThreadRunner.accept(() -> future.completeExceptionally(ex));
-                                    return null;
-                                });
+                        reputationRepository.executeAdminAdjustmentAsync(
+                                actorId,
+                                target.id(),
+                                HonorKind.ADMIN_RESET,
+                                0,
+                                "admin_reset",
+                                "admin reset",
+                                now,
+                                auditRepository
+                        ).thenAccept(res -> mainThreadRunner.accept(() -> {
+                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.admin.reset-success",
+                                    Map.of("target", target.name())));
+                            future.complete(null);
+                        })).exceptionally(ex -> {
+                            mainThreadRunner.accept(() -> future.completeExceptionally(ex));
+                            return null;
+                        });
                     });
                     return future;
                 });
@@ -576,6 +631,7 @@ public class HonorService {
     }
 
     public static String formatCost(double cost) {
+        cost = HonorCostCalculator.roundCurrency(cost);
         if (cost == Math.floor(cost)) {
             return String.format(Locale.ROOT, "%.0f", cost);
         }

@@ -42,6 +42,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final MessageRegistry messageRegistry;
     private final ProfileService profileService;
     private final HonorService honorService;
+    private final com.dasannn.socialblueprint.storage.AuditRepository auditRepository;
     private final StatusConfigCommand configCommand;
     private final StatusAdminCommand adminCommand;
     private final StatusGiveCommand giveCommand;
@@ -57,6 +58,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             MessageRegistry messageRegistry,
             ProfileService profileService,
             HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
@@ -64,7 +66,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
         this.profileService = profileService;
         this.honorService = honorService;
-        this.configCommand = new StatusConfigCommand(configManager, messageRegistry);
+        this.auditRepository = auditRepository;
+        this.configCommand = new StatusConfigCommand(configManager, messageRegistry, auditRepository);
         this.adminCommand = honorService != null ? new StatusAdminCommand(honorService, messageRegistry) : null;
         this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
@@ -77,10 +80,21 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             ConfigManager configManager,
             MessageRegistry messageRegistry,
             ProfileService profileService,
+            HonorService honorService,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
-        this(configManager, messageRegistry, profileService, null, mainThreadRunner, onlinePlayersSupplier);
+        this(configManager, messageRegistry, profileService, honorService, null, mainThreadRunner, onlinePlayersSupplier);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier
+    ) {
+        this(configManager, messageRegistry, profileService, null, null, mainThreadRunner, onlinePlayersSupplier);
     }
 
     public StatusCommandExecutor(
@@ -88,6 +102,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             MessageRegistry messageRegistry,
             ProfileService profileService,
             HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Plugin plugin
     ) {
         this(
@@ -95,10 +110,11 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 messageRegistry,
                 profileService,
                 honorService,
+                auditRepository,
                 runnable -> {
                     if (plugin != null && plugin.isEnabled()) {
                         Bukkit.getScheduler().runTask(plugin, runnable);
-                    } else {
+                    } else if (plugin == null) {
                         runnable.run();
                     }
                 },
@@ -110,9 +126,19 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             ConfigManager configManager,
             MessageRegistry messageRegistry,
             ProfileService profileService,
+            HonorService honorService,
             Plugin plugin
     ) {
-        this(configManager, messageRegistry, profileService, null, plugin);
+        this(configManager, messageRegistry, profileService, honorService, null, plugin);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            Plugin plugin
+    ) {
+        this(configManager, messageRegistry, profileService, null, null, plugin);
     }
 
     public StatusCommandExecutor(ConfigManager configManager, MessageRegistry messageRegistry) {

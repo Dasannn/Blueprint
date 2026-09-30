@@ -106,4 +106,17 @@ class HonorCostCalculatorTest {
                 .isInstanceOf(ArithmeticException.class)
                 .hasMessageContaining("overflowed to non-finite value");
     }
+
+    @Test
+    @DisplayName("Finding 6: Currency rounding is applied once to 2 decimals half-up")
+    void currencyRoundingHalfUp() {
+        assertThat(HonorCostCalculator.roundCurrency(10.555)).isEqualTo(10.56);
+        assertThat(HonorCostCalculator.roundCurrency(10.554)).isEqualTo(10.55);
+        assertThat(HonorCostCalculator.roundCurrency(10.5)).isEqualTo(10.50);
+
+        HonorCostConfig fractionalConfig = new HonorCostConfig(10.333, List.of(1.5), Duration.ofHours(1));
+        HonorCostCalculator fractionalCalc = new HonorCostCalculator(fractionalConfig);
+        // 10.333 * 1.5 = 15.4995 -> rounds half-up to 15.50
+        assertThat(fractionalCalc.calculateCost(0)).isEqualTo(15.50);
+    }
 }

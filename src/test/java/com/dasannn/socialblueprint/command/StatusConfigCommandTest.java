@@ -189,7 +189,7 @@ class StatusConfigCommandTest {
         MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
 
         List<String> suggestions = command.tabComplete(admin, new String[]{"hon"});
-        assertThat(suggestions).contains("honor.cost", "honor.window", "honor.cooldown-per-pair", "honor.max-per-target");
+        assertThat(suggestions).contains("honor.cost", "honor.multiplier-window", "honor.cap-window", "honor.cooldown-per-pair", "honor.max-per-target");
 
         List<String> langSuggestions = command.tabComplete(admin, new String[]{"language", ""});
         assertThat(langSuggestions).containsExactly("en", "es");

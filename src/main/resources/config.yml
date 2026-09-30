@@ -111,11 +111,12 @@ honor:
     - 2.0
     - 3.0
 
-  # Rolling window for the progressive multiplier and allowance reset.
-  # Must outlast `cooldown-per-pair` times `max-per-target`, or the cap below can
-  # never be reached: with a 24h cooldown, three ratings to one target need at
-  # least three days, so a shorter window resets the allowance before it fills.
-  window: 7d
+  # How long an actor's own ratings keep raising the price of their next one, across all targets (Decision 0003).
+  multiplier-window: 1h
+
+  # Rolling window for the per-pair rating cap (SB-054, Decision 0003).
+  # Must be longer than `cooldown-per-pair` times `max-per-target`.
+  cap-window: 7d
 
   # Cooldown between ratings between the same actor and target player.
   cooldown-per-pair: 24h

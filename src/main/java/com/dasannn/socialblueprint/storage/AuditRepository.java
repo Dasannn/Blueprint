@@ -37,7 +37,7 @@ public final class AuditRepository {
         return engine.executeAsync(conn -> saveInternal(conn, event));
     }
 
-    private AuditEvent saveInternal(Connection conn, AuditEvent event) throws SQLException {
+    AuditEvent saveInternal(Connection conn, AuditEvent event) throws SQLException {
         String sql = """
             INSERT INTO audit_event (actor, operation, target, before, after, created_at)
             VALUES (?, ?, ?, ?, ?, ?);

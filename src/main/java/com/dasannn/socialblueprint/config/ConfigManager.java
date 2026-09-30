@@ -286,7 +286,8 @@ public class ConfigManager {
         set.add("psychosis.extreme-threshold");
 
         set.add("honor.cost");
-        set.add("honor.window");
+        set.add("honor.multiplier-window");
+        set.add("honor.cap-window");
         set.add("honor.cooldown-per-pair");
         set.add("honor.max-per-target");
 

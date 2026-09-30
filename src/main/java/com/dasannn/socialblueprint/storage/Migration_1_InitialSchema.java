@@ -106,6 +106,17 @@ public final class Migration_1_InitialSchema implements Migration {
                     created_at TEXT NOT NULL
                 );
             """);
+
+            // pending_compensation: id, player_uuid, amount, reason, created_at
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS pending_compensation (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    player_uuid TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+            """);
         }
     }
 }

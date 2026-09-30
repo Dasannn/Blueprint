@@ -22,6 +22,7 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.dasannn.socialblueprint.storage.CompensationRepository;
 import java.io.File;
 
 public final class SocialBlueprintPlugin extends JavaPlugin {
@@ -34,6 +35,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private ProfileRepository profileRepository;
     private PsychosisRepository psychosisRepository;
     private AuditRepository auditRepository;
+    private CompensationRepository compensationRepository;
     private ProfileService profileService;
     private HonorService honorService;
     private Economy economy;
@@ -128,6 +130,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         this.profileRepository = new ProfileRepository(storageEngine);
         this.psychosisRepository = new PsychosisRepository(storageEngine);
         this.auditRepository = new AuditRepository(storageEngine);
+        this.compensationRepository = new CompensationRepository(storageEngine);
 
         BukkitPlayerLookup playerLookup = new BukkitPlayerLookup(getServer());
         this.profileService = new ProfileService(
@@ -146,16 +149,16 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 messageRegistry,
                 reputationRepository,
                 auditRepository,
+                compensationRepository,
                 profileService,
                 economy,
                 runnable -> {
                     if (isEnabled()) {
                         getServer().getScheduler().runTask(this, runnable);
-                    } else {
-                        runnable.run();
                     }
                 }
         );
+        this.honorService.reconcileCompensationsAsync();
 
         getServer().getPluginManager().registerEvents(
                 new AsyncChatListener(profileService, configManager, messageRegistry),
@@ -173,6 +176,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     messageRegistry,
                     profileService,
                     honorService,
+                    auditRepository,
                     this
             );
             statusCmd.setExecutor(executor);
@@ -234,11 +238,19 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         return honorService;
     }
 
+    public CompensationRepository getCompensationRepository() {
+        return compensationRepository;
+    }
+
     public Economy getEconomy() {
         return economy;
     }
 
     public void setEconomy(Economy economy) {
         this.economy = economy;
+        if (honorService != null) {
+            honorService.setEconomy(economy);
+            honorService.reconcileCompensationsAsync();
+        }
     }
 }

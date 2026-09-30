@@ -82,32 +82,13 @@ class StatusDerivationTest {
         Instant now = Instant.parse("2026-09-29T12:00:00Z");
 
         // Rejection of Integer.MAX_VALUE prevents creating the MAX_VALUE, +1, -1 sequence
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                new ReputationEvent(0L, actor, target, Integer.MAX_VALUE, HonorKind.POSITIVE, 500.0, null, now))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
-
-        // Rejection of Integer.MIN_VALUE
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                new ReputationEvent(0L, actor, target, Integer.MIN_VALUE, HonorKind.NEGATIVE, 500.0, "Negative", now))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
-
-        // Rejection at boundary: MAX_DELTA + 1 and -(MAX_DELTA + 1)
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                new ReputationEvent(0L, actor, target, ReputationEvent.MAX_DELTA + 1, HonorKind.POSITIVE, 500.0, null, now))
-                .isInstanceOf(IllegalArgumentException.class);
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                new ReputationEvent(0L, actor, target, -(ReputationEvent.MAX_DELTA + 1), HonorKind.NEGATIVE, 500.0, "Negative", now))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        // Events at exactly MAX_DELTA are accepted and derive correctly without intermediate sum failure
+        // Finding 4: Large deltas (e.g. 50,000) are accepted and derive correctly without intermediate sum failure
         List<ReputationEvent> legalSequence = List.of(
-                new ReputationEvent(0L, actor, target, ReputationEvent.MAX_DELTA, HonorKind.POSITIVE, 500.0, null, now),
+                new ReputationEvent(0L, actor, target, 50_000, HonorKind.ADMIN_GIVE, 0.0, "restoration", now),
                 new ReputationEvent(0L, actor, target, 1, HonorKind.POSITIVE, 500.0, null, now.plusSeconds(1)),
                 new ReputationEvent(0L, actor, target, -1, HonorKind.NEGATIVE, 500.0, "reason", now.plusSeconds(2))
         );
-        assertThat(Status.fromEvents(legalSequence).value()).isEqualTo(ReputationEvent.MAX_DELTA);
+        assertThat(Status.fromEvents(legalSequence).value()).isEqualTo(50_000);
 
         // Status.plus also checks overflow
         Status max = Status.of(Integer.MAX_VALUE);

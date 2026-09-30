@@ -16,23 +16,25 @@ import java.util.Objects;
 public record HonorConfigSection(
         double cost,
         List<Double> multipliers,
-        Duration window,
+        Duration multiplierWindow,
+        Duration capWindow,
         Duration cooldownPerPair,
         int maxPerTarget
 ) {
     public HonorConfigSection {
         Objects.requireNonNull(multipliers, "Multipliers list must not be null");
-        Objects.requireNonNull(window, "Window duration must not be null");
+        Objects.requireNonNull(multiplierWindow, "Multiplier window duration must not be null");
+        Objects.requireNonNull(capWindow, "Cap window duration must not be null");
         Objects.requireNonNull(cooldownPerPair, "Cooldown duration must not be null");
         multipliers = Collections.unmodifiableList(new ArrayList<>(multipliers));
     }
 
     public HonorCostConfig toCostConfig() {
-        return new HonorCostConfig(cost, multipliers, window);
+        return new HonorCostConfig(cost, multipliers, multiplierWindow);
     }
 
     public HonorAllowanceConfig toAllowanceConfig() {
-        return new HonorAllowanceConfig(maxPerTarget, window);
+        return new HonorAllowanceConfig(maxPerTarget, capWindow);
     }
 
     public static HonorConfigSection load(ConfigurationSection root) {
@@ -83,11 +85,17 @@ public record HonorConfigSection(
             multipliers.add(m);
         }
 
-        String windowKey = "honor.window";
-        if (!section.contains("window")) {
-            throw new ConfigValidationException(windowKey, "Missing required key: " + windowKey);
+        String multWindowKey = "honor.multiplier-window";
+        if (!section.contains("multiplier-window")) {
+            throw new ConfigValidationException(multWindowKey, "Missing required key: " + multWindowKey);
         }
-        Duration window = DurationParser.parsePositive(section.getString("window"), windowKey);
+        Duration multiplierWindow = DurationParser.parsePositive(section.getString("multiplier-window"), multWindowKey);
+
+        String capWindowKey = "honor.cap-window";
+        if (!section.contains("cap-window")) {
+            throw new ConfigValidationException(capWindowKey, "Missing required key: " + capWindowKey);
+        }
+        Duration capWindow = DurationParser.parsePositive(section.getString("cap-window"), capWindowKey);
 
         String cooldownKey = "honor.cooldown-per-pair";
         if (!section.contains("cooldown-per-pair")) {
@@ -104,7 +112,14 @@ public record HonorConfigSection(
             throw new ConfigValidationException(maxTargetKey, "max-per-target must be strictly positive (> 0), got: " + maxPerTarget);
         }
 
-        return new HonorConfigSection(cost, multipliers, window, cooldown, maxPerTarget);
+        Duration requiredMinimum = cooldown.multipliedBy(maxPerTarget);
+        if (capWindow.compareTo(requiredMinimum) <= 0) {
+            throw new ConfigValidationException(capWindowKey,
+                    "honor.cap-window must be longer than honor.cooldown-per-pair * honor.max-per-target ("
+                            + requiredMinimum + "), got: " + capWindow);
+        }
+
+        return new HonorConfigSection(cost, multipliers, multiplierWindow, capWindow, cooldown, maxPerTarget);
     }
 
     private static double parseDouble(ConfigurationSection section, String subKey, String fullKey) {

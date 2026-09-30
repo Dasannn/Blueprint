@@ -28,22 +28,23 @@ public record ReputationEvent(
      * adjustment, reset compensation, or legacy import.
      */
     public static final int MAX_DELTA = 10_000;
+    public static final int MAX_REASON_LENGTH = 100;
 
     public ReputationEvent {
         Objects.requireNonNull(target, "Target must not be null");
         Objects.requireNonNull(kind, "Kind must not be null");
         Objects.requireNonNull(createdAt, "CreatedAt must not be null");
 
-        if (Math.abs((long) delta) > MAX_DELTA) {
-            throw new IllegalArgumentException("Delta magnitude exceeds maximum sane bound (" + MAX_DELTA + "), got " + delta);
-        }
-
         if (!Double.isFinite(cost) || cost < 0.0) {
             throw new IllegalArgumentException("Cost cannot be negative and must be finite, got " + cost);
         }
 
-        if (actor != null && actor.equals(target)) {
+        if (kind.isPlayerHonor() && actor != null && actor.equals(target)) {
             throw new IllegalArgumentException("Actor cannot rate themselves: " + actor);
+        }
+
+        if (reason != null && reason.length() > MAX_REASON_LENGTH) {
+            throw new IllegalArgumentException("Reason exceeds maximum length (" + MAX_REASON_LENGTH + "), got " + reason.length());
         }
 
         if (kind.isPlayerHonor()) {

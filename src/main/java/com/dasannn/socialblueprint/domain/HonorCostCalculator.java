@@ -33,15 +33,20 @@ public final class HonorCostCalculator {
         return config.multipliers().get(index);
     }
 
+    public static double roundCurrency(double amount) {
+        return java.math.BigDecimal.valueOf(amount).setScale(2, java.math.RoundingMode.HALF_UP).doubleValue();
+    }
+
     /**
-     * Calculates the exact honor cost for a given count of ratings issued in the window.
+     * Calculates the exact honor cost for a given count of ratings issued in the window,
+     * rounded to two decimal places per currency precision rules.
      */
     public double calculateCost(int ratingsInWindow) {
-        double cost = config.baseCost() * multiplierForRatings(ratingsInWindow);
-        if (!Double.isFinite(cost)) {
-            throw new ArithmeticException("Calculated honor cost overflowed to non-finite value: " + cost);
+        double rawCost = config.baseCost() * multiplierForRatings(ratingsInWindow);
+        if (!Double.isFinite(rawCost)) {
+            throw new ArithmeticException("Calculated honor cost overflowed to non-finite value: " + rawCost);
         }
-        return cost;
+        return roundCurrency(rawCost);
     }
 
     public double calculateCost(PlayerId actor, Collection<ReputationEvent> events, Clock clock) {

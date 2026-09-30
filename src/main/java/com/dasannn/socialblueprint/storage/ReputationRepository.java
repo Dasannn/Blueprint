@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import com.dasannn.socialblueprint.domain.AuditEvent;
 
 /**
  * Repository for {@link ReputationEvent}s per T-018, T-019 and ARCHITECTURE.md §4.
@@ -112,47 +113,130 @@ public final class ReputationRepository {
         }
     }
 
+    List<ReputationEvent> findByTargetInternal(Connection conn, String target) throws SQLException {
+        String sql = """
+            SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+            FROM reputation_event
+            WHERE target_uuid = ?
+            ORDER BY id ASC;
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, target);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ReputationEvent> list = new ArrayList<>();
+                while (rs.next()) {
+                    list.add(mapRow(rs));
+                }
+                return list;
+            }
+        }
+    }
+
     public List<ReputationEvent> findByTarget(PlayerId target) {
         Objects.requireNonNull(target, "Target must not be null");
-        return engine.execute(conn -> {
-            String sql = """
-                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
-                FROM reputation_event
-                WHERE target_uuid = ?
-                ORDER BY id ASC;
-            """;
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setString(1, target.toString());
-                try (ResultSet rs = ps.executeQuery()) {
-                    List<ReputationEvent> list = new ArrayList<>();
-                    while (rs.next()) {
-                        list.add(mapRow(rs));
-                    }
-                    return list;
-                }
-            }
-        });
+        return engine.execute(conn -> findByTargetInternal(conn, target.toString()));
     }
 
     public CompletableFuture<List<ReputationEvent>> findByTargetAsync(PlayerId target) {
         Objects.requireNonNull(target, "Target must not be null");
+        return engine.executeAsync(conn -> findByTargetInternal(conn, target.toString()));
+    }
+
+    public CompletableFuture<ReputationEvent> commitPlayerHonorAsync(
+            ReputationEvent event,
+            Long compensationId,
+            CompensationRepository compensationRepository
+    ) {
+        Objects.requireNonNull(event, "Event must not be null");
         return engine.executeAsync(conn -> {
-            String sql = """
-                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
-                FROM reputation_event
-                WHERE target_uuid = ?
-                ORDER BY id ASC;
-            """;
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setString(1, target.toString());
-                try (ResultSet rs = ps.executeQuery()) {
-                    List<ReputationEvent> list = new ArrayList<>();
-                    while (rs.next()) {
-                        list.add(mapRow(rs));
-                    }
-                    return list;
+            boolean initialAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                ReputationEvent saved = saveInternal(conn, event);
+                if (compensationId != null && compensationRepository != null) {
+                    compensationRepository.deleteCompensationInternal(conn, compensationId);
                 }
+                conn.commit();
+                return saved;
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(initialAutoCommit);
             }
+        }).thenApply(saved -> {
+            notifyInvalidation(saved.target());
+            return saved;
+        });
+    }
+
+    public CompletableFuture<AdminAdjustmentResult> executeAdminAdjustmentAsync(
+            PlayerId actorId,
+            PlayerId targetId,
+            HonorKind kind,
+            int amount,
+            String operation,
+            String reason,
+            Instant now,
+            AuditRepository auditRepository
+    ) {
+        Objects.requireNonNull(targetId, "targetId must not be null");
+        Objects.requireNonNull(kind, "kind must not be null");
+        Objects.requireNonNull(operation, "operation must not be null");
+        Objects.requireNonNull(reason, "reason must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        Objects.requireNonNull(auditRepository, "auditRepository must not be null");
+
+        return engine.executeAsync(conn -> {
+            boolean initialAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+
+                List<ReputationEvent> events = findByTargetInternal(conn, targetId.toString());
+                Status before = Status.fromEvents(events);
+
+                int delta;
+                int afterScore;
+                if (kind == HonorKind.ADMIN_RESET) {
+                    delta = -before.value();
+                    afterScore = 0;
+                } else {
+                    delta = amount;
+                    afterScore = before.value() + delta;
+                }
+
+                ReputationEvent repEvent = new ReputationEvent(
+                        actorId,
+                        targetId,
+                        delta,
+                        kind,
+                        0.0,
+                        reason,
+                        now
+                );
+                saveInternal(conn, repEvent);
+
+                AuditEvent audit = new AuditEvent(
+                        actorId,
+                        operation,
+                        targetId,
+                        String.valueOf(before.value()),
+                        String.valueOf(afterScore),
+                        now
+                );
+                auditRepository.saveInternal(conn, audit);
+
+                conn.commit();
+                return new AdminAdjustmentResult(before.value(), afterScore, delta);
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(initialAutoCommit);
+            }
+        }).thenApply(result -> {
+            notifyInvalidation(targetId);
+            return result;
         });
     }
 

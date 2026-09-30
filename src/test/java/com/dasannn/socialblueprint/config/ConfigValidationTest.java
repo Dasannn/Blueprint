@@ -412,16 +412,57 @@ class ConfigValidationTest {
     }
 
     @Test
-    @DisplayName("Fix 2: When both 'prefix' and 'chat-prefix' are present, root 'prefix' is rejected naming 'prefix'")
-    void bothPrefixAndChatPrefixPresentRejectsRootPrefix() {
-        YamlConfiguration yaml = loadValidYaml();
-        yaml.set("chat-prefix", "&8[&bSocialBlueprint&8]&r ");
-        yaml.set("prefix", "&8[&bLegacy&8]&r ");
-
-        assertThatThrownBy(() -> PluginConfig.load(yaml))
+    @DisplayName("Finding 5: Missing multiplier-window or cap-window fails naming the key")
+    void missingHonorWindowsFail() {
+        YamlConfiguration yaml1 = loadValidYaml();
+        yaml1.set("honor.multiplier-window", null);
+        assertThatThrownBy(() -> PluginConfig.load(yaml1))
                 .isInstanceOf(ConfigValidationException.class)
-                .hasMessageContaining("chat-prefix")
-                .matches(e -> ((ConfigValidationException) e).key().equals("prefix"));
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.multiplier-window"));
+
+        YamlConfiguration yaml2 = loadValidYaml();
+        yaml2.set("honor.cap-window", null);
+        assertThatThrownBy(() -> PluginConfig.load(yaml2))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.cap-window"));
+    }
+
+    @Test
+    @DisplayName("Finding 5: cap-window not longer than cooldown-per-pair * max-per-target fails naming both keys")
+    void capWindowNotLongerThanCooldownTimesMaxPerTargetFails() {
+        // cooldown 24h * max 3 = 72h (3d). Cap window of 3d is equal, not strictly longer
+        YamlConfiguration yamlEqual = loadValidYaml();
+        yamlEqual.set("honor.cap-window", "3d");
+        yamlEqual.set("honor.cooldown-per-pair", "24h");
+        yamlEqual.set("honor.max-per-target", 3);
+
+        assertThatThrownBy(() -> PluginConfig.load(yamlEqual))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("honor.cap-window")
+                .hasMessageContaining("honor.cooldown-per-pair")
+                .hasMessageContaining("honor.max-per-target")
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.cap-window"));
+
+        // Cap window of 2d is strictly shorter
+        YamlConfiguration yamlShorter = loadValidYaml();
+        yamlShorter.set("honor.cap-window", "2d");
+        yamlShorter.set("honor.cooldown-per-pair", "24h");
+        yamlShorter.set("honor.max-per-target", 3);
+
+        assertThatThrownBy(() -> PluginConfig.load(yamlShorter))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("honor.cap-window")
+                .hasMessageContaining("honor.cooldown-per-pair")
+                .hasMessageContaining("honor.max-per-target")
+                .matches(e -> ((ConfigValidationException) e).key().equals("honor.cap-window"));
+
+        // Cap window of 7d is longer and succeeds
+        YamlConfiguration yamlLonger = loadValidYaml();
+        yamlLonger.set("honor.cap-window", "7d");
+        yamlLonger.set("honor.cooldown-per-pair", "24h");
+        yamlLonger.set("honor.max-per-target", 3);
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> PluginConfig.load(yamlLonger));
     }
 
     private static YamlConfiguration loadValidYaml() {

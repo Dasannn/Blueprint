@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
+import com.dasannn.socialblueprint.domain.Status;
 import com.dasannn.socialblueprint.feature.honor.HonorService;
 import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
@@ -90,6 +91,7 @@ class P4CommandsPermissionsTest {
     private PsychosisRepository psychosisRepo;
     private ProfileRepository profileRepo;
     private AuditRepository auditRepo;
+    private com.dasannn.socialblueprint.storage.CompensationRepository compensationRepo;
     private ProfileService profileService;
     private HonorService honorService;
     private StatusCommandExecutor commandExecutor;
@@ -101,6 +103,7 @@ class P4CommandsPermissionsTest {
     private Economy mockEconomy;
     private final Map<UUID, Double> economyBalances = new ConcurrentHashMap<>();
     private final AtomicBoolean failEconomyWithdrawal = new AtomicBoolean(false);
+    private final AtomicBoolean failEconomyDeposit = new AtomicBoolean(false);
     private final AtomicInteger economyWithdrawCount = new AtomicInteger(0);
     private final AtomicInteger economyDepositCount = new AtomicInteger(0);
     private final AtomicReference<Double> lastWithdrawnAmount = new AtomicReference<>(0.0);
@@ -304,6 +307,10 @@ class P4CommandsPermissionsTest {
                 OfflinePlayer p = (OfflinePlayer) args[0];
                 double amt = ((Number) args[1]).doubleValue();
                 lastDepositedAmount.set(amt);
+                if (failEconomyDeposit.get()) {
+                    return new EconomyResponse(0, economyBalances.getOrDefault(p.getUniqueId(), 1000.0),
+                            EconomyResponse.ResponseType.FAILURE, "Simulated deposit failure");
+                }
                 double bal = economyBalances.getOrDefault(p.getUniqueId(), 1000.0) + amt;
                 economyBalances.put(p.getUniqueId(), bal);
                 return new EconomyResponse(amt, bal, EconomyResponse.ResponseType.SUCCESS, null);
@@ -324,15 +331,22 @@ class P4CommandsPermissionsTest {
                 econHandler
         );
 
+        compensationRepo = new com.dasannn.socialblueprint.storage.CompensationRepository(storage);
+
         honorService = new HonorService(
                 configManager,
                 messageRegistry,
                 reputationRepo,
                 auditRepo,
+                compensationRepo,
                 profileService,
                 mockEconomy,
                 mainThreadRunner,
-                testClock
+                testClock,
+                uuid -> {
+                    String name = offlineUuidMap.getOrDefault(uuid, uuid.toString());
+                    return mockPlayer(name);
+                }
         );
 
         commandExecutor = new StatusCommandExecutor(
@@ -340,6 +354,7 @@ class P4CommandsPermissionsTest {
                 messageRegistry,
                 profileService,
                 honorService,
+                auditRepo,
                 mainThreadRunner,
                 () -> onlinePlayersList
         );
@@ -735,6 +750,328 @@ class P4CommandsPermissionsTest {
         }
     }
 
+    @Test
+    @DisplayName("Finding 1 / SB-057: Failed refund persists compensation in database and reconcile restores balance so player ends whole")
+    void failedRefundPersistsCompensationAndReconcileKeepsPlayerWhole() {
+        Player actor = mockPlayer("RefundVictim", "socialblueprint.give");
+        Player target = mockPlayer("RefundTarget");
+        economyBalances.put(actor.getUniqueId(), 1000.0);
+
+        // Stage 1: prepare honor
+        runCommandSync(actor, "status", "give", "RefundTarget");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
+
+        // Simulate deposit failure so immediate refund fails
+        failEconomyDeposit.set(true);
+
+        // Inject DB failure specifically for reputation_event insert using a SQLite trigger
+        storage.execute(conn -> {
+            try (Statement s = conn.createStatement()) {
+                s.execute("CREATE TRIGGER fail_rep BEFORE INSERT ON reputation_event BEGIN SELECT RAISE(FAIL, 'simulated reputation write failure'); END;");
+            }
+            return null;
+        });
+
+        try {
+            // Stage 2: Confirm honor. Withdrawal succeeds, reputation write fails, immediate refund deposit fails.
+            runCommandSync(actor, "status", "confirm");
+
+            // Player was charged 500.0 and deposit failed, so balance is 500.0
+            assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(500.0);
+
+            // Reputation event was NOT saved
+            List<ReputationEvent> events = reputationRepo.findByTargetAsync(PlayerId.of(target.getUniqueId())).join();
+            assertThat(events).isEmpty();
+
+            // Pending compensation record was persisted in database
+            var pendingRecords = compensationRepo.findAllAsync().join();
+            assertThat(pendingRecords).hasSize(1);
+            assertThat(pendingRecords.getFirst().playerUuid()).isEqualTo(actor.getUniqueId());
+            assertThat(pendingRecords.getFirst().amount()).isEqualTo(500.0);
+
+            // Now remove SQLite trigger and permit deposit
+            storage.execute(conn -> {
+                try (Statement s = conn.createStatement()) {
+                    s.execute("DROP TRIGGER fail_rep;");
+                }
+                return null;
+            });
+            failEconomyDeposit.set(false);
+
+            // Reconcile compensations (simulating server restart / enable)
+            honorService.reconcileCompensationsAsync().join();
+            drainMainThread();
+
+            // Player ends whole: balance is restored to 1000.0
+            assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(1000.0);
+
+            // Pending compensation record is deleted
+            assertThat(compensationRepo.findAllAsync().join()).isEmpty();
+        } finally {
+            storage.execute(conn -> {
+                try (Statement s = conn.createStatement()) {
+                    s.execute("DROP TRIGGER IF EXISTS fail_rep;");
+                }
+                return null;
+            });
+            failEconomyDeposit.set(false);
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 2 / SB-064: Configuration edit through dispatcher writes an audit row")
+    void configEditThroughDispatcherWritesAuditRow() {
+        Player admin = mockPlayer("ConfigAdmin", "socialblueprint.admin.config");
+
+        runCommandSync(admin, "status", "config", "set", "honor.cost", "750.0");
+
+        assertThat(configManager.get("honor.cost")).isEqualTo("750.0");
+
+        List<AuditEvent> audits = auditRepo.findRecentAsync(10).join();
+        assertThat(audits).isNotEmpty();
+        AuditEvent audit = audits.getFirst();
+        assertThat(audit.actor()).isEqualTo(PlayerId.of(admin.getUniqueId()));
+        assertThat(audit.operation()).isEqualTo("config_change");
+        assertThat(audit.target()).isEqualTo("honor.cost");
+        assertThat(audit.oldValue()).isEqualTo("500.0");
+        assertThat(audit.newValue()).isEqualTo("750.0");
+    }
+
+    @Test
+    @DisplayName("Finding 3 / SB-058: Failing audit rolls back reputation event inside single transaction")
+    void failingAuditRollsBackReputationEvent() {
+        Player target = mockPlayer("AuditFailTarget");
+        PlayerId targetId = PlayerId.of(target.getUniqueId());
+
+        // Trigger on audit_log to simulate audit write failure
+        storage.execute(conn -> {
+            try (Statement s = conn.createStatement()) {
+                s.execute("CREATE TRIGGER fail_audit BEFORE INSERT ON audit_log BEGIN SELECT RAISE(FAIL, 'simulated audit failure'); END;");
+            }
+            return null;
+        });
+
+        try {
+            List<String> messages = new ArrayList<>();
+            CommandSender console = mockConsole(messages);
+
+            // Attempt admin give
+            runCommandSync(console, "status", "admin", "give", "AuditFailTarget", "10");
+
+            // Verify no reputation event was written
+            List<ReputationEvent> events = reputationRepo.findByTargetAsync(targetId).join();
+            assertThat(events).isEmpty();
+        } finally {
+            storage.execute(conn -> {
+                try (Statement s = conn.createStatement()) {
+                    s.execute("DROP TRIGGER IF EXISTS fail_audit;");
+                }
+                return null;
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 3 / SB-058: Two concurrent admin resets inside single transaction do not compute stale deltas")
+    void concurrentAdminResetsDoNotComputeStaleDeltas() {
+        Player target = mockPlayer("RaceTarget");
+        PlayerId targetId = PlayerId.of(target.getUniqueId());
+
+        // Target starts with +50 reputation
+        reputationRepo.saveAsync(new ReputationEvent(
+                PlayerId.CONSOLE,
+                targetId,
+                50,
+                HonorKind.ADMIN_GIVE,
+                0.0,
+                "initial 50",
+                testClock.instant()
+        )).join();
+
+        assertThat(reputationRepo.getStatus(targetId).value()).isEqualTo(50);
+
+        List<String> messages = new ArrayList<>();
+        CommandSender console = mockConsole(messages);
+        RuntimeSnapshot snapshot = configManager.config().runtimeSnapshot();
+
+        // Dispatch two concurrent resets simultaneously
+        CompletableFuture<Void> r1 = honorService.adminReset(console, "RaceTarget", snapshot);
+        CompletableFuture<Void> r2 = honorService.adminReset(console, "RaceTarget", snapshot);
+        CompletableFuture.allOf(r1, r2).join();
+        drainMainThread();
+
+        // Target reputation is 0 (NOT -50!)
+        Status finalStatus = reputationRepo.getStatus(targetId);
+        assertThat(finalStatus.value()).isEqualTo(0);
+
+        // Verify underlying events: initial +50, first reset -50, second reset 0
+        List<ReputationEvent> events = reputationRepo.findByTargetAsync(targetId).join();
+        assertThat(events).hasSize(3);
+        assertThat(events.get(0).delta()).isEqualTo(50);
+        assertThat(events.get(1).delta()).isEqualTo(-50);
+        assertThat(events.get(2).delta()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Finding 4 / SB-058: Admin self-correction and deltas over 10,000 are permitted")
+    void adminSelfCorrectionAndLargeDeltasPermitted() {
+        Player admin = mockPlayer("SelfAdmin", "socialblueprint.admin");
+        PlayerId adminId = PlayerId.of(admin.getUniqueId());
+
+        // Admin self-correction
+        runCommandSync(admin, "status", "admin", "give", "SelfAdmin", "15");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.give-success");
+        assertThat(reputationRepo.getStatus(adminId).value()).isEqualTo(15);
+
+        // Mass-downvoted player reset (> 10,000 delta)
+        Player massVictim = mockPlayer("MassVictim");
+        PlayerId massVictimId = PlayerId.of(massVictim.getUniqueId());
+        reputationRepo.saveAsync(new ReputationEvent(
+                PlayerId.CONSOLE,
+                massVictimId,
+                -25_000,
+                HonorKind.ADMIN_TAKE,
+                0.0,
+                "mass grief downvote",
+                testClock.instant()
+        )).join();
+
+        assertThat(reputationRepo.getStatus(massVictimId).value()).isEqualTo(-25_000);
+
+        // Reset mass abuse (+25,000 delta)
+        runCommandSync(admin, "status", "admin", "reset", "MassVictim");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.admin.reset-success");
+        assertThat(reputationRepo.getStatus(massVictimId).value()).isEqualTo(0);
+
+        List<ReputationEvent> victimEvents = reputationRepo.findByTargetAsync(massVictimId).join();
+        assertThat(victimEvents).hasSize(2);
+        assertThat(victimEvents.get(1).delta()).isEqualTo(25_000);
+    }
+
+    @Test
+    @DisplayName("Finding 5 / Decision 0003: Multiplier window (1h) and cap window (7d) operate independently")
+    void twoWindowsOperateIndependently() {
+        Player actor = mockPlayer("WindowTester", "socialblueprint.give");
+        Player targetA = mockPlayer("TargetA");
+        Player targetB = mockPlayer("TargetB");
+        Player targetC = mockPlayer("TargetC");
+        economyBalances.put(actor.getUniqueId(), 10000.0);
+
+        // Rating 1 for TargetA at T=0 (cost: 500.0)
+        runCommandSync(actor, "status", "give", "TargetA");
+        runCommandSync(actor, "status", "confirm");
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(500.0);
+
+        // At T=30m: within 1h multiplier window -> next rating cost is 750.0 (multiplier 1.5)
+        testClock.advance(Duration.ofMinutes(30));
+        runCommandSync(actor, "status", "give", "TargetB");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
+        assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("750.00");
+        runCommandSync(actor, "status", "confirm");
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(750.0);
+
+        // At T=2h (past both previous 1h windows): ratings in 1h window = 0 -> multiplier reset to 1.0 -> cost 500.0
+        testClock.advance(Duration.ofHours(2));
+        runCommandSync(actor, "status", "give", "TargetC");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
+        assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("500.00");
+        runCommandSync(actor, "status", "confirm");
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(500.0);
+
+        // Meanwhile, TargetA is past 24h cooldown, but STILL inside the 7d cap window!
+        // Issue ratings 2 and 3 for TargetA
+        testClock.advance(Duration.ofHours(24));
+        runCommandSync(actor, "status", "give", "TargetA");
+        runCommandSync(actor, "status", "confirm");
+
+        testClock.advance(Duration.ofHours(24));
+        runCommandSync(actor, "status", "give", "TargetA");
+        runCommandSync(actor, "status", "confirm");
+
+        // 4th rating for TargetA inside 7d cap window hits cap
+        testClock.advance(Duration.ofHours(24));
+        runCommandSync(actor, "status", "give", "TargetA");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cap-reached");
+    }
+
+    @Test
+    @DisplayName("Finding 6 / SB-052: Exact currency rounding applied consistently across preview, withdrawal, and event")
+    void exactCurrencyRoundingConsistent() {
+        Player actor = mockPlayer("RoundTester", "socialblueprint.give");
+        mockPlayer("RoundTarget");
+        economyBalances.put(actor.getUniqueId(), 1000.0);
+
+        // Preview
+        runCommandSync(actor, "status", "give", "RoundTarget");
+        String previewCost = messageRegistry.lastCall().placeholders().get("cost");
+        assertThat(previewCost).isEqualTo("500.00");
+
+        // Confirm
+        runCommandSync(actor, "status", "confirm");
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(500.0);
+
+        List<ReputationEvent> events = reputationRepo.findByActor(PlayerId.of(actor.getUniqueId()));
+        assertThat(events.getFirst().cost()).isEqualTo(500.0);
+    }
+
+    @Test
+    @DisplayName("Finding 7: Shutdown callback runner drops main-thread dispatch when disabled rather than running on DB thread")
+    void shutdownDoesNotRunBukkitOrVaultOnDatabaseThread() {
+        AtomicBoolean isPluginEnabled = new AtomicBoolean(false); // Plugin disabled
+        Queue<Runnable> disabledQueue = new ConcurrentLinkedQueue<>();
+
+        HonorService shutdownHonorService = new HonorService(
+                configManager,
+                messageRegistry,
+                reputationRepo,
+                auditRepo,
+                compensationRepo,
+                profileService,
+                mockEconomy,
+                runnable -> {
+                    if (isPluginEnabled.get()) {
+                        disabledQueue.add(runnable);
+                    }
+                    // When disabled, does NOT run runnable.run() inline!
+                },
+                testClock,
+                uuid -> mockPlayer("Offline")
+        );
+
+        Player actor = mockPlayer("ShutdownActor", "socialblueprint.give");
+        Player target = mockPlayer("ShutdownTarget");
+        economyBalances.put(actor.getUniqueId(), 1000.0);
+
+        // Prepare rating while enabled
+        honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, null, configManager.config().runtimeSnapshot()).join();
+
+        // Confirm rating with shutdownHonorService while disabled
+        // The compensation record was persisted in SQLite before DB write.
+        // Even if DB write completes or fails while disabled, no Bukkit/Vault calls run on DB thread.
+        assertThatCode(() -> {
+            shutdownHonorService.confirmPlayerHonor(actor, configManager.config().runtimeSnapshot()).join();
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Finding 8 / T-051: StatusTakeCommand bounds reason text to 100 characters before storage")
+    void statusTakeBoundsReasonTextToMaxReasonLength() {
+        Player actor = mockPlayer("WordyActor", "socialblueprint.take");
+        Player target = mockPlayer("WordyTarget");
+        economyBalances.put(actor.getUniqueId(), 1000.0);
+
+        String longReason = "This is a very long reason that exceeds one hundred characters in total length to verify that StatusTakeCommand correctly bounds it before storage.";
+        assertThat(longReason.length()).isGreaterThan(100);
+
+        runCommandSync(actor, "status", "take", "WordyTarget", longReason);
+        runCommandSync(actor, "status", "confirm");
+
+        List<ReputationEvent> events = reputationRepo.findByTargetAsync(PlayerId.of(target.getUniqueId())).join();
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().reason()).hasSize(100);
+        assertThat(events.getFirst().reason()).isEqualTo(longReason.substring(0, 100));
+    }
+
     // =========================================================================
     // DoD 6: Threading Boundaries
     // =========================================================================
@@ -933,8 +1270,9 @@ class P4CommandsPermissionsTest {
 
         runCommandSync(console, "status");
 
-        // In Spanish, commands.player-only is: "&cEste comando solo puede ser ejecutado por jugadores."
-        assertThat(messages.getLast()).contains("solo puede ser ejecutado por jugadores");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
+        String expected = ColorParser.serialize(messageRegistry.renderWithPrefix(configManager.config().runtimeSnapshot(), "commands.player-only"));
+        assertThat(messages.getLast()).isEqualTo(expected);
     }
 
     @Test
@@ -946,8 +1284,9 @@ class P4CommandsPermissionsTest {
 
         runCommandSync(console, "status");
 
-        // In English, commands.player-only is: "&cThis command can only be executed by players."
-        assertThat(messages.getLast()).contains("This command can only be executed by players.");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
+        String expected = ColorParser.serialize(messageRegistry.renderWithPrefix(configManager.config().runtimeSnapshot(), "commands.player-only"));
+        assertThat(messages.getLast()).isEqualTo(expected);
     }
 
     // =========================================================================

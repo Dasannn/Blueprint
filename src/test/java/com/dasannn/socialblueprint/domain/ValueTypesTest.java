@@ -158,13 +158,35 @@ class ValueTypesTest {
         ReputationEvent freeAdminReset = new ReputationEvent(0L, actor, target, -5, HonorKind.ADMIN_RESET, 0.0, "reset", now);
         assertThat(freeAdminReset.cost()).isEqualTo(0.0);
 
-        // Fix 1: Delta bounds enforcement (±MAX_DELTA)
-        assertThatThrownBy(() -> new ReputationEvent(actor, target, ReputationEvent.MAX_DELTA + 1, HonorKind.POSITIVE, 500.0, null, now))
+        // Finding 4: Large deltas (e.g. > 10,000) are permitted for corrections and resets (SB-058)
+        ReputationEvent largePositive = new ReputationEvent(0L, actor, target, 50_000, HonorKind.ADMIN_GIVE, 0.0, "restoration", now);
+        assertThat(largePositive.delta()).isEqualTo(50_000);
+        ReputationEvent largeNegative = new ReputationEvent(0L, actor, target, -50_000, HonorKind.ADMIN_RESET, 0.0, "reset mass abuse", now);
+        assertThat(largeNegative.delta()).isEqualTo(-50_000);
+
+        // Finding 4: Admin self-correction is permitted (SB-058, Constitution §2.6)
+        ReputationEvent adminSelfGive = new ReputationEvent(0L, actor, actor, 10, HonorKind.ADMIN_GIVE, 0.0, "self-fix", now);
+        assertThat(adminSelfGive.actor()).isEqualTo(actor);
+        assertThat(adminSelfGive.target()).isEqualTo(actor);
+
+        ReputationEvent adminSelfReset = new ReputationEvent(0L, actor, actor, -10, HonorKind.ADMIN_RESET, 0.0, "self-reset", now);
+        assertThat(adminSelfReset.actor()).isEqualTo(actor);
+        assertThat(adminSelfReset.target()).isEqualTo(actor);
+
+        // Player honor self-rating remains forbidden
+        assertThatThrownBy(() -> new ReputationEvent(actor, actor, 1, HonorKind.POSITIVE, 500.0, null, now))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
-        assertThatThrownBy(() -> new ReputationEvent(actor, target, -(ReputationEvent.MAX_DELTA + 1), HonorKind.NEGATIVE, 500.0, "bad", now))
+                .hasMessageContaining("Actor cannot rate themselves");
+
+        // Finding 8: Reason length bound to 100 characters
+        String valid100Reason = "a".repeat(100);
+        ReputationEvent eventWith100 = new ReputationEvent(0L, actor, target, -1, HonorKind.NEGATIVE, 500.0, valid100Reason, now);
+        assertThat(eventWith100.reason()).isEqualTo(valid100Reason);
+
+        String invalid101Reason = "a".repeat(101);
+        assertThatThrownBy(() -> new ReputationEvent(0L, actor, target, -1, HonorKind.NEGATIVE, 500.0, invalid101Reason, now))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Delta magnitude exceeds maximum sane bound");
+                .hasMessageContaining("Reason exceeds maximum length");
     }
 
     @Test
