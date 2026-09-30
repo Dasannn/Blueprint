@@ -18,6 +18,7 @@ import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
+import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
@@ -356,6 +357,93 @@ class DuelCombatListenerTest {
         listener.onPlayerJoin(joinEvent);
 
         assertThat(duelService.getActiveDuel(playerId).isDisconnected(playerId)).isFalse();
+    }
+
+    @Test
+    @DisplayName("P2: Environmental death where getKiller() is set leaves killer uncounted and does not raise Psychosis")
+    void environmentalDeathLeavesKillerUncountedAndDoesNotRaisePsychosis() {
+        Player attacker = createMockPlayer("Attacker");
+        Player victim = createMockPlayer("Victim");
+        PlayerId attackerId = PlayerId.of(attacker.getUniqueId());
+        PlayerId victimId = PlayerId.of(victim.getUniqueId());
+
+        // Attacker hits victim in open combat
+        listener.handleDamage(attacker, victim);
+
+        // Victim later dies to fall/void: victim.getKiller() returns attacker,
+        // but DamageSource has no player causing entity and no projectile direct entity
+        DamageSource environmentalSource = (DamageSource) Proxy.newProxyInstance(
+                DamageSource.class.getClassLoader(),
+                new Class<?>[]{DamageSource.class},
+                (proxy, method, args) -> {
+                    if ("getCausingEntity".equals(method.getName())) return null;
+                    if ("getDirectEntity".equals(method.getName())) return null;
+                    return defaultValue(method.getReturnType());
+                }
+        );
+
+        // Configure victim mock so getKiller returns attacker
+        Player victimWithKiller = (Player) Proxy.newProxyInstance(
+                Player.class.getClassLoader(),
+                new Class<?>[]{Player.class},
+                (proxy, method, args) -> {
+                    if ("getName".equals(method.getName())) return "Victim";
+                    if ("getUniqueId".equals(method.getName())) return victim.getUniqueId();
+                    if ("getKiller".equals(method.getName())) return attacker;
+                    return defaultValue(method.getReturnType());
+                }
+        );
+
+        Player resolved = listener.resolveKiller(victimWithKiller, environmentalSource);
+        assertThat(resolved).isNull();
+
+        // Passing null killerId leaves ambiguous environmental deaths uncounted
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        listener.handleDeath(victimId, null, baseTime, snapshot);
+        assertThat(psychosisRepo.countOpenKillsSince(attackerId, baseTime.minusSeconds(200))).isZero();
+    }
+
+    @Test
+    @DisplayName("P2: Fatal projectile death where shooter is unresolved falls back to getKiller()")
+    void fatalProjectileDeathFallsBackToGetKiller() {
+        Player attacker = createMockPlayer("Archer");
+        Player victim = createMockPlayer("Target");
+
+        Player victimWithKiller = (Player) Proxy.newProxyInstance(
+                Player.class.getClassLoader(),
+                new Class<?>[]{Player.class},
+                (proxy, method, args) -> {
+                    if ("getName".equals(method.getName())) return "Target";
+                    if ("getUniqueId".equals(method.getName())) return victim.getUniqueId();
+                    if ("getKiller".equals(method.getName())) return attacker;
+                    return defaultValue(method.getReturnType());
+                }
+        );
+
+        Projectile projectile = (Projectile) Proxy.newProxyInstance(
+                Projectile.class.getClassLoader(),
+                new Class<?>[]{Projectile.class},
+                (proxy, method, args) -> {
+                    if ("getShooter".equals(method.getName())) return null; // Unresolved shooter
+                    return defaultValue(method.getReturnType());
+                }
+        );
+
+        DamageSource projectileSource = (DamageSource) Proxy.newProxyInstance(
+                DamageSource.class.getClassLoader(),
+                new Class<?>[]{DamageSource.class},
+                (proxy, method, args) -> {
+                    if ("getCausingEntity".equals(method.getName())) return null;
+                    if ("getDirectEntity".equals(method.getName())) return projectile;
+                    return defaultValue(method.getReturnType());
+                }
+        );
+
+        Player resolved = listener.resolveKiller(victimWithKiller, projectileSource);
+        // Compare identity, not the proxy: the invocation handler does not implement
+        // equals, so two references to the same proxy still compare unequal.
+        assertThat(resolved).isNotNull();
+        assertThat(resolved.getUniqueId()).isEqualTo(attacker.getUniqueId());
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

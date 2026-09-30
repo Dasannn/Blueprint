@@ -136,6 +136,7 @@ permissions:
   view-reputation: "socialblueprint.view"
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
+  duel: "socialblueprint.duel"
   effects: "socialblueprint.effects"
   version: "socialblueprint.version"
   admin-update: "socialblueprint.admin.update"
@@ -166,6 +167,7 @@ duel:
 # Private, cosmetic, rate-limited effects delivered only to players below the threshold.
 # ==============================================================================
 effects:
+  # Session caps reset on player relog and on server restart.
   # Status threshold below which ambient effects can fire (default: -10).
   threshold: -10
 

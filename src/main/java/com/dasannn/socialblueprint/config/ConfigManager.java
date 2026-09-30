@@ -363,6 +363,7 @@ public class ConfigManager {
         set.add("permissions.view-reputation");
         set.add("permissions.admin-adjust");
         set.add("permissions.admin-config");
+        set.add("permissions.duel");
         set.add("permissions.version");
         set.add("permissions.admin-update");
 

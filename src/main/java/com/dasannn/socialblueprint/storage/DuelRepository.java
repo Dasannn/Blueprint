@@ -212,15 +212,15 @@ public final class DuelRepository {
     }
 
     /**
-     * Cleans up stale active duels on server startup per DoD 4.
+     * Cleans up stale active duels on server startup per DoD 4 asynchronously.
      * Prevents duel state leaking across server restarts leaving a player permanently in a duel.
      *
      * @param now the timestamp to mark as ended_at
-     * @return count of updated duels
+     * @return CompletableFuture of updated duels count
      */
-    public int cleanupStaleDuelsOnStartup(Instant now) {
+    public CompletableFuture<Integer> cleanupStaleDuelsOnStartupAsync(Instant now) {
         Objects.requireNonNull(now, "now must not be null");
-        return engine.execute(conn -> {
+        return engine.executeAsync(conn -> {
             String sql = """
                 UPDATE duel
                 SET state = 'ended', ended_at = ?
@@ -231,5 +231,16 @@ public final class DuelRepository {
                 return ps.executeUpdate();
             }
         });
+    }
+
+    /**
+     * Cleans up stale active duels on server startup per DoD 4.
+     * Prevents duel state leaking across server restarts leaving a player permanently in a duel.
+     *
+     * @param now the timestamp to mark as ended_at
+     * @return count of updated duels
+     */
+    public int cleanupStaleDuelsOnStartup(Instant now) {
+        return cleanupStaleDuelsOnStartupAsync(now).join();
     }
 }

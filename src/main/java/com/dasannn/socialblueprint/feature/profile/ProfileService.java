@@ -65,9 +65,15 @@ public class ProfileService {
             }
     );
 
+    public enum OptOutState {
+        UNKNOWN,
+        OPTED_IN,
+        OPTED_OUT
+    }
+
     private final ConcurrentMap<PlayerId, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
     private final ConcurrentMap<PlayerId, Integer> playerGenerations = new ConcurrentHashMap<>();
-    private final Set<PlayerId> optedOutCache = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<PlayerId, OptOutState> optOutCache = new ConcurrentHashMap<>();
     private final Object loadLock = new Object();
 
     public ProfileService(
@@ -195,13 +201,8 @@ public class ProfileService {
 
         Optional<PlayerProfile> profile = profileRepository.findById(id);
         String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
-        if (profile.isPresent()) {
-            if (profile.get().effectsOptOut()) {
-                optedOutCache.add(id);
-            } else {
-                optedOutCache.remove(id);
-            }
-        }
+        boolean optedOut = profile.map(PlayerProfile::effectsOptOut).orElse(false);
+        optOutCache.put(id, optedOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
 
         TierLadder ladder = cfg.tiers().ladder();
         Tier tier = ladder.resolve(status.value());
@@ -350,11 +351,7 @@ public class ProfileService {
                     .map(p -> p.withName(name, now))
                     .orElseGet(() -> PlayerProfile.create(id, name, now));
             profileRepository.save(profile);
-            if (profile.effectsOptOut()) {
-                optedOutCache.add(id);
-            } else {
-                optedOutCache.remove(id);
-            }
+            optOutCache.put(id, profile.effectsOptOut() ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
             loadViewInternal(id, name, snapshot, gen);
         });
     }
@@ -377,7 +374,7 @@ public class ProfileService {
 
     public void evict(PlayerId id) {
         if (id != null) {
-            optedOutCache.remove(id);
+            optOutCache.remove(id);
             synchronized (loadLock) {
                 viewCache.remove(id);
                 playerGenerations.compute(id, (k, g) -> (g == null ? 0 : g) + 1);
@@ -398,17 +395,26 @@ public class ProfileService {
         }
     }
 
+    public OptOutState getEffectsOptOutState(PlayerId id) {
+        if (id == null) return OptOutState.UNKNOWN;
+        return optOutCache.getOrDefault(id, OptOutState.UNKNOWN);
+    }
+
     public boolean isEffectsOptedOut(PlayerId id) {
-        if (id == null) return false;
-        return optedOutCache.contains(id);
+        return getEffectsOptOutState(id) == OptOutState.OPTED_OUT;
     }
 
     public void setEffectsOptOutCache(PlayerId id, boolean optOut) {
         if (id == null) return;
-        if (optOut) {
-            optedOutCache.add(id);
+        optOutCache.put(id, optOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
+    }
+
+    public void setEffectsOptOutState(PlayerId id, OptOutState state) {
+        if (id == null) return;
+        if (state == null || state == OptOutState.UNKNOWN) {
+            optOutCache.remove(id);
         } else {
-            optedOutCache.remove(id);
+            optOutCache.put(id, state);
         }
     }
 
@@ -422,11 +428,7 @@ public class ProfileService {
                     .map(p -> p.withEffectsOptOut(newOptOut, now))
                     .orElseGet(() -> new PlayerProfile(id, playerName != null ? playerName : id.toString(), newOptOut, now, now));
             profileRepository.save(updated);
-            if (newOptOut) {
-                optedOutCache.add(id);
-            } else {
-                optedOutCache.remove(id);
-            }
+            optOutCache.put(id, newOptOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
             return newOptOut;
         });
     }

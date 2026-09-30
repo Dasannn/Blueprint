@@ -40,27 +40,37 @@ public class AmbientEffectDispatcher {
         this.silverfishService = Objects.requireNonNull(silverfishService, "FakeSilverfishService must not be null");
     }
 
-    public void dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+    public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(player, "player must not be null");
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(config, "config must not be null");
 
-        switch (type) {
+        return switch (type) {
             case SILVERFISH -> dispatchSilverfish(player, config);
-            case WHISPER -> dispatchWhisper(player);
-            case CREEPER_SOUND -> dispatchCreeperSound(player, snapshot);
-            case FAKE_ANNOUNCEMENT -> dispatchFakeAnnouncement(player, config);
-        }
+            case WHISPER -> {
+                dispatchWhisper(player);
+                yield true;
+            }
+            case CREEPER_SOUND -> {
+                dispatchCreeperSound(player, snapshot);
+                yield true;
+            }
+            case FAKE_ANNOUNCEMENT -> {
+                dispatchFakeAnnouncement(player, config);
+                yield true;
+            }
+        };
     }
 
-    private void dispatchSilverfish(Player player, EffectsConfigSection config) {
+    private boolean dispatchSilverfish(Player player, EffectsConfigSection config) {
         double angle = random.nextDouble() * 2 * Math.PI;
         double distance = 1.5 + random.nextDouble() * 2.0;
         double dx = Math.cos(angle) * distance;
         double dz = Math.sin(angle) * distance;
 
         Location at = player.getLocation().clone().add(dx, 0, dz);
-        silverfishService.spawnSilverfish(player, at, config.silverfish().durationTicks());
+        ActiveEntityEntry entry = silverfishService.spawnSilverfish(player, at, config.silverfish().durationTicks());
+        return entry != null;
     }
 
     private void dispatchWhisper(Player player) {

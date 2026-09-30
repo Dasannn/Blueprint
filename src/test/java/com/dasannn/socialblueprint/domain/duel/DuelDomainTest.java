@@ -221,4 +221,36 @@ class DuelDomainTest {
         List<DuelParticipant> participants = session.toParticipantList();
         assertThat(participants).hasSize(3);
     }
+
+    @Test
+    @DisplayName("P1: DuelChallenge constructor rejects duplicate membership across sides")
+    void duelChallengeRejectsDuplicateMemberAcrossSides() {
+        PlayerId p1 = PlayerId.of(UUID.randomUUID());
+        PlayerId p2 = PlayerId.of(UUID.randomUUID());
+
+        Map<String, Set<PlayerId>> sides = Map.of(
+                "side_1", Set.of(p1, p2),
+                "side_2", Set.of(p2)
+        );
+
+        assertThatThrownBy(() -> new DuelChallenge("c-dup", p1, sides, baseTime, baseTime.plusSeconds(60)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Player cannot be on multiple sides");
+    }
+
+    @Test
+    @DisplayName("P1: ActiveDuelSession constructor rejects duplicate membership across sides")
+    void activeDuelSessionRejectsDuplicateMemberAcrossSides() {
+        PlayerId p1 = PlayerId.of(UUID.randomUUID());
+        PlayerId p2 = PlayerId.of(UUID.randomUUID());
+
+        Map<String, Set<PlayerId>> sides = Map.of(
+                "side_1", Set.of(p1, p2),
+                "side_2", Set.of(p2)
+        );
+
+        assertThatThrownBy(() -> new ActiveDuelSession("s-dup", sides, baseTime))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Player cannot be on multiple sides");
+    }
 }
