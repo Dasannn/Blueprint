@@ -373,6 +373,8 @@ public class ConfigManager {
         set.add("update.api-url");
         set.add("update.max-download-bytes");
 
+        set.add("history.reveal-cost");
+
         return Collections.unmodifiableSet(set);
     }
 

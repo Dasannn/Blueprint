@@ -121,3 +121,30 @@ updater:
   checksum-mismatch: '&cActualización fallida: No coincide la suma de verificación. La descarga fue rechazada por seguridad.'
   failed: '&cError en la verificación o descarga de la actualización: &f{error}'
   no-update: '&7SocialBlueprint ya está actualizado (&b{current}&7).'
+
+gui:
+  title: '&8Perfil: &6{player}'
+  top:
+    give-banner-title: '&a&lDar Honor'
+    give-banner-lore: '&7Haz clic para otorgar honor positivo.'
+    take-banner-title: '&c&lQuitar Honor'
+    take-banner-lore: '&7Haz clic para quitar honor (requiere motivo).'
+    subject-head-title: '&e{player}'
+    tier-dye-title: '{prefix}{tier}'
+  history:
+    page-previous: '&ePágina anterior'
+    page-next: '&ePágina siguiente'
+    page-info: '&7Página &e{current}&7 de &e{total}'
+    anonymous-rater: '&7Anónimo'
+    click-to-reveal: '&eClic para revelar nombre &7(&6{cost}&7)'
+    revealed-rater: '&b{player}'
+    revealed-info: '&aIdentidad revelada'
+    paper-title: '&fMotivo de la calificación'
+    no-reason: '&7(Sin motivo)'
+    positive-banner: '&a+ Calificación positiva'
+    negative-banner: '&c- Calificación negativa'
+  reveal:
+    already-revealed: '&7La identidad de este calificador ya ha sido revelada.'
+    insufficient-funds: '&cNecesitas {cost} para revelar la identidad de este calificador.'
+    success: '&aSe ha revelado al calificador &e{player}&a por &6{cost}&a.'
+

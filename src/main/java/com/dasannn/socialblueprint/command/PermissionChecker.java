@@ -32,8 +32,22 @@ public final class PermissionChecker {
         if (configuredNode != null && sender.hasPermission(configuredNode)) {
             return true;
         }
-        if (configuredNode == null && sender.hasPermission("socialblueprint." + actionKey)) {
+        if (sender.hasPermission("socialblueprint." + actionKey)) {
             return true;
+        }
+        if (sender.hasPermission("socialblueprint." + actionKey.replace('-', '.'))) {
+            return true;
+        }
+        if (sender.hasPermission("socialblueprint." + actionKey.replace('.', '-'))) {
+            return true;
+        }
+        if (configuredNode != null) {
+            if (sender.hasPermission(configuredNode.replace('-', '.'))) {
+                return true;
+            }
+            if (sender.hasPermission(configuredNode.replace('.', '-'))) {
+                return true;
+            }
         }
 
         // Parent permissions declared in plugin.yml

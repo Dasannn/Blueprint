@@ -20,7 +20,8 @@ public record PluginConfig(
         PermissionsConfig permissions,
         DuelConfigSection duel,
         EffectsConfigSection effects,
-        UpdateConfig update
+        UpdateConfig update,
+        HistoryConfig history
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -34,7 +35,7 @@ public record PluginConfig(
             PermissionsConfig permissions
     ) {
         this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                null, EffectsConfigSection.defaults(), UpdateConfig.defaults());
+                null, EffectsConfigSection.defaults(), UpdateConfig.defaults(), HistoryConfig.defaults());
     }
 
     /** P5 call sites: duel supplied, effects defaulted. */
@@ -49,7 +50,7 @@ public record PluginConfig(
             DuelConfigSection duel
     ) {
         this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                duel, EffectsConfigSection.defaults(), UpdateConfig.defaults());
+                duel, EffectsConfigSection.defaults(), UpdateConfig.defaults(), HistoryConfig.defaults());
     }
 
     /** P6 call sites: effects supplied, no duel configured. */
@@ -63,7 +64,22 @@ public record PluginConfig(
             PermissionsConfig permissions,
             EffectsConfigSection effects
     ) {
-        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null, effects, UpdateConfig.defaults());
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null, effects, UpdateConfig.defaults(), HistoryConfig.defaults());
+    }
+
+    public PluginConfig(
+            String language,
+            String chatPrefix,
+            TiersConfig tiers,
+            ConfidenceConfigSection confidence,
+            PsychosisConfigSection psychosis,
+            HonorConfigSection honor,
+            PermissionsConfig permissions,
+            DuelConfigSection duel,
+            EffectsConfigSection effects,
+            UpdateConfig update
+    ) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects, update, HistoryConfig.defaults());
     }
 
     public PluginConfig {
@@ -77,6 +93,9 @@ public record PluginConfig(
         Objects.requireNonNull(effects, "effects must not be null");
         if (update == null) {
             update = UpdateConfig.defaults();
+        }
+        if (history == null) {
+            history = HistoryConfig.defaults();
         }
     }
 
@@ -122,8 +141,9 @@ public record PluginConfig(
                 ? EffectsConfigSection.load(root)
                 : EffectsConfigSection.defaults();
         UpdateConfig update = UpdateConfig.load(root);
+        HistoryConfig history = HistoryConfig.load(root);
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects, update);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects, update, history);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -137,7 +157,8 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                update
+                update,
+                history
         );
     }
 
@@ -152,7 +173,8 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                update
+                update,
+                history
         );
     }
 
@@ -167,7 +189,8 @@ public record PluginConfig(
                 permissions,
                 duel,
                 Objects.requireNonNull(newEffects, "effects must not be null"),
-                update
+                update,
+                history
         );
     }
 
@@ -182,7 +205,24 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                Objects.requireNonNull(newUpdate, "update must not be null")
+                Objects.requireNonNull(newUpdate, "update must not be null"),
+                history
+        );
+    }
+
+    public PluginConfig withHistory(HistoryConfig newHistory) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                Objects.requireNonNull(newHistory, "history must not be null")
         );
     }
 }

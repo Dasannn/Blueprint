@@ -121,3 +121,30 @@ updater:
   checksum-mismatch: '&cUpdate failed: Checksum mismatch. Download was rejected for security.'
   failed: '&cUpdate check or download failed: &f{error}'
   no-update: '&7SocialBlueprint is already up to date (&b{current}&7).'
+
+gui:
+  title: '&8Profile: &6{player}'
+  top:
+    give-banner-title: '&a&lGive Honor'
+    give-banner-lore: '&7Click to grant positive honor.'
+    take-banner-title: '&c&lTake Honor'
+    take-banner-lore: '&7Click to take honor (reason required).'
+    subject-head-title: '&e{player}'
+    tier-dye-title: '{prefix}{tier}'
+  history:
+    page-previous: '&ePrevious Page'
+    page-next: '&eNext Page'
+    page-info: '&7Page &e{current}&7 of &e{total}'
+    anonymous-rater: '&7Anonymous'
+    click-to-reveal: '&eClick to reveal name &7(&6{cost}&7)'
+    revealed-rater: '&b{player}'
+    revealed-info: '&aIdentity revealed'
+    paper-title: '&fRating Reason'
+    no-reason: '&7(No reason provided)'
+    positive-banner: '&a+ Positive Rating'
+    negative-banner: '&c- Negative Rating'
+  reveal:
+    already-revealed: '&7This rater''s identity is already revealed.'
+    insufficient-funds: '&cYou need {cost} to reveal this rater''s identity.'
+    success: '&aRevealed rater &e{player}&a for &6{cost}&a.'
+

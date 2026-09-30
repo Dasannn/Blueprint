@@ -216,3 +216,11 @@ update:
 
   # Maximum allowed download size in bytes for release assets (SB-074). Default: 10485760 (10 MB).
   max-download-bytes: 10485760
+
+# ==============================================================================
+# Rating History GUI & Anonymity (SB-080 to SB-084, T-120 to T-126)
+# ==============================================================================
+history:
+  # Cost in currency to reveal an anonymous rater's identity in the /status GUI (T-124).
+  reveal-cost: 100.0
+

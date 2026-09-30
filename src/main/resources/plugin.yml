@@ -93,5 +93,18 @@ permissions:
     children:
       socialblueprint.admin: true
 
+  socialblueprint.show-others:
+    children:
+      socialblueprint.show.others: true
+  socialblueprint.give-reputation:
+    children:
+      socialblueprint.give: true
+  socialblueprint.take-reputation:
+    children:
+      socialblueprint.take: true
+  socialblueprint.admin-adjust:
+    children:
+      socialblueprint.admin.adjust: true
+
 libraries:
   - org.xerial:sqlite-jdbc:3.53.4.0

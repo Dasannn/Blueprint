@@ -98,6 +98,9 @@ class ConfigValidationTest {
         assertThat(config.effects().whisper().sessionCap()).isEqualTo(5);
         assertThat(config.effects().creeper().cooldown()).isEqualTo(Duration.ofMinutes(8));
         assertThat(config.effects().creeper().sessionCap()).isEqualTo(3);
+
+        // Verify History settings (T-124)
+        assertThat(config.history().revealCost()).isEqualTo(100.0);
         assertThat(config.effects().fakeAnnouncement().cooldown()).isEqualTo(Duration.ofMinutes(15));
         assertThat(config.effects().fakeAnnouncement().sessionCap()).isEqualTo(2);
         assertThat(config.effects().fakeAnnouncement().fakeNames()).containsExactly("Herobrine");
@@ -498,6 +501,18 @@ class ConfigValidationTest {
                 .isInstanceOf(ConfigValidationException.class)
                 .hasMessageContaining("update.api-url")
                 .matches(e -> ((ConfigValidationException) e).key().equals("update.api-url"));
+    }
+
+    @Test
+    @DisplayName("T-124: Negative history reveal-cost fails validation naming history.reveal-cost")
+    void negativeRevealCostFailsValidation() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("history.reveal-cost", -5.0);
+
+        assertThatThrownBy(() -> PluginConfig.load(yaml))
+                .isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("history.reveal-cost")
+                .matches(e -> ((ConfigValidationException) e).key().equals("history.reveal-cost"));
     }
 
     private static YamlConfiguration loadValidYaml() {
