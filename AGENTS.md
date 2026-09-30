@@ -96,9 +96,23 @@ hard-won details:
   known yet.
 * `agy` prints nothing until it finishes, so its output file is no liveness
   signal. Watch the process and the worktree's file mtimes instead.
-* `agy` will background a long build and then idle waiting for it, until its
-  own 30 minute timeout cuts it off with no report. Briefs that end in a build
-  must say to run it in the foreground.
+* **Claude runs the build. Agents do not.** `agy` backgrounds a long build and
+  then idles waiting for it until its own 30 minute timeout kills the round
+  with no report — twice, including once after a brief told it to run the build
+  in the foreground. Codex cannot compile here at all. So briefs say *do not
+  run Maven*, and Claude runs `mvnw clean verify` and feeds the real compiler
+  output back. A cycle then costs minutes instead of half an hour.
+* Because it never compiles, `agy` invents method signatures that look right:
+  `oldValue()` for `before()`, a `findRecentAsync` that does not exist, an
+  accessor a decision record had just removed. **Before calling a method, grep
+  its declaration.** A brief that introduces a new type should quote its real
+  signature.
+* Trivial compile errors — a missing import, the wrong constructor overload, a
+  lambda capturing a branch-assigned local — are faster for Claude to fix than
+  to send back. Only structural errors earn a round trip.
+* Codex writes its report to stdout as well as the file it was asked for, and
+  sometimes only to stdout. Check the task output before concluding it produced
+  nothing.
 
 ## Progress
 
