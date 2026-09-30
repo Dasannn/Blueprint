@@ -13,6 +13,8 @@ import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.Objects;
 import java.util.UUID;
+import org.bukkit.entity.Entity;
+import org.bukkit.event.Cancellable;
 
 /**
  * Event listener guaranteeing entity safety and lifecycle cleanup per T-072, T-073,
@@ -56,14 +58,21 @@ public class AmbientEffectsListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (registry.isManaged(event.getDamager())) {
-            event.setCancelled(true);
-        }
+        cancelIfManaged(event.getDamager(), event);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onEntityDamage(EntityDamageEvent event) {
-        if (registry.isManaged(event.getEntity())) {
+        cancelIfManaged(event.getEntity(), event);
+    }
+
+    /**
+     * A fake silverfish neither deals nor takes damage (SB-042). Constructing an
+     * EntityDamageEvent needs a live server registry, so a unit test cannot
+     * reach this decision through the handlers; it calls this instead.
+     */
+    void cancelIfManaged(Entity entity, Cancellable event) {
+        if (registry.isManaged(entity)) {
             event.setCancelled(true);
         }
     }

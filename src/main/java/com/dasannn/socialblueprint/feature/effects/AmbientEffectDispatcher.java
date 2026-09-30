@@ -6,7 +6,6 @@ import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
-import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -22,6 +21,8 @@ import java.util.Random;
  * Absolutely private: no broadcast, no server logging, no leakage to other players.
  */
 public class AmbientEffectDispatcher {
+
+    private static final String CREEPER_FUSE_SOUND = "entity.creeper.primed";
 
     private final Plugin plugin;
     private final MessageRegistry messageRegistry;
@@ -76,7 +77,11 @@ public class AmbientEffectDispatcher {
 
     private void dispatchCreeperSound(Player player) {
         // player.playSound sends the sound packet ONLY to this player (private per SB-041)
-        player.playSound(player.getLocation(), Sound.ENTITY_CREEPER_PRIMED, SoundCategory.HOSTILE, 1.0f, 0.5f);
+        // The String overload, not Sound.ENTITY_CREEPER_PRIMED: the enum is
+        // registry-backed and cannot initialise without a running server,
+        // which made this path impossible to unit test at all.
+        // ponytail: key is a constant; move it to config if an owner ever asks.
+        player.playSound(player.getLocation(), CREEPER_FUSE_SOUND, SoundCategory.HOSTILE, 1.0f, 0.5f);
     }
 
     private void dispatchFakeAnnouncement(Player player, EffectsConfigSection config) {

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -23,35 +24,43 @@ class AmbientEntityRegistryTest {
     }
 
     private Entity mockEntity(UUID uuid) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String name = method.getName();
+            if ("equals".equals(name) && method.getParameterCount() == 1) return proxy == args[0];
+            if ("hashCode".equals(name) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
+            if ("toString".equals(name) && method.getParameterCount() == 0) return "MockEntity-" + uuid;
+            if ("getUniqueId".equals(name)) return uuid;
+            if ("isValid".equals(name)) return true;
+            if ("remove".equals(name)) return null;
+            return defaultValue(method.getReturnType());
+        };
         return (Entity) Proxy.newProxyInstance(
                 Entity.class.getClassLoader(),
                 new Class<?>[]{Entity.class},
-                (proxy, method, args) -> {
-                    String name = method.getName();
-                    if ("getUniqueId".equals(name)) return uuid;
-                    if ("isValid".equals(name)) return true;
-                    if ("remove".equals(name)) return null;
-                    return null;
-                }
+                handler
         );
     }
 
     private BukkitTask mockTask(AtomicBoolean cancelled) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String name = method.getName();
+            if ("equals".equals(name) && method.getParameterCount() == 1) return proxy == args[0];
+            if ("hashCode".equals(name) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
+            if ("toString".equals(name) && method.getParameterCount() == 0) return "MockBukkitTask";
+            if ("cancel".equals(name)) {
+                cancelled.set(true);
+                return null;
+            }
+            if ("isCancelled".equals(name)) {
+                return cancelled.get();
+            }
+            if ("getTaskId".equals(name)) return 100;
+            return defaultValue(method.getReturnType());
+        };
         return (BukkitTask) Proxy.newProxyInstance(
                 BukkitTask.class.getClassLoader(),
                 new Class<?>[]{BukkitTask.class},
-                (proxy, method, args) -> {
-                    String name = method.getName();
-                    if ("cancel".equals(name)) {
-                        cancelled.set(true);
-                        return null;
-                    }
-                    if ("isCancelled".equals(name)) {
-                        return cancelled.get();
-                    }
-                    if ("getTaskId".equals(name)) return 100;
-                    return null;
-                }
+                handler
         );
     }
 
@@ -216,5 +225,17 @@ class AmbientEntityRegistryTest {
         registry.cleanForPlayerWorldChange(null);
         registry.unregister(null);
         assertThat(registry.getActiveCount()).isEqualTo(0);
+    }
+
+    private static Object defaultValue(Class<?> returnType) {
+        if (returnType == boolean.class) return false;
+        if (returnType == int.class) return 0;
+        if (returnType == long.class) return 0L;
+        if (returnType == double.class) return 0.0;
+        if (returnType == float.class) return 0.0f;
+        if (returnType == byte.class) return (byte) 0;
+        if (returnType == short.class) return (short) 0;
+        if (returnType == char.class) return '\0';
+        return null;
     }
 }

@@ -147,16 +147,20 @@ class AmbientEffectSchedulerTest {
     }
 
     private Player createMockPlayer(UUID uuid, String name) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String m = method.getName();
+            if ("equals".equals(m) && method.getParameterCount() == 1) return proxy == args[0];
+            if ("hashCode".equals(m) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
+            if ("toString".equals(m) && method.getParameterCount() == 0) return name;
+            if ("getUniqueId".equals(m)) return uuid;
+            if ("getName".equals(m)) return name;
+            if ("isOnline".equals(m)) return true;
+            return defaultValue(method.getReturnType());
+        };
         return (Player) Proxy.newProxyInstance(
                 Player.class.getClassLoader(),
                 new Class<?>[]{Player.class},
-                (proxy, method, args) -> {
-                    String m = method.getName();
-                    if ("getUniqueId".equals(m)) return uuid;
-                    if ("getName".equals(m)) return name;
-                    if ("isOnline".equals(m)) return true;
-                    return null;
-                }
+                handler
         );
     }
 
@@ -302,5 +306,17 @@ class AmbientEffectSchedulerTest {
         // Reconnect in new session -> session state is refreshed
         PlayerEffectState newState = scheduler.getOrCreateState(p);
         assertThat(newState.canFire(AmbientEffectType.CREEPER_SOUND, cfg.creeper(), 500_000L)).isTrue();
+    }
+
+    private static Object defaultValue(Class<?> returnType) {
+        if (returnType == boolean.class) return false;
+        if (returnType == int.class) return 0;
+        if (returnType == long.class) return 0L;
+        if (returnType == double.class) return 0.0;
+        if (returnType == float.class) return 0.0f;
+        if (returnType == byte.class) return (byte) 0;
+        if (returnType == short.class) return (short) 0;
+        if (returnType == char.class) return '\0';
+        return null;
     }
 }

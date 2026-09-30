@@ -30,8 +30,10 @@ public class AmbientEntityRegistry {
     public void register(ActiveEntityEntry entry) {
         Objects.requireNonNull(entry, "ActiveEntityEntry must not be null");
         activeEntries.add(entry);
-        playerEntries.computeIfAbsent(entry.targetPlayerId(), k -> ConcurrentHashMap.newKeySet()).add(entry);
-        if (entry.realEntity() != null) {
+        if (entry.targetPlayerId() != null) {
+            playerEntries.computeIfAbsent(entry.targetPlayerId(), k -> ConcurrentHashMap.newKeySet()).add(entry);
+        }
+        if (entry.realEntity() != null && entry.realEntity().getUniqueId() != null) {
             entityToEntry.put(entry.realEntity().getUniqueId(), entry);
         }
     }
@@ -39,14 +41,16 @@ public class AmbientEntityRegistry {
     public void unregister(ActiveEntityEntry entry) {
         if (entry == null) return;
         activeEntries.remove(entry);
-        Set<ActiveEntityEntry> set = playerEntries.get(entry.targetPlayerId());
-        if (set != null) {
-            set.remove(entry);
-            if (set.isEmpty()) {
-                playerEntries.remove(entry.targetPlayerId());
+        if (entry.targetPlayerId() != null) {
+            Set<ActiveEntityEntry> set = playerEntries.get(entry.targetPlayerId());
+            if (set != null) {
+                set.remove(entry);
+                if (set.isEmpty()) {
+                    playerEntries.remove(entry.targetPlayerId());
+                }
             }
         }
-        if (entry.realEntity() != null) {
+        if (entry.realEntity() != null && entry.realEntity().getUniqueId() != null) {
             entityToEntry.remove(entry.realEntity().getUniqueId());
         }
     }
@@ -69,7 +73,7 @@ public class AmbientEntityRegistry {
         if (entries != null) {
             for (ActiveEntityEntry entry : entries) {
                 activeEntries.remove(entry);
-                if (entry.realEntity() != null) {
+                if (entry.realEntity() != null && entry.realEntity().getUniqueId() != null) {
                     entityToEntry.remove(entry.realEntity().getUniqueId());
                 }
                 entry.cleanup();
@@ -98,7 +102,7 @@ public class AmbientEntityRegistry {
     }
 
     public boolean isManaged(Entity entity) {
-        return entity != null && entityToEntry.containsKey(entity.getUniqueId());
+        return entity != null && entity.getUniqueId() != null && entityToEntry.containsKey(entity.getUniqueId());
     }
 
     public int getActiveCount() {
@@ -106,11 +110,17 @@ public class AmbientEntityRegistry {
     }
 
     public boolean hasActiveEntities(UUID playerId) {
+        if (playerId == null) {
+            return false;
+        }
         Set<ActiveEntityEntry> set = playerEntries.get(playerId);
         return set != null && !set.isEmpty();
     }
 
     public Set<ActiveEntityEntry> getEntriesForPlayer(UUID playerId) {
+        if (playerId == null) {
+            return Collections.emptySet();
+        }
         Set<ActiveEntityEntry> set = playerEntries.get(playerId);
         return set != null ? Collections.unmodifiableSet(set) : Collections.emptySet();
     }

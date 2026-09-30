@@ -117,14 +117,22 @@ public class AmbientEffectScheduler {
     }
 
     public void handlePlayerQuit(UUID playerId) {
-        playerStates.remove(playerId);
+        if (playerId != null) {
+            playerStates.remove(playerId);
+        }
     }
 
     public PlayerEffectState getOrCreateState(UUID playerId) {
+        if (playerId == null) {
+            return new PlayerEffectState();
+        }
         return playerStates.computeIfAbsent(playerId, k -> new PlayerEffectState());
     }
 
     public PlayerEffectState getState(UUID playerId) {
+        if (playerId == null) {
+            return null;
+        }
         return playerStates.get(playerId);
     }
 }

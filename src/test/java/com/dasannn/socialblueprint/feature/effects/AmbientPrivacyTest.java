@@ -9,7 +9,6 @@ import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.config.SingleEffectConfig;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
-import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
 import org.bukkit.World;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -96,7 +95,7 @@ class AmbientPrivacyTest {
         final List<Entity> hiddenEntities = new ArrayList<>();
         final Player proxy;
 
-        record PlayedSoundRecord(Location loc, Sound sound, SoundCategory category, float volume, float pitch) {}
+        record PlayedSoundRecord(Location loc, String sound, SoundCategory category, float volume, float pitch) {}
 
         MockPlayer(UUID uuid, String name, World mockWorld) {
             this.uuid = uuid;
@@ -105,6 +104,9 @@ class AmbientPrivacyTest {
 
             InvocationHandler handler = (p, method, args) -> {
                 String mName = method.getName();
+                if ("equals".equals(mName) && method.getParameterCount() == 1) return p == args[0];
+                if ("hashCode".equals(mName) && method.getParameterCount() == 0) return System.identityHashCode(p);
+                if ("toString".equals(mName) && method.getParameterCount() == 0) return name;
                 if ("getUniqueId".equals(mName)) return uuid;
                 if ("getName".equals(mName)) return name;
                 if ("isOnline".equals(mName)) return true;
@@ -120,7 +122,7 @@ class AmbientPrivacyTest {
                     if (args != null && args.length >= 5) {
                         playedSounds.add(new PlayedSoundRecord(
                                 (Location) args[0],
-                                (Sound) args[1],
+                                String.valueOf(args[1]),
                                 (SoundCategory) args[2],
                                 ((Number) args[3]).floatValue(),
                                 ((Number) args[4]).floatValue()
@@ -140,7 +142,7 @@ class AmbientPrivacyTest {
                     }
                     return null;
                 }
-                return null;
+                return defaultValue(method.getReturnType());
             };
 
             this.proxy = (Player) Proxy.newProxyInstance(
@@ -187,9 +189,13 @@ class AmbientPrivacyTest {
                 World.class.getClassLoader(),
                 new Class<?>[]{World.class},
                 (p, method, args) -> {
-                    if ("getUID".equals(method.getName())) return UUID.randomUUID();
-                    if ("getName".equals(method.getName())) return "world";
-                    return null;
+                    String mName = method.getName();
+                    if ("equals".equals(mName) && method.getParameterCount() == 1) return p == args[0];
+                    if ("hashCode".equals(mName) && method.getParameterCount() == 0) return System.identityHashCode(p);
+                    if ("toString".equals(mName) && method.getParameterCount() == 0) return "MockWorld";
+                    if ("getUID".equals(mName)) return UUID.randomUUID();
+                    if ("getName".equals(mName)) return "world";
+                    return defaultValue(method.getReturnType());
                 }
         );
 
@@ -244,7 +250,7 @@ class AmbientPrivacyTest {
         // Affected player receives private playSound
         assertThat(targetPlayer.playedSounds).hasSize(1);
         MockPlayer.PlayedSoundRecord sound = targetPlayer.playedSounds.get(0);
-        assertThat(sound.sound()).isEqualTo(Sound.ENTITY_CREEPER_PRIMED);
+        assertThat(sound.sound()).isEqualTo("entity.creeper.primed");
         assertThat(sound.category()).isEqualTo(SoundCategory.HOSTILE);
 
         // Observing player receives NO sound
@@ -277,5 +283,17 @@ class AmbientPrivacyTest {
         assertThat(observingPlayer.receivedMessages).isEmpty();
         assertThat(observingPlayer.playedSounds).isEmpty();
         assertThat(observingPlayer.shownEntities).isEmpty();
+    }
+
+    private static Object defaultValue(Class<?> returnType) {
+        if (returnType == boolean.class) return false;
+        if (returnType == int.class) return 0;
+        if (returnType == long.class) return 0L;
+        if (returnType == double.class) return 0.0;
+        if (returnType == float.class) return 0.0f;
+        if (returnType == byte.class) return (byte) 0;
+        if (returnType == short.class) return (short) 0;
+        if (returnType == char.class) return '\0';
+        return null;
     }
 }

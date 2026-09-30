@@ -27,6 +27,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.InputStream;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
@@ -114,36 +115,51 @@ class AmbientEffectsListenerTest {
     }
 
     private Player mockPlayer(UUID uuid) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String m = method.getName();
+            if ("equals".equals(m) && method.getParameterCount() == 1) return proxy == args[0];
+            if ("hashCode".equals(m) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
+            if ("toString".equals(m) && method.getParameterCount() == 0) return "MockPlayer-" + uuid;
+            if ("getUniqueId".equals(m)) return uuid;
+            return defaultValue(method.getReturnType());
+        };
         return (Player) Proxy.newProxyInstance(
                 Player.class.getClassLoader(),
                 new Class<?>[]{Player.class},
-                (proxy, method, args) -> {
-                    if ("getUniqueId".equals(method.getName())) return uuid;
-                    return null;
-                }
+                handler
         );
     }
 
     private Entity mockEntity(UUID uuid) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String m = method.getName();
+            if ("equals".equals(m) && method.getParameterCount() == 1) return proxy == args[0];
+            if ("hashCode".equals(m) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
+            if ("toString".equals(m) && method.getParameterCount() == 0) return "MockEntity-" + uuid;
+            if ("getUniqueId".equals(m)) return uuid;
+            if ("isValid".equals(m)) return true;
+            return defaultValue(method.getReturnType());
+        };
         return (Entity) Proxy.newProxyInstance(
                 Entity.class.getClassLoader(),
                 new Class<?>[]{Entity.class},
-                (proxy, method, args) -> {
-                    if ("getUniqueId".equals(method.getName())) return uuid;
-                    if ("isValid".equals(method.getName())) return true;
-                    return null;
-                }
+                handler
         );
     }
 
     private World mockWorld(String name) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String m = method.getName();
+            if ("equals".equals(m) && method.getParameterCount() == 1) return proxy == args[0];
+            if ("hashCode".equals(m) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
+            if ("toString".equals(m) && method.getParameterCount() == 0) return "MockWorld-" + name;
+            if ("getName".equals(m)) return name;
+            return defaultValue(method.getReturnType());
+        };
         return (World) Proxy.newProxyInstance(
                 World.class.getClassLoader(),
                 new Class<?>[]{World.class},
-                (proxy, method, args) -> {
-                    if ("getName".equals(method.getName())) return name;
-                    return null;
-                }
+                handler
         );
     }
 
@@ -203,10 +219,8 @@ class AmbientEffectsListenerTest {
         ActiveEntityEntry entry = new ActiveEntityEntry(UUID.randomUUID(), 4, ent, UUID.randomUUID(), null, null);
         registry.register(entry);
 
-        EntityDamageByEntityEvent event = new EntityDamageByEntityEvent(
-                ent, mockPlayer(UUID.randomUUID()), EntityDamageEvent.DamageCause.ENTITY_ATTACK, 5.0
-        );
-        listener.onEntityDamageByEntity(event);
+        RecordingCancellable event = new RecordingCancellable();
+        listener.cancelIfManaged(ent, event);
 
         assertThat(event.isCancelled()).isTrue();
     }
@@ -218,10 +232,8 @@ class AmbientEffectsListenerTest {
         ActiveEntityEntry entry = new ActiveEntityEntry(UUID.randomUUID(), 5, ent, UUID.randomUUID(), null, null);
         registry.register(entry);
 
-        EntityDamageEvent event = new EntityDamageEvent(
-                ent, EntityDamageEvent.DamageCause.BLOCK_EXPLOSION, 10.0
-        );
-        listener.onEntityDamage(event);
+        RecordingCancellable event = new RecordingCancellable();
+        listener.cancelIfManaged(ent, event);
 
         assertThat(event.isCancelled()).isTrue();
     }
@@ -249,14 +261,21 @@ class AmbientEffectsListenerTest {
         registry.register(entry);
 
         List<ItemStack> drops = new ArrayList<>();
+        InvocationHandler livingHandler = (proxy, method, args) -> {
+            String m = method.getName();
+            if ("equals".equals(m) && method.getParameterCount() == 1) return proxy == args[0];
+            if ("hashCode".equals(m) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
+            if ("toString".equals(m) && method.getParameterCount() == 0) return "MockLivingEntity-" + ent.getUniqueId();
+            if ("getUniqueId".equals(m)) return ent.getUniqueId();
+            if ("isValid".equals(m)) return true;
+            return defaultValue(method.getReturnType());
+        };
+
         EntityDeathEvent event = new EntityDeathEvent(
                 (org.bukkit.entity.LivingEntity) Proxy.newProxyInstance(
                         Entity.class.getClassLoader(),
                         new Class<?>[]{org.bukkit.entity.LivingEntity.class},
-                        (proxy, method, args) -> {
-                            if ("getUniqueId".equals(method.getName())) return ent.getUniqueId();
-                            return null;
-                        }
+                        livingHandler
                 ),
                 (org.bukkit.damage.DamageSource) null,
                 drops,
@@ -266,5 +285,24 @@ class AmbientEffectsListenerTest {
 
         assertThat(event.getDrops()).isEmpty();
         assertThat(event.getDroppedExp()).isEqualTo(0);
+    }
+
+    private static Object defaultValue(Class<?> returnType) {
+        if (returnType == boolean.class) return false;
+        if (returnType == int.class) return 0;
+        if (returnType == long.class) return 0L;
+        if (returnType == double.class) return 0.0;
+        if (returnType == float.class) return 0.0f;
+        if (returnType == byte.class) return (byte) 0;
+        if (returnType == short.class) return (short) 0;
+        if (returnType == char.class) return '\0';
+        return null;
+    }
+
+    /** A Cancellable that records, so the decision can be tested without a Bukkit event. */
+    private static final class RecordingCancellable implements org.bukkit.event.Cancellable {
+        private boolean cancelled;
+        @Override public boolean isCancelled() { return cancelled; }
+        @Override public void setCancelled(boolean cancel) { this.cancelled = cancel; }
     }
 }
