@@ -21,13 +21,14 @@ second place where progress is recorded.
 | P2 Configuration | `feat/p2-configuration` | **done** — 157 tests green in both languages; thirteen review findings closed across three rounds |
 | P3 Status, tiers, chat | `feat/p3-status-chat` | **done** — 200 tests green in both languages; eighteen review findings closed across two rounds, one rejected by decision |
 | P4 Commands, permissions | `feat/p4-commands-permissions` | **done** — 234 tests green in both languages; sixteen review findings closed across four rounds, plus three defects found only on a live server |
-| P5 Duels | `feat/p5-duels` | in progress |
-| P6 Ambient effects | `feat/p6-effects` | in progress |
-| P7 Self-update | `feat/p7-selfupdate` | in progress |
+| P5 Duels | `feat/p5-duels` | **done** — 270 tests green in both languages (`986776e`); T-062 superseded by P12 |
+| P6 Ambient effects | `feat/p6-effects` | **done** — 269 tests green in both languages (`85f72b6`) |
+| P7 Self-update | `feat/p7-selfupdate` | **done** — 291 tests green in both languages (`3c11ae6`); Codex review closed |
 | P8 Legacy import | — | not started |
 | P9 Rating decay | — | not started |
 | P10 History GUI, anonymity | — | not started |
 | P11 Hardening | — | not started |
+| P12 Kill penalty, configurable sounds | — | not started |
 
 Reference produced along the way: `docs/reference/paper-26.3-notes.md` settles
 the 26.3 API for every later phase, and corrected two things this project had
@@ -139,12 +140,13 @@ Neither blocks current work; both land in `config.yml` during P2.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-060 | Duel lifecycle: challenge, accept, deny, leave, expiry. 1v1 and group. | SB-030 | todo |
-| T-061 | A kill inside an active duel affects neither status nor Psychosis. | SB-031 | todo |
-| T-062 | A kill outside a duel raises Psychosis and never changes status. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, §13 | todo |
-| T-063 | Configurable disconnect handling, distinguishing a combat log from a normal quit. | SB-033 | todo |
+| T-060 | Duel lifecycle: challenge, accept, deny, leave, expiry. 1v1 and group. | SB-030 | done |
+| T-061 | A kill inside an active duel affects neither status nor Psychosis. | SB-031 | done |
+| T-062 | A kill outside a duel raises Psychosis. Removes the baseline deduction at `EventManager.java:24-29`. | SB-032, §13 | done — the "never changes status" half is superseded by ADR 0004; see P12 |
+| T-063 | Configurable disconnect handling, distinguishing a combat log from a normal quit. | SB-033 | done |
 
-**Gate:** duel kill changes neither metric; open-world kill changes only Psychosis.
+**Gate:** duel kill changes neither metric; open-world kill raises Psychosis.
+Met. The status side of an open-world kill moved to P12 after ADR 0004.
 
 ---
 
@@ -154,12 +156,12 @@ Parallel with P5.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-070 | Effect scheduler below a configurable status threshold, with an independent cooldown and per-session cap per effect. | SB-040, SB-043 | todo |
-| T-071 | Delivery to the affected player only. Nothing reaches other players, the real chat, or the server log. | SB-041 | todo |
-| T-072 | Speed III silverfish: no damage dealt or taken, no targeting, no loot, no XP, not persistent, removed on timer. | SB-042 | todo |
-| T-073 | Entity registry cleaned on despawn timer, quit, world change and disable. No entity survives any of them. | SB-042 | todo |
-| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements — all private. | SB-040 | todo |
-| T-075 | `/status effects` per-player opt-out, persisted. Changes no metric and hides nothing from others. | SB-044 | todo |
+| T-070 | Effect scheduler below a configurable status threshold, with an independent cooldown and per-session cap per effect. | SB-040, SB-043 | done |
+| T-071 | Delivery to the affected player only. Nothing reaches other players, the real chat, or the server log. | SB-041 | done |
+| T-072 | Speed III silverfish: no damage dealt or taken, no targeting, no loot, no XP, not persistent, removed on timer. | SB-042 | done |
+| T-073 | Entity registry cleaned on despawn timer, quit, world change and disable. No entity survives any of them. | SB-042 | done |
+| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements — all private. | SB-040 | done |
+| T-075 | `/status effects` per-player opt-out, persisted. Changes no metric and hides nothing from others. | SB-044 | done |
 
 **Gate:** effects are private; no entity leaks; opt-out works.
 
@@ -169,12 +171,12 @@ Parallel with P5.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-080 | `GET /repos/<owner>/<repo>/releases/latest` via `java.net.http`, on the executor, never on the main thread. Configurable repository and channel. | SB-073, SB-076 | todo |
-| T-081 | `/status version`: running version versus latest release. | SB-070 | todo |
-| T-082 | `/status update`: download the asset, verify its checksum, write to `plugins/update/`. A mismatch aborts and leaves the directory untouched. | SB-071, SB-074 | todo |
-| T-083 | Report that a restart is required. Never restart the server. | SB-072 | todo |
-| T-084 | Startup check on by default, automatic download off by default. | SB-075 | todo |
-| T-085 | Every failure is a logged warning only. Never blocks startup, never delays a tick. | SB-073 | todo |
+| T-080 | `GET /repos/<owner>/<repo>/releases/latest` via `java.net.http`, on the executor, never on the main thread. Configurable repository and channel. | SB-073, SB-076 | done |
+| T-081 | `/status version`: running version versus latest release. | SB-070 | done |
+| T-082 | `/status update`: download the asset, verify its checksum, write to `plugins/update/`. A mismatch aborts and leaves the directory untouched. | SB-071, SB-074 | done |
+| T-083 | Report that a restart is required. Never restart the server. | SB-072 | done |
+| T-084 | Startup check on by default, automatic download off by default. | SB-075 | done |
+| T-085 | Every failure is a logged warning only. Never blocks startup, never delays a tick. | SB-073 | done |
 
 **Gate:** correct with GitHub reachable and unreachable; a verified jar is applied on restart; a corrupted download changes nothing.
 
@@ -234,3 +236,25 @@ codes renders as literal text.
 | T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
 
 **Gate:** every box in §14 ticked with evidence.
+
+---
+
+## P12 — Kill penalty and configurable sounds
+
+Governed by `docs/decisions/0004-a-non-duel-kill-costs-status.md`. Reopens the
+status half of T-062 and removes the last hardcoded sound.
+
+| id | task | spec | status |
+|---|---|---|---|
+| T-130 | A kill outside a duel writes a system-authored reputation event: actor `SYSTEM`, cost `0`, message-key reason, YAML delta (default `-1`). Stored, derived and decayed like any other event. | SB-032 | todo |
+| T-131 | The system event never raises Reputation Confidence, and Psychosis still never moves status. A test asserts both metrics move only by their own rule. | SB-034, SB-004 | todo |
+| T-132 | One penalty per killer-victim pair per configurable cooldown, plus a configurable per-window cap on total automatic loss. | SB-035 | todo |
+| T-133 | Penalty skipped inside a duel, when the killer cannot be identified, and in YAML-exempt worlds. Delta `0` disables the feature. | SB-036, SB-031 | todo |
+| T-134 | The system event renders in the history GUI and in `/status history` like any other, with its reason translated from the message key. | SB-032, SB-080 | todo |
+| T-135 | `sounds:` section in `config.yml`: one named slot per sound, each with key, volume, pitch and category. Every existing sound — starting with the creeper fuse in `AmbientEffectDispatcher` — reads its slot instead of a constant. | SB-090 | todo |
+| T-136 | An empty slot plays nothing; an unrecognised key logs a warning naming the slot once and plays nothing. Neither ever throws or blocks the action the sound accompanied. | SB-090 | todo |
+| T-137 | Slots are reloadable in-game with the rest of the configuration, and private sounds still reach only the affected player. | SB-091, SB-041, SB-062 | todo |
+
+**Gate:** a non-duel kill lowers status once per pair cooldown, bounded by the
+cap, never touching Confidence; every sound can be retuned or silenced from
+`config.yml` with no restart and no recompile.

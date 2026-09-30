@@ -216,7 +216,7 @@ Editing a name in either language file is the supported way to rename a tier.
 **SB-063.** Colours accept Essentials-style `&` codes, including hex, in every
 configurable string.
 
-**SB-071.** **Every sound the plugin plays is configurable.** Each sound is a
+**SB-090.** **Every sound the plugin plays is configurable.** Each sound is a
 named slot in `config.yml` carrying the Minecraft sound key, volume, pitch and
 category — for example `entity.creeper.primed, 1.0, 0.5, HOSTILE`. No sound key
 is written in Java source. An empty or absent slot plays nothing, which is how
@@ -224,7 +224,7 @@ an owner silences one. An unrecognised key logs a warning naming the slot once
 and plays nothing; it never throws and never blocks the action the sound
 accompanied.
 
-**SB-072.** Sound slots are addressed by name, so an owner can retarget an
+**SB-091.** Sound slots are addressed by name, so an owner can retarget an
 existing slot to a different Minecraft sound, and new slots added by later
 features need no code change beyond playing them. Sounds obey SB-041 where they
 belong to a private ambient effect: they reach only the affected player.
