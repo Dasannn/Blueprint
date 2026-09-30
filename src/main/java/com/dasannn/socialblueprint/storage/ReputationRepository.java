@@ -18,6 +18,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import com.dasannn.socialblueprint.domain.AuditEvent;
+import com.dasannn.socialblueprint.domain.NonPlayerTarget;
+import com.dasannn.socialblueprint.domain.PlayerProfile;
+import com.dasannn.socialblueprint.feature.legacy.LegacyImportReport;
 
 /**
  * Repository for {@link ReputationEvent}s per T-018, T-019 and ARCHITECTURE.md §4.
@@ -71,7 +74,7 @@ public final class ReputationRepository {
                 });
     }
 
-    private ReputationEvent saveInternal(Connection conn, ReputationEvent event) throws SQLException {
+    ReputationEvent saveInternal(Connection conn, ReputationEvent event) throws SQLException {
         String sql = """
             INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?);
@@ -448,5 +451,128 @@ public final class ReputationRepository {
         Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
 
         return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt);
+    }
+
+    public StorageEngine engine() {
+        return engine;
+    }
+
+    public boolean hasLegacyImport(PlayerId target) {
+        Objects.requireNonNull(target, "Target must not be null");
+        return engine.execute(conn -> hasLegacyImportInternal(conn, target.toString()));
+    }
+
+    public CompletableFuture<Boolean> hasLegacyImportAsync(PlayerId target) {
+        Objects.requireNonNull(target, "Target must not be null");
+        return engine.executeAsync(conn -> hasLegacyImportInternal(conn, target.toString()));
+    }
+
+    boolean hasLegacyImportInternal(Connection conn, String targetUuid) throws SQLException {
+        String sql = """
+            SELECT 1 FROM reputation_event
+            WHERE target_uuid = ? AND kind = 'legacy_import'
+            LIMIT 1;
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, targetUuid);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    public record LegacyCandidate(PlayerId target, String lastKnownName, int score) {
+        public LegacyCandidate {
+            Objects.requireNonNull(target, "target must not be null");
+        }
+    }
+
+    public CompletableFuture<LegacyImportReport> executeLegacyImportAsync(
+            List<LegacyCandidate> candidates,
+            List<LegacyImportReport.SkippedEntry> preSkipped,
+            int totalRead,
+            PlayerId actor,
+            String sourceName,
+            ProfileRepository profileRepository,
+            AuditRepository auditRepository,
+            Instant now
+    ) {
+        Objects.requireNonNull(candidates, "candidates must not be null");
+        Objects.requireNonNull(preSkipped, "preSkipped must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+
+        return engine.executeAsync(conn -> {
+            boolean initialAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+
+                List<LegacyImportReport.SkippedEntry> allSkipped = new ArrayList<>(preSkipped);
+                List<PlayerId> importedTargets = new ArrayList<>();
+
+                for (LegacyCandidate candidate : candidates) {
+                    if (importedTargets.contains(candidate.target()) || hasLegacyImportInternal(conn, candidate.target().toString())) {
+                        String displayName = candidate.lastKnownName() != null ? candidate.lastKnownName() : candidate.target().toString();
+                        allSkipped.add(new LegacyImportReport.SkippedEntry(
+                                displayName,
+                                LegacyImportReport.SkipReason.ALREADY_IMPORTED,
+                                "Already imported"
+                        ));
+                        continue;
+                    }
+
+                    ReputationEvent repEvent = new ReputationEvent(
+                            0L,
+                            null,
+                            candidate.target(),
+                            candidate.score(),
+                            HonorKind.LEGACY_IMPORT,
+                            0.0,
+                            "commands.admin.import.reason",
+                            now
+                    );
+                    saveInternal(conn, repEvent);
+                    importedTargets.add(candidate.target());
+
+                    if (candidate.lastKnownName() != null && profileRepository != null) {
+                        PlayerProfile profile = PlayerProfile.create(candidate.target(), candidate.lastKnownName(), now);
+                        profileRepository.saveInternal(conn, profile);
+                    }
+                }
+
+                if (!importedTargets.isEmpty() && auditRepository != null) {
+                    PlayerId auditActor = actor != null ? actor : PlayerId.CONSOLE;
+                    String targetIdentifier = sourceName != null && !sourceName.isBlank() ? sourceName : "legacy_config";
+                    AuditEvent audit = new AuditEvent(
+                            0L,
+                            auditActor,
+                            "legacy_import",
+                            NonPlayerTarget.of(targetIdentifier).identifier(),
+                            "0",
+                            String.valueOf(importedTargets.size()),
+                            now
+                    );
+                    auditRepository.saveInternal(conn, audit);
+                }
+
+                conn.commit();
+
+                return new LegacyImportReport(
+                        totalRead,
+                        importedTargets.size(),
+                        allSkipped.size(),
+                        allSkipped
+                );
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(initialAutoCommit);
+            }
+        }).thenApply(report -> {
+            for (LegacyCandidate c : candidates) {
+                notifyInvalidation(c.target());
+            }
+            return report;
+        });
     }
 }

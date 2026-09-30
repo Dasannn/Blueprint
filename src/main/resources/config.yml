@@ -136,3 +136,4 @@ permissions:
   view-reputation: "socialblueprint.view"
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
+  admin-import: "socialblueprint.admin.import"

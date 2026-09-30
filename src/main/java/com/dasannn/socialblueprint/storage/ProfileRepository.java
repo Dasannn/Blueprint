@@ -34,7 +34,7 @@ public final class ProfileRepository {
         return engine.runAsync(conn -> saveInternal(conn, profile));
     }
 
-    private void saveInternal(Connection conn, PlayerProfile profile) throws SQLException {
+    void saveInternal(Connection conn, PlayerProfile profile) throws SQLException {
         String sql = """
             INSERT INTO player_profile (uuid, last_known_name, effects_opt_out, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?)

@@ -29,6 +29,7 @@ permissions:
     children:
       socialblueprint.admin.adjust: true
       socialblueprint.admin.config: true
+      socialblueprint.admin.import: true
 
   socialblueprint.show:
     description: Permite al jugador ver su propio estatus social
@@ -50,6 +51,9 @@ permissions:
     default: op
   socialblueprint.admin.config:
     description: Permite al administrador ver y editar la configuración
+    default: op
+  socialblueprint.admin.import:
+    description: Permite al administrador importar datos de versiones anteriores
     default: op
 
   pstatus.show:
