@@ -114,6 +114,15 @@ hard-won details:
 * Codex writes its report to stdout as well as the file it was asked for, and
   sometimes only to stdout. Check the task output before concluding it produced
   nothing.
+* **Bukkit's registry needs a live server, and it reaches further than it
+  looks.** `Sound`, `EntityDamageEvent`, `Material.asItemType` and therefore
+  `ItemStack.of(...)` all initialise `org.bukkit.Registry`, which throws
+  `NoClassDefFoundError` in a unit test. Three phases have hit this. The
+  remedy each time: **separate the decision from the Bukkit object**. Compute
+  a plain-data description — a sound key as a `String`, a damage decision
+  extracted from the event, a GUI layout as slot records — and keep a thin
+  renderer that touches Bukkit and is verified on the running server instead.
+  Tests assert the description.
 * Build with `-Dmaven.compiler.fork=true`. The in-process javac on this
   machine crashes with `NullPointerException` in
   `UnsharedNameTable.fromValidUtf` and reports only "Fatal error compiling",
