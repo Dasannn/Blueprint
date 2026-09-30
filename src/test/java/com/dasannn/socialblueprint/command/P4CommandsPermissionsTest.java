@@ -6,6 +6,7 @@ import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.HonorKind;
+import com.dasannn.socialblueprint.domain.NonPlayerTarget;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import com.dasannn.socialblueprint.domain.Status;
@@ -18,6 +19,7 @@ import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
+import com.dasannn.socialblueprint.storage.StorageTestSupport;
 import net.kyori.adventure.text.Component;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
@@ -765,12 +767,7 @@ class P4CommandsPermissionsTest {
         failEconomyDeposit.set(true);
 
         // Inject DB failure specifically for reputation_event insert using a SQLite trigger
-        storage.execute(conn -> {
-            try (Statement s = conn.createStatement()) {
-                s.execute("CREATE TRIGGER fail_rep BEFORE INSERT ON reputation_event BEGIN SELECT RAISE(FAIL, 'simulated reputation write failure'); END;");
-            }
-            return null;
-        });
+        StorageTestSupport.setFailReputationTrigger(storage);
 
         try {
             // Stage 2: Confirm honor. Withdrawal succeeds, reputation write fails, immediate refund deposit fails.
@@ -790,12 +787,7 @@ class P4CommandsPermissionsTest {
             assertThat(pendingRecords.getFirst().amount()).isEqualTo(500.0);
 
             // Now remove SQLite trigger and permit deposit
-            storage.execute(conn -> {
-                try (Statement s = conn.createStatement()) {
-                    s.execute("DROP TRIGGER fail_rep;");
-                }
-                return null;
-            });
+            StorageTestSupport.dropFailReputationTrigger(storage);
             failEconomyDeposit.set(false);
 
             // Reconcile compensations (simulating server restart / enable)
@@ -808,12 +800,7 @@ class P4CommandsPermissionsTest {
             // Pending compensation record is deleted
             assertThat(compensationRepo.findAllAsync().join()).isEmpty();
         } finally {
-            storage.execute(conn -> {
-                try (Statement s = conn.createStatement()) {
-                    s.execute("DROP TRIGGER IF EXISTS fail_rep;");
-                }
-                return null;
-            });
+            StorageTestSupport.dropFailReputationTrigger(storage);
             failEconomyDeposit.set(false);
         }
     }
@@ -827,14 +814,14 @@ class P4CommandsPermissionsTest {
 
         assertThat(configManager.get("honor.cost")).isEqualTo("750.0");
 
-        List<AuditEvent> audits = auditRepo.findRecentAsync(10).join();
+        List<AuditEvent> audits = auditRepo.findByTarget(NonPlayerTarget.configKey("honor.cost"));
         assertThat(audits).isNotEmpty();
         AuditEvent audit = audits.getFirst();
         assertThat(audit.actor()).isEqualTo(PlayerId.of(admin.getUniqueId()));
-        assertThat(audit.operation()).isEqualTo("config_change");
+        assertThat(audit.operation()).isEqualTo("config_set");
         assertThat(audit.target()).isEqualTo("honor.cost");
-        assertThat(audit.oldValue()).isEqualTo("500.0");
-        assertThat(audit.newValue()).isEqualTo("750.0");
+        assertThat(audit.before()).isEqualTo("500.0");
+        assertThat(audit.after()).isEqualTo("750.0");
     }
 
     @Test
@@ -843,13 +830,8 @@ class P4CommandsPermissionsTest {
         Player target = mockPlayer("AuditFailTarget");
         PlayerId targetId = PlayerId.of(target.getUniqueId());
 
-        // Trigger on audit_log to simulate audit write failure
-        storage.execute(conn -> {
-            try (Statement s = conn.createStatement()) {
-                s.execute("CREATE TRIGGER fail_audit BEFORE INSERT ON audit_log BEGIN SELECT RAISE(FAIL, 'simulated audit failure'); END;");
-            }
-            return null;
-        });
+        // Trigger on audit_event to simulate audit write failure
+        StorageTestSupport.setFailAuditTrigger(storage);
 
         try {
             List<String> messages = new ArrayList<>();
@@ -862,12 +844,7 @@ class P4CommandsPermissionsTest {
             List<ReputationEvent> events = reputationRepo.findByTargetAsync(targetId).join();
             assertThat(events).isEmpty();
         } finally {
-            storage.execute(conn -> {
-                try (Statement s = conn.createStatement()) {
-                    s.execute("DROP TRIGGER IF EXISTS fail_audit;");
-                }
-                return null;
-            });
+            StorageTestSupport.dropFailAuditTrigger(storage);
         }
     }
 
@@ -892,7 +869,7 @@ class P4CommandsPermissionsTest {
 
         List<String> messages = new ArrayList<>();
         CommandSender console = mockConsole(messages);
-        RuntimeSnapshot snapshot = configManager.config().runtimeSnapshot();
+        RuntimeSnapshot snapshot = configManager.snapshot();
 
         // Dispatch two concurrent resets simultaneously
         CompletableFuture<Void> r1 = honorService.adminReset(console, "RaceTarget", snapshot);
@@ -1043,13 +1020,13 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
         // Prepare rating while enabled
-        honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, null, configManager.config().runtimeSnapshot()).join();
+        honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, null, configManager.snapshot()).join();
 
         // Confirm rating with shutdownHonorService while disabled
         // The compensation record was persisted in SQLite before DB write.
         // Even if DB write completes or fails while disabled, no Bukkit/Vault calls run on DB thread.
         assertThatCode(() -> {
-            shutdownHonorService.confirmPlayerHonor(actor, configManager.config().runtimeSnapshot()).join();
+            shutdownHonorService.confirmPlayerHonor(actor, configManager.snapshot()).join();
         }).doesNotThrowAnyException();
     }
 
@@ -1271,7 +1248,7 @@ class P4CommandsPermissionsTest {
         runCommandSync(console, "status");
 
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
-        String expected = ColorParser.serialize(messageRegistry.renderWithPrefix(configManager.config().runtimeSnapshot(), "commands.player-only"));
+        String expected = ColorParser.serialize(messageRegistry.renderWithPrefix(configManager.snapshot(), "commands.player-only"));
         assertThat(messages.getLast()).isEqualTo(expected);
     }
 
@@ -1285,7 +1262,7 @@ class P4CommandsPermissionsTest {
         runCommandSync(console, "status");
 
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
-        String expected = ColorParser.serialize(messageRegistry.renderWithPrefix(configManager.config().runtimeSnapshot(), "commands.player-only"));
+        String expected = ColorParser.serialize(messageRegistry.renderWithPrefix(configManager.snapshot(), "commands.player-only"));
         assertThat(messages.getLast()).isEqualTo(expected);
     }
 
