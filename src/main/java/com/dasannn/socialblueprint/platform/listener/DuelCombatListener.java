@@ -70,6 +70,23 @@ public class DuelCombatListener implements Listener {
         }
     }
 
+    Player resolveKiller(Player victim, DamageSource damageSource) {
+        if (damageSource != null) {
+            Entity fatalCause = damageSource.getCausingEntity();
+            Entity directCause = damageSource.getDirectEntity();
+            if (fatalCause instanceof Player p) {
+                return p;
+            }
+            if (directCause instanceof Projectile projectile) {
+                if (projectile.getShooter() instanceof Player p) {
+                    return p;
+                }
+                return victim.getKiller();
+            }
+        }
+        return null;
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player victim = event.getEntity();
@@ -77,16 +94,9 @@ public class DuelCombatListener implements Listener {
 
         Player killer = null;
         try {
-            DamageSource damageSource = event.getDamageSource();
-            Entity fatalCause = damageSource != null ? damageSource.getCausingEntity() : null;
-            if (fatalCause instanceof Player p) {
-                killer = p;
-            }
+            killer = resolveKiller(victim, event.getDamageSource());
         } catch (Throwable ignored) {
             // DamageSource or DamageType unresolvable without server registry
-        }
-        if (killer == null && victim.getKiller() != null) {
-            killer = victim.getKiller();
         }
 
         PlayerId killerId = (killer != null && !killer.getUniqueId().equals(victim.getUniqueId()))

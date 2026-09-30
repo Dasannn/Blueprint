@@ -136,6 +136,7 @@ permissions:
   view-reputation: "socialblueprint.view"
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
+  duel: "socialblueprint.duel"
   effects: "socialblueprint.effects"
   version: "socialblueprint.version"
   admin-update: "socialblueprint.admin.update"

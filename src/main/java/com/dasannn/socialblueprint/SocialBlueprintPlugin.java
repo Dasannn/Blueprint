@@ -114,7 +114,22 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this::isEnabled
         );
 
-        coordinator.start(jdbcUrl, this::completeInitialization);
+        coordinator.start(jdbcUrl, engine -> {
+            com.dasannn.socialblueprint.storage.DuelRepository startupDuelRepo = new com.dasannn.socialblueprint.storage.DuelRepository(engine);
+            startupDuelRepo.cleanupStaleDuelsOnStartupAsync(java.time.Instant.now())
+                    .whenComplete((count, error) -> {
+                        if (!isEnabled()) {
+                            engine.close();
+                            return;
+                        }
+                        if (error != null) {
+                            getLogger().severe("Failed to clean up stale duels on startup: " + error.getMessage());
+                            getServer().getPluginManager().disablePlugin(this);
+                            return;
+                        }
+                        getServer().getScheduler().runTask(this, () -> completeInitialization(engine));
+                    });
+        });
     }
 
     private void setupEconomy() {
@@ -144,7 +159,6 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         this.auditRepository = new AuditRepository(storageEngine);
         this.compensationRepository = new CompensationRepository(storageEngine);
         this.duelRepository = new com.dasannn.socialblueprint.storage.DuelRepository(storageEngine);
-        this.duelRepository.cleanupStaleDuelsOnStartup(java.time.Instant.now());
 
         BukkitPlayerLookup playerLookup = new BukkitPlayerLookup(getServer());
         this.profileService = new ProfileService(

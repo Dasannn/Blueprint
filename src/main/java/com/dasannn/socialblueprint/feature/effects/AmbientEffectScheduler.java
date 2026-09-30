@@ -60,8 +60,11 @@ public class AmbientEffectScheduler {
         if (task != null && !task.isCancelled()) {
             return;
         }
-        if (plugin != null && plugin.isEnabled()) {
-            task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, FIXED_TICK_INTERVAL_TICKS, FIXED_TICK_INTERVAL_TICKS);
+        // The plugin's own server, not the Bukkit static: the static holder is null
+        // outside a running server, and enable now reaches this path in tests.
+        if (plugin != null && plugin.isEnabled() && plugin.getServer() != null) {
+            task = plugin.getServer().getScheduler()
+                    .runTaskTimer(plugin, this::tick, FIXED_TICK_INTERVAL_TICKS, FIXED_TICK_INTERVAL_TICKS);
         }
     }
 

@@ -12,6 +12,7 @@ import com.dasannn.socialblueprint.domain.duel.DuelRecord;
 import com.dasannn.socialblueprint.domain.duel.DuelState;
 import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
 import com.dasannn.socialblueprint.storage.AuditRepository;
+import com.dasannn.socialblueprint.config.ColorParser;
 import com.dasannn.socialblueprint.storage.DuelRepository;
 import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.StorageEngine;
@@ -442,6 +443,158 @@ class DuelServiceTest {
 
         // Classified as NORMAL_DISCONNECT, NOT combat log
         assertThat(disc).contains(DisconnectClassification.NORMAL_DISCONNECT);
+    }
+
+    @Test
+    @DisplayName("P1: Expired challenge clears player index so challenger can challenge again")
+    void expiredChallengeAllowsChallengerToChallengeAgain() {
+        PlayerId p1 = registerPlayer("Challenger");
+        PlayerId p2 = registerPlayer("Opponent");
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        DuelService.ChallengeResult cResult = duelService.challenge(p1, Map.of("s1", Set.of(p1), "s2", Set.of(p2)), snapshot);
+        assertThat(cResult).isInstanceOf(DuelService.ChallengeResult.Success.class);
+
+        // Run the scheduled expiry task
+        timerScheduler.runPending();
+
+        // Challenger can challenge again — must succeed!
+        DuelService.ChallengeResult cResult2 = duelService.challenge(p1, Map.of("s1", Set.of(p1), "s2", Set.of(p2)), snapshot);
+        assertThat(cResult2).isInstanceOf(DuelService.ChallengeResult.Success.class);
+    }
+
+    @Test
+    @DisplayName("P1: Entering a duel cancels all pending invitations involving that player")
+    void enteringDuelCancelsAllPendingInvitationsInvolvingPlayer() {
+        PlayerId a = registerPlayer("Alice");
+        PlayerId b = registerPlayer("Bob");
+        PlayerId c = registerPlayer("Charlie");
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // Alice challenges Bob (pending)
+        DuelService.ChallengeResult ab = duelService.challenge(a, Map.of("s1", Set.of(a), "s2", Set.of(b)), snapshot);
+        assertThat(ab).isInstanceOf(DuelService.ChallengeResult.Success.class);
+        String abId = ((DuelService.ChallengeResult.Success) ab).challenge().id();
+
+        // Charlie challenges Bob (pending)
+        DuelService.ChallengeResult cb = duelService.challenge(c, Map.of("s1", Set.of(c), "s2", Set.of(b)), snapshot);
+        assertThat(cb).isInstanceOf(DuelService.ChallengeResult.Success.class);
+        String cbId = ((DuelService.ChallengeResult.Success) cb).challenge().id();
+
+        // Bob accepts Alice's challenge -> Duel AB starts!
+        DuelService.AcceptResult acceptRes = duelService.accept(b, null, snapshot);
+        assertThat(acceptRes).isInstanceOf(DuelService.AcceptResult.DuelStarted.class);
+        assertThat(duelService.isInActiveDuel(b)).isTrue();
+
+        // Charlie's challenge involving Bob must now be cancelled cleanly!
+        assertThat(duelService.getPendingChallenge(cbId)).isNull();
+        assertThat(duelService.pendingChallengeCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("P1: Fully accepted challenge cancels if any participant is already in an active duel")
+    void fullyAcceptedChallengeCancelsIfParticipantAlreadyInActiveDuel() {
+        PlayerId a = registerPlayer("Alice");
+        PlayerId b = registerPlayer("Bob");
+        PlayerId c = registerPlayer("Charlie");
+        PlayerId d = registerPlayer("David");
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // Alice challenges Bob and Charlie (group duel: A vs B, C)
+        DuelService.ChallengeResult groupChallenge = duelService.challenge(
+                a,
+                Map.of("s1", Set.of(a), "s2", Set.of(b, c)),
+                snapshot
+        );
+        assertThat(groupChallenge).isInstanceOf(DuelService.ChallengeResult.Success.class);
+
+        // Bob accepts group challenge (waiting for Charlie)
+        DuelService.AcceptResult bAccept = duelService.accept(b, null, snapshot);
+        assertThat(bAccept).isInstanceOf(DuelService.AcceptResult.ConsentRecorded.class);
+
+        // David challenges Bob, and Bob accepts starting a duel with David
+        DuelService.ChallengeResult dbChallenge = duelService.challenge(
+                d,
+                Map.of("s1", Set.of(d), "s2", Set.of(b)),
+                snapshot
+        );
+        assertThat(dbChallenge).isInstanceOf(DuelService.ChallengeResult.Success.class);
+        DuelService.AcceptResult dbAccept = duelService.accept(b, null, snapshot);
+        assertThat(dbAccept).isInstanceOf(DuelService.AcceptResult.DuelStarted.class);
+        assertThat(duelService.isInActiveDuel(b)).isTrue();
+
+        // Charlie now accepts the group challenge. Bob entering the David duel already
+        // cancelled every invitation involving Bob, so there is nothing left to accept.
+        // The invariant under test is that no second duel starts, whichever of the two
+        // answers Charlie gets.
+        DuelService.AcceptResult cAccept = duelService.accept(c, null, snapshot);
+        assertThat(cAccept).isNotInstanceOf(DuelService.AcceptResult.DuelStarted.class);
+        assertThat(duelService.isInActiveDuel(c)).isFalse();
+        // Only David-Bob duel is active
+        assertThat(duelService.activeDuelCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("P1: Attacker quitting within combat-log window is classified as COMBAT_LOG")
+    void attackerQuittingWithinCombatLogWindowIsCombatLog() {
+        PlayerId attacker = registerPlayer("Attacker");
+        PlayerId victim = registerPlayer("Victim");
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        duelService.challenge(attacker, Map.of("s1", Set.of(attacker), "s2", Set.of(victim)), snapshot);
+        duelService.accept(victim, null, snapshot);
+
+        // Attacker hits victim
+        Instant damageTime = Instant.now();
+        duelService.recordCombatDamage(victim, attacker, damageTime);
+
+        // Attacker quits within 2 seconds
+        Instant quitTime = damageTime.plusSeconds(2);
+        Optional<DisconnectClassification> disc = duelService.handlePlayerQuit(attacker, quitTime, snapshot);
+
+        assertThat(disc).contains(DisconnectClassification.COMBAT_LOG);
+        assertThat(duelService.activeDuelCount()).isEqualTo(0);
+        assertThat(duelService.isInActiveDuel(attacker)).isFalse();
+    }
+
+    @Test
+    @DisplayName("P2: shutdown queues active duel updates asynchronously")
+    void shutdownQueuesActiveDuelUpdatesAsynchronously() {
+        PlayerId p1 = registerPlayer("Alice");
+        PlayerId p2 = registerPlayer("Bob");
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        duelService.challenge(p1, Map.of("s1", Set.of(p1), "s2", Set.of(p2)), snapshot);
+        duelService.accept(p2, null, snapshot);
+        ActiveDuelSession session = duelService.getActiveDuel(p1);
+        String duelId = session.id();
+
+        // Shutdown cancels in-flight duels and updates state in repository
+        duelService.shutdown();
+
+        assertThat(duelService.activeDuelCount()).isEqualTo(0);
+        Optional<DuelRecord> record = duelRepository.findById(duelId);
+        assertThat(record).isPresent();
+        assertThat(record.get().state()).isEqualTo(DuelState.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("P3: Combat-log broadcast captures opponent name instead of rendering literal 'opponent'")
+    void combatLogBroadcastCapturesOpponentName() {
+        PlayerId victim = registerPlayer("Coward");
+        PlayerId attacker = registerPlayer("Champion");
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        duelService.challenge(attacker, Map.of("s1", Set.of(attacker), "s2", Set.of(victim)), snapshot);
+        duelService.accept(victim, null, snapshot);
+
+        duelService.recordCombatDamage(victim, attacker, Instant.now());
+        duelService.handlePlayerQuit(victim, Instant.now().plusSeconds(1), snapshot);
+
+        assertThat(broadcastMessages).isNotEmpty();
+        String broadcastText = ColorParser.serialize(broadcastMessages.getFirst());
+        assertThat(broadcastText).contains("Champion");
+        assertThat(broadcastText).doesNotContain("opponent");
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

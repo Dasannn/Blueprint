@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -161,5 +162,29 @@ class DuelRepositoryTest {
         assertThat(rNormal).isPresent();
         assertThat(rNormal.get().state()).isEqualTo(DuelState.ENDED);
         assertThat(rNormal.get().endedAt()).isEqualTo(legitimateEnd);
+    }
+
+    @Test
+    @DisplayName("P2: cleanupStaleDuelsOnStartupAsync cleans duels asynchronously without blocking")
+    void cleanupStaleDuelsOnStartupAsyncCleansDuels() throws Exception {
+        PlayerId p1 = PlayerId.of(UUID.randomUUID());
+        PlayerId p2 = PlayerId.of(UUID.randomUUID());
+
+        DuelRecord leaked = new DuelRecord("leaked-async", DuelState.ACTIVE, baseTime.minusSeconds(300), List.of(
+                new DuelParticipant(p1, "s1"),
+                new DuelParticipant(p2, "s2")
+        ));
+        repository.save(leaked);
+
+        CompletableFuture<Integer> future = repository.cleanupStaleDuelsOnStartupAsync(baseTime);
+        int cleaned = future.get(5, TimeUnit.SECONDS);
+
+        assertThat(cleaned).isEqualTo(1);
+        assertThat(repository.findActiveDuels()).isEmpty();
+
+        Optional<DuelRecord> loaded = repository.findById("leaked-async");
+        assertThat(loaded).isPresent();
+        assertThat(loaded.get().state()).isEqualTo(DuelState.ENDED);
+        assertThat(loaded.get().endedAt()).isEqualTo(baseTime);
     }
 }
