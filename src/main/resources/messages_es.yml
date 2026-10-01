@@ -79,6 +79,7 @@ status:
   history-empty: '&7No hay eventos de reputación registrados.'
   history-entry: '&7[{time}] {delta} &7por &e{actor}&7: &f{reason}'
   system-actor: 'Sistema'
+  read-failed: '&cError al leer el perfil.'
 
 honor:
   cost-preview: '&7El costo para emitir esta opinión es &e${cost}&7. Escribe &b/status confirm&7 para confirmar.'

@@ -189,8 +189,19 @@ class SocialBlueprintPluginTest {
     }
 
     @AfterEach
-    void tearDown() {
-        if (plugin != null && plugin.getStorageEngine() != null) {
+    void tearDown() throws InterruptedException {
+        // Initialisation publishes the engine asynchronously, so a test that
+        // ends promptly can reach here before it appears. Closing nothing
+        // leaves the SQLite file open and the temp directory undeletable on
+        // Windows, which fails the test for a reason that has nothing to do
+        // with what it asserts.
+        if (plugin == null) {
+            return;
+        }
+        for (int i = 0; i < 100 && plugin.getStorageEngine() == null && plugin.isEnabled(); i++) {
+            Thread.sleep(20);
+        }
+        if (plugin.getStorageEngine() != null) {
             plugin.getStorageEngine().close();
         }
     }

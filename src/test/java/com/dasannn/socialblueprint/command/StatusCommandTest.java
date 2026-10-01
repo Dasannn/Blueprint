@@ -41,6 +41,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.Collections;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,7 +57,7 @@ class StatusCommandTest {
 
     private StorageEngine storage;
     private ConfigManager configManager;
-    private MessageRegistry messageRegistry;
+    private RecordingMessageRegistry messageRegistry;
     private ReputationRepository reputationRepo;
     private PsychosisRepository psychosisRepo;
     private ProfileRepository profileRepo;
@@ -63,6 +68,56 @@ class StatusCommandTest {
 
     private final AtomicReference<Thread> lastLookupThread = new AtomicReference<>();
 
+    public record RenderCall(String key, Map<String, String> placeholders, boolean withPrefix) {}
+
+    public static class RecordingMessageRegistry extends MessageRegistry {
+        private final List<RenderCall> renderedCalls = new CopyOnWriteArrayList<>();
+
+        public RecordingMessageRegistry(File dataFolder, String language, Logger logger) {
+            super(dataFolder, language, logger);
+        }
+
+        public void clearCalls() {
+            renderedCalls.clear();
+        }
+
+        public List<RenderCall> renderedCalls() {
+            return Collections.unmodifiableList(renderedCalls);
+        }
+
+        public boolean hasCall(String key) {
+            return renderedCalls.stream().anyMatch(c -> c.key().equals(key));
+        }
+
+        @Override
+        public Component renderWithPrefix(com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true));
+            return super.renderWithPrefix(snapshot, key, placeholders);
+        }
+
+        @Override
+        public Component renderWithPrefix(com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot, String key) {
+            return renderWithPrefix(snapshot, key, Collections.emptyMap());
+        }
+
+        @Override
+        public Component renderWithPrefix(String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true));
+            return super.renderWithPrefix(key, placeholders);
+        }
+
+        @Override
+        public Component renderWithPrefix(String key) {
+            return renderWithPrefix(key, Collections.emptyMap());
+        }
+
+        @Override
+        public Component render(com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), false));
+            return super.render(snapshot, key, placeholders);
+        }
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         File configFile = new File(tempDir, "config.yml");
@@ -72,7 +127,7 @@ class StatusCommandTest {
         }
 
         Logger logger = Logger.getLogger("StatusCommandTest-" + System.nanoTime());
-        messageRegistry = new MessageRegistry(tempDir, "en", logger);
+        messageRegistry = new RecordingMessageRegistry(tempDir, "en", logger);
         configManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
         configManager.initialize();
         configManager.set("language", "en");
@@ -367,5 +422,90 @@ class StatusCommandTest {
 
         List<String> filtered = commandExecutor.onTabComplete(admin, null, "status", new String[]{"onlinea"});
         assertThat(filtered).containsExactly("OnlineAlice");
+    }
+
+    @Test
+    @DisplayName("A read that fails for a reason other than a bad row reports status.read-failed to the sender and logs at SEVERE")
+    void readFailureReportsStatusReadFailedAndLogsSevere() {
+        PlayerId targetId = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("alex", new PlayerLookup.KnownPlayer(targetId, "Alex", false));
+
+        // Close storage engine so profile reading fails asynchronously
+        storage.close();
+
+        List<LogRecord> logs = new ArrayList<>();
+        Handler testHandler = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                logs.add(record);
+            }
+            @Override
+            public void flush() {}
+            @Override
+            public void close() {}
+        };
+        Logger executorLogger = Logger.getLogger(StatusCommandExecutor.class.getName());
+        executorLogger.addHandler(testHandler);
+
+        List<String> consoleMessages = new ArrayList<>();
+        CommandSender console = mockConsole(consoleMessages);
+
+        try {
+            boolean result = commandExecutor.onCommand(console, null, "status", new String[]{"Alex"});
+            assertThat(result).isTrue();
+            commandExecutor.lastExecution().join();
+
+            // Assert on the message key, never on rendered text
+            assertThat(messageRegistry.hasCall("status.read-failed"))
+                    .as("Sender must receive status.read-failed key on read failure")
+                    .isTrue();
+
+            // Assert logs at SEVERE
+            assertThat(logs).anyMatch(r -> r.getLevel() == Level.SEVERE
+                    && r.getMessage().contains("Failed to read the profile of 'Alex'"));
+        } finally {
+            executorLogger.removeHandler(testHandler);
+        }
+    }
+
+    @Test
+    @DisplayName("Player with a corrupt row still reads successfully with remaining rows counted")
+    void playerWithCorruptRowStillReadsSuccessfully() {
+        PlayerId targetId = PlayerId.of(UUID.randomUUID());
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+
+        // Valid row (+15)
+        reputationRepo.save(new ReputationEvent(rater, targetId, 15, HonorKind.POSITIVE, 500.0, null, Instant.now().minusSeconds(60)));
+
+        // Directly insert a corrupt row: the repository write path refuses
+        // cost 0.0 on player honor, which is exactly what makes this row
+        // only reachable through raw SQL. StorageEngine#run and
+        // StorageTimestamps are package private to storage, so the shared
+        // test helper does the write and the timestamp is written in the
+        // nine-digit UTC form the storage layer parses.
+        com.dasannn.socialblueprint.storage.StorageTestSupport.executeSql(storage,
+                "INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at) VALUES ("
+                        + "'" + rater + "', '" + targetId + "', 10, 'positive', 0.0, NULL, '"
+                        + java.time.format.DateTimeFormatter.ISO_INSTANT.format(
+                                Instant.now().minusSeconds(30).truncatedTo(java.time.temporal.ChronoUnit.MILLIS))
+                        + "')");
+
+        onlineLookupMap.put("alex", new PlayerLookup.KnownPlayer(targetId, "Alex", false));
+
+        List<String> consoleMessages = new ArrayList<>();
+        CommandSender console = mockConsole(consoleMessages);
+
+        boolean result = commandExecutor.onCommand(console, null, "status", new String[]{"Alex"});
+        assertThat(result).isTrue();
+        commandExecutor.lastExecution().join();
+
+        assertThat(consoleMessages).hasSize(6);
+        assertThat(consoleMessages.get(0)).contains("&8--- &bSocial Status: &eAlex &8---");
+        // Status Score is derived only from valid event (+15)
+        assertThat(consoleMessages.get(2)).contains("&7Status Score: &f15");
+        assertThat(consoleMessages.get(5)).contains("&7Contributors: &f1");
+
+        // Sender did not receive read-failed
+        assertThat(messageRegistry.hasCall("status.read-failed")).isFalse();
     }
 }

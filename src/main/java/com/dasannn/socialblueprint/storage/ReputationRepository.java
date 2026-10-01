@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -42,6 +44,7 @@ public final class ReputationRepository {
     private final java.util.function.Supplier<DecayConfig> decayConfigSupplier;
     private final java.time.Clock clock;
     private final java.util.List<java.util.function.Consumer<PlayerId>> invalidationListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private final Set<Long> warnedCorruptRowIds = ConcurrentHashMap.newKeySet();
 
     public ReputationRepository(
             StorageEngine engine,
@@ -77,6 +80,10 @@ public final class ReputationRepository {
 
     public StatusCache statusCache() {
         return statusCache;
+    }
+
+    boolean hasWarnedCorruptRow(long id) {
+        return warnedCorruptRowIds.contains(id);
     }
 
     private void notifyInvalidation(PlayerId target) {
@@ -160,7 +167,10 @@ public final class ReputationRepository {
             try (ResultSet rs = ps.executeQuery()) {
                 List<ReputationEvent> list = new ArrayList<>();
                 while (rs.next()) {
-                    list.add(mapRow(rs));
+                    ReputationEvent event = mapRow(rs);
+                    if (event != null) {
+                        list.add(event);
+                    }
                 }
                 return list;
             }
@@ -348,7 +358,10 @@ public final class ReputationRepository {
                 try (ResultSet rs = ps.executeQuery()) {
                     List<ReputationEvent> list = new ArrayList<>();
                     while (rs.next()) {
-                        list.add(mapRow(rs));
+                        ReputationEvent event = mapRow(rs);
+                        if (event != null) {
+                            list.add(event);
+                        }
                     }
                     return list;
                 }
@@ -370,7 +383,10 @@ public final class ReputationRepository {
                 try (ResultSet rs = ps.executeQuery()) {
                     List<ReputationEvent> list = new ArrayList<>();
                     while (rs.next()) {
-                        list.add(mapRow(rs));
+                        ReputationEvent event = mapRow(rs);
+                        if (event != null) {
+                            list.add(event);
+                        }
                     }
                     return list;
                 }
@@ -395,7 +411,10 @@ public final class ReputationRepository {
                 try (ResultSet rs = ps.executeQuery()) {
                     List<ReputationEvent> list = new ArrayList<>();
                     while (rs.next()) {
-                        list.add(mapRow(rs));
+                        ReputationEvent event = mapRow(rs);
+                        if (event != null) {
+                            list.add(event);
+                        }
                     }
                     return list;
                 }
@@ -420,8 +439,11 @@ public final class ReputationRepository {
                 ps.setString(1, actor.toString());
                 ps.setString(2, target.toString());
                 try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) {
-                        return Optional.of(mapRow(rs));
+                    while (rs.next()) {
+                        ReputationEvent event = mapRow(rs);
+                        if (event != null) {
+                            return Optional.of(event);
+                        }
                     }
                     return Optional.empty();
                 }
@@ -652,18 +674,31 @@ public final class ReputationRepository {
         });
     }
 
-    private static ReputationEvent mapRow(ResultSet rs) throws SQLException {
+    private ReputationEvent mapRow(ResultSet rs) throws SQLException {
         long id = rs.getLong("id");
-        String actorStr = rs.getString("actor_uuid");
-        PlayerId actor = actorStr != null ? PlayerId.fromString(actorStr) : null;
-        PlayerId target = PlayerId.fromString(rs.getString("target_uuid"));
-        int delta = rs.getInt("delta");
-        HonorKind kind = HonorKind.fromDbValue(rs.getString("kind"));
-        double cost = rs.getDouble("cost");
-        String reason = rs.getString("reason");
-        Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
+        String targetStr = rs.getString("target_uuid");
+        try {
+            if (targetStr == null) {
+                throw new IllegalArgumentException("Target UUID cannot be null");
+            }
 
-        return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt);
+            String actorStr = rs.getString("actor_uuid");
+            PlayerId actor = actorStr != null ? PlayerId.fromString(actorStr) : null;
+            PlayerId target = PlayerId.fromString(targetStr);
+            int delta = rs.getInt("delta");
+            HonorKind kind = HonorKind.fromDbValue(rs.getString("kind"));
+            double cost = rs.getDouble("cost");
+            String reason = rs.getString("reason");
+            Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
+
+            return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt);
+        } catch (IllegalArgumentException ex) {
+            if (warnedCorruptRowIds.add(id)) {
+                LOGGER.log(Level.WARNING,
+                        "Skipping corrupt reputation event row id=" + id + " for target=" + targetStr + ": " + ex.getMessage());
+            }
+            return null;
+        }
     }
 
     public boolean hasLegacyImport(PlayerId target) {

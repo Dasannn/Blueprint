@@ -25,6 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RepositoryTest {
 
@@ -320,5 +321,132 @@ class RepositoryTest {
         Instant justBefore = eventTime.minusNanos(1);
         assertThat(reputationRepo.countActorRatingsSince(actor, justBefore)).isEqualTo(1);
         assertThat(reputationRepo.countPairRatingsSince(actor, target, HonorKind.POSITIVE, justBefore)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Corrupt reputation row is skipped, warning is emitted once, and remaining rows are counted")
+    void corruptReputationRowSkippedAndWarningEmittedOnce() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Valid row 1: positive delta 10
+        ReputationEvent event1 = new ReputationEvent(actor, target, 10, HonorKind.POSITIVE, 500.0, null, baseTime);
+        reputationRepo.save(event1);
+
+        // Verify the repository's own write path refuses the invalid event (cost 0.0 for player honor)
+        assertThatThrownBy(() -> new ReputationEvent(actor, target, 5, HonorKind.POSITIVE, 0.0, null, baseTime.plusSeconds(5)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Insert corrupt row directly via SQL bypassing the write invariants
+        long badRowId = storage.execute(conn -> {
+            try (java.sql.PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, actor.toString());
+                ps.setString(2, target.toString());
+                ps.setInt(3, 5);
+                ps.setString(4, "positive");
+                ps.setDouble(5, 0.0); // Corrupt: cost 0.0 for player honor
+                ps.setString(6, null);
+                ps.setString(7, StorageTimestamps.format(baseTime.plusSeconds(5)));
+                ps.executeUpdate();
+                try (java.sql.ResultSet rs = ps.getGeneratedKeys()) {
+                    rs.next();
+                    return rs.getLong(1);
+                }
+            }
+        });
+
+        // Valid row 2: negative delta -4
+        ReputationEvent event2 = new ReputationEvent(actor, target, -4, HonorKind.NEGATIVE, 250.0, "Griefing", baseTime.plusSeconds(10));
+        reputationRepo.save(event2);
+
+        // Capture logs from ReputationRepository
+        List<java.util.logging.LogRecord> logs = new java.util.ArrayList<>();
+        java.util.logging.Handler testHandler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord record) {
+                logs.add(record);
+            }
+            @Override
+            public void flush() {}
+            @Override
+            public void close() {}
+        };
+        java.util.logging.Logger repoLogger = java.util.logging.Logger.getLogger(ReputationRepository.class.getName());
+        repoLogger.addHandler(testHandler);
+
+        try {
+            // First read: corrupt row is skipped, only valid rows returned
+            List<ReputationEvent> eventsFirstRead = reputationRepo.findByTarget(target);
+            assertThat(eventsFirstRead).hasSize(2);
+            assertThat(eventsFirstRead.get(0).delta()).isEqualTo(10);
+            assertThat(eventsFirstRead.get(1).delta()).isEqualTo(-4);
+
+            // Warning is emitted naming id, target, and what is wrong with it
+            List<java.util.logging.LogRecord> warnings = logs.stream()
+                    .filter(r -> r.getLevel() == java.util.logging.Level.WARNING
+                            && r.getMessage().contains("id=" + badRowId)
+                            && r.getMessage().contains("target=" + target)
+                            && r.getMessage().contains("positive cost (> 0)"))
+                    .toList();
+            assertThat(warnings).hasSize(1);
+            assertThat(reputationRepo.hasWarnedCorruptRow(badRowId)).isTrue();
+
+            // Second read: corrupt row still skipped, but warning is NOT emitted again
+            List<ReputationEvent> eventsSecondRead = reputationRepo.findByTarget(target);
+            assertThat(eventsSecondRead).hasSize(2);
+
+            long secondReadWarningCount = logs.stream()
+                    .filter(r -> r.getLevel() == java.util.logging.Level.WARNING
+                            && r.getMessage().contains("id=" + badRowId))
+                    .count();
+            assertThat(secondReadWarningCount)
+                    .as("Warning must be emitted once per offending row rather than per read")
+                    .isEqualTo(1);
+
+            // Derived status is computed from remaining rows (10 - 4 = 6)
+            Status status = reputationRepo.getStatus(target);
+            assertThat(status.value()).isEqualTo(6);
+        } finally {
+            repoLogger.removeHandler(testHandler);
+        }
+    }
+
+    @Test
+    @DisplayName("SQLException still propagates when storage connection fails")
+    void sqlExceptionStillPropagates() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Dropping the table causes SQLException
+        storage.run(conn -> {
+            try (java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute("DROP TABLE reputation_event;");
+            }
+        });
+
+        assertThatThrownBy(() -> reputationRepo.findByTarget(target))
+                .isInstanceOf(StorageException.class)
+                .hasCauseInstanceOf(java.sql.SQLException.class);
+    }
+
+    @Test
+    @DisplayName("SQLException directly propagates out of findByTargetInternal")
+    void sqlExceptionDirectlyPropagates() {
+        java.sql.Connection mockConn = (java.sql.Connection) java.lang.reflect.Proxy.newProxyInstance(
+                java.sql.Connection.class.getClassLoader(),
+                new Class<?>[]{java.sql.Connection.class},
+                (proxy, method, args) -> {
+                    if ("prepareStatement".equals(method.getName())) {
+                        throw new java.sql.SQLException("Connection closed");
+                    }
+                    return null;
+                }
+        );
+
+        assertThatThrownBy(() -> reputationRepo.findByTargetInternal(mockConn, UUID.randomUUID().toString()))
+                .isInstanceOf(java.sql.SQLException.class)
+                .hasMessage("Connection closed");
     }
 }

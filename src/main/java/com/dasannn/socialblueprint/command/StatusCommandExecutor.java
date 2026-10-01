@@ -664,6 +664,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     .exceptionally(ex -> {
                         Logger.getLogger(StatusCommandExecutor.class.getName())
                                 .log(java.util.logging.Level.SEVERE, "Failed to open status GUI for " + playerName, ex);
+                        mainThreadRunner.accept(() -> {
+                            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.read-failed"));
+                        });
                         return null;
                     });
         } else {
@@ -702,7 +705,12 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     }
 
     public CompletableFuture<Void> executeShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
-        return profileService.resolvePlayerAsync(targetInput, snapshot)
+        // completedFuture first, so a resolve that throws synchronously -- a
+        // closed storage engine does -- becomes a failed future and reaches the
+        // same handler as an asynchronous failure, instead of escaping into the
+        // command dispatcher.
+        return CompletableFuture.completedFuture(null)
+                .thenCompose(ignored -> profileService.resolvePlayerAsync(targetInput, snapshot))
                 .thenAccept(optView -> mainThreadRunner.accept(() -> {
                     if (optView.isEmpty()) {
                         sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found",
@@ -718,6 +726,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     Logger.getLogger(StatusCommandExecutor.class.getName()).log(
                             java.util.logging.Level.SEVERE,
                             "Failed to read the profile of '" + targetInput + "'", error);
+                    mainThreadRunner.accept(() -> {
+                        sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.read-failed"));
+                    });
                     return null;
                 });
     }
