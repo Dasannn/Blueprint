@@ -112,10 +112,23 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             ProfileService profileService,
             HonorService honorService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            com.dasannn.socialblueprint.feature.legacy.LegacyImportService legacyImportService,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
         this(configManager, messageRegistry, profileService, honorService, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, auditRepository, null, mainThreadRunner, onlinePlayersSupplier);
     }
 
     public StatusCommandExecutor(
@@ -145,6 +158,33 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             ProfileService profileService,
             HonorService honorService,
             com.dasannn.socialblueprint.feature.duel.DuelService duelService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            com.dasannn.socialblueprint.feature.legacy.LegacyImportService legacyImportService,
+            Plugin plugin
+    ) {
+        this(
+                configManager,
+                messageRegistry,
+                profileService,
+                honorService,
+                auditRepository,
+                legacyImportService,
+                runnable -> {
+                    if (plugin != null && plugin.isEnabled()) {
+                        Bukkit.getScheduler().runTask(plugin, runnable);
+                    } else if (plugin == null) {
+                        runnable.run();
+                    }
+                },
+                Bukkit::getOnlinePlayers
+        );
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Plugin plugin
     ) {
@@ -441,6 +481,19 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // Subcommand: /status import [file]
+        if ("import".equals(sub)) {
+            if (adminCommand == null) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            String[] forwardArgs = new String[1 + subArgs.length];
+            forwardArgs[0] = "import";
+            System.arraycopy(subArgs, 0, forwardArgs, 1, subArgs.length);
+            this.lastExecution = adminCommand.execute(sender, forwardArgs, snapshot);
+            return true;
+        }
+
         // 7. Legacy syntax: /status info <player> or /pstatus info <player>
         if ("info".equals(sub) && subArgs.length >= 1) {
             if (!PermissionChecker.hasPermission(sender, "show-others", snapshot)) {
@@ -582,7 +635,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 suggestions.add("config");
             }
 
-            if (PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) && "admin".startsWith(current)) {
+            if ((PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) || PermissionChecker.hasPermission(sender, "admin-import", snapshot)) && "admin".startsWith(current)) {
                 suggestions.add("admin");
             }
 
@@ -592,6 +645,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
             if (PermissionChecker.hasPermission(sender, "admin-update", snapshot) && "update".startsWith(current)) {
                 suggestions.add("update");
+            }
+            if (PermissionChecker.hasPermission(sender, "admin-import", snapshot) && "import".startsWith(current)) {
+                suggestions.add("import");
             }
 
             if (sender instanceof Player) {
@@ -638,7 +694,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 if (subArgs.length == 1) {
                     return adminCommand.tabComplete(sender, subArgs, snapshot);
                 }
-                if (subArgs.length == 2) {
+                if (subArgs.length == 2 && !"import".equalsIgnoreCase(subArgs[0])) {
                     String current = subArgs[1].toLowerCase(Locale.ROOT);
                     List<String> playerMatches = new ArrayList<>();
                     for (Player player : onlinePlayersSupplier.get()) {

@@ -44,6 +44,21 @@ commands:
     give-success: '&aSuccessfully added &e{amount}&a honor to &e{target}&a. New status: &f{status}'
     take-success: '&aSuccessfully removed &e{amount}&a honor from &e{target}&a. New status: &f{status}'
     reset-success: '&aSuccessfully reset status for &e{target}&a to neutral (0).'
+    import:
+      usage: '&eUsage: &f/status admin import [file]'
+      started: '&7Starting legacy import from &f{file}&7...'
+      summary: '&aLegacy import complete: &f{read}&a read, &f{imported}&a imported, &f{skipped}&a skipped.'
+      reason: 'Legacy PlayerStatus migration'
+      skipped-unresolved: '&eSkipped {player}: unable to resolve player identity to UUID.'
+      skipped-already-imported: '&eSkipped {player}: already imported (kept {kept}, ignored {ignored}).'
+      skipped-invalid-score: '&eSkipped {player}: invalid or unparseable score ({score}).'
+      skipped-unverified: '&eSkipped {player}: name could not be verified.'
+      file-not-found: '&cImport file not found: &f{file}'
+      io-error: '&cError during legacy import: &f{error}'
+      no-players-found: '&cNo player entries found in file: &f{file}'
+      invalid-yaml: '&cFile is not valid YAML: &f{file}'
+      invalid-shape: '&cInvalid configuration shape in file: &f{file}'
+      already-running: '&cA legacy import is already in progress.'
 
 chat:
   hover-status: '&7Status: &f{status}'

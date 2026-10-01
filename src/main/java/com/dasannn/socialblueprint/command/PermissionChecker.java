@@ -66,6 +66,7 @@ public final class PermissionChecker {
             case "admin-config" -> List.of("pstatus.admin");
             case "admin-update" -> List.of("pstatus.admin");
             case "version" -> List.of("pstatus.admin", "pstatus.show");
+            case "admin-import" -> List.of("pstatus.admin");
             default -> List.of();
         };
     }

@@ -44,6 +44,21 @@ commands:
     give-success: '&aSe añadieron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
     take-success: '&aSe retiraron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
     reset-success: '&aSe restableció el estatus de &e{target}&a a neutral (0).'
+    import:
+      usage: '&eUso: &f/status admin import [archivo]'
+      started: '&7Iniciando importación heredada desde &f{file}&7...'
+      summary: '&aImportación heredada completada: &f{read}&a leídos, &f{imported}&a importados, &f{skipped}&a omitidos.'
+      reason: 'Migración heredada de PlayerStatus'
+      skipped-unresolved: '&eOmitido {player}: no se pudo resolver la identidad del jugador a un UUID.'
+      skipped-already-imported: '&eOmitido {player}: ya importado (conservado {kept}, ignorado {ignored}).'
+      skipped-invalid-score: '&eOmitido {player}: puntuación no válida o no analizable ({score}).'
+      skipped-unverified: '&eOmitido {player}: no se pudo verificar el nombre.'
+      file-not-found: '&cArchivo de importación no encontrado: &f{file}'
+      io-error: '&cError durante la importación heredada: &f{error}'
+      no-players-found: '&cNo se encontraron entradas de jugadores en el archivo: &f{file}'
+      invalid-yaml: '&cEl archivo no es un YAML válido: &f{file}'
+      invalid-shape: '&cFormato de configuración no válido en el archivo: &f{file}'
+      already-running: '&cYa hay una importación heredada en curso.'
 
 chat:
   hover-status: '&7Estatus: &f{status}'

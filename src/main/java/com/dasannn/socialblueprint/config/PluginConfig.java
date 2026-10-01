@@ -9,6 +9,11 @@ import java.util.Set;
 /**
  * Root typed immutable configuration record per T-030 and T-031.
  * One load, no scattered getString calls. Loaded once and validated strictly.
+ *
+ * <p>Every feature section is a component here. There is one canonical
+ * constructor and one convenience constructor that defaults every section:
+ * each phase used to add its own overload, and once merged together three of
+ * them became ambiguous on a null argument.
  */
 public record PluginConfig(
         String language,
@@ -20,10 +25,16 @@ public record PluginConfig(
         PermissionsConfig permissions,
         DuelConfigSection duel,
         EffectsConfigSection effects,
-        UpdateConfig update
+        UpdateConfig update,
+        LegacyImportConfig legacyImport,
+        DecayConfigSection decay,
+        KillPenaltyConfigSection killPenalty,
+        SoundsConfigSection sounds,
+        HistoryConfig history
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
+    /** Core settings only; every feature section takes its shipped default. */
     public PluginConfig(
             String language,
             String chatPrefix,
@@ -34,36 +45,14 @@ public record PluginConfig(
             PermissionsConfig permissions
     ) {
         this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                null, EffectsConfigSection.defaults(), UpdateConfig.defaults());
-    }
-
-    /** P5 call sites: duel supplied, effects defaulted. */
-    public PluginConfig(
-            String language,
-            String chatPrefix,
-            TiersConfig tiers,
-            ConfidenceConfigSection confidence,
-            PsychosisConfigSection psychosis,
-            HonorConfigSection honor,
-            PermissionsConfig permissions,
-            DuelConfigSection duel
-    ) {
-        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                duel, EffectsConfigSection.defaults(), UpdateConfig.defaults());
-    }
-
-    /** P6 call sites: effects supplied, no duel configured. */
-    public PluginConfig(
-            String language,
-            String chatPrefix,
-            TiersConfig tiers,
-            ConfidenceConfigSection confidence,
-            PsychosisConfigSection psychosis,
-            HonorConfigSection honor,
-            PermissionsConfig permissions,
-            EffectsConfigSection effects
-    ) {
-        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, null, effects, UpdateConfig.defaults());
+                null,
+                EffectsConfigSection.defaults(),
+                UpdateConfig.defaults(),
+                LegacyImportConfig.defaults(),
+                DecayConfigSection.defaults(),
+                KillPenaltyConfigSection.defaults(),
+                SoundsConfigSection.defaults(),
+                HistoryConfig.defaults());
     }
 
     public PluginConfig {
@@ -75,15 +64,17 @@ public record PluginConfig(
         Objects.requireNonNull(honor, "honor must not be null");
         Objects.requireNonNull(permissions, "permissions must not be null");
         Objects.requireNonNull(effects, "effects must not be null");
-        if (update == null) {
-            update = UpdateConfig.defaults();
-        }
+        Objects.requireNonNull(update, "update must not be null");
+        Objects.requireNonNull(legacyImport, "legacyImport must not be null");
+        Objects.requireNonNull(decay, "decay must not be null");
+        Objects.requireNonNull(killPenalty, "killPenalty must not be null");
+        Objects.requireNonNull(sounds, "sounds must not be null");
+        Objects.requireNonNull(history, "history must not be null");
     }
 
     public static PluginConfig load(ConfigurationSection root) {
         Objects.requireNonNull(root, "Root ConfigurationSection must not be null");
 
-        // Validate language (SB-066, T-032a)
         if (!root.contains("language")) {
             throw new ConfigValidationException("language", "Missing required configuration key: 'language'");
         }
@@ -97,7 +88,6 @@ public record PluginConfig(
                     "Unsupported language '" + langRaw + "'. Supported languages: " + SUPPORTED_LANGUAGES);
         }
 
-        // Validate chat prefix (SB-062): exactly one accepted key: 'chat-prefix'
         if (root.contains("prefix")) {
             throw new ConfigValidationException("prefix",
                     "Configuration key 'prefix' is not supported; use 'chat-prefix' instead");
@@ -111,7 +101,6 @@ public record PluginConfig(
         }
         ColorParser.validate(chatPrefix, "chat-prefix");
 
-        // Validate sections
         TiersConfig tiers = TiersConfig.load(root);
         ConfidenceConfigSection confidence = ConfidenceConfigSection.load(root);
         PsychosisConfigSection psychosis = PsychosisConfigSection.load(root);
@@ -122,8 +111,18 @@ public record PluginConfig(
                 ? EffectsConfigSection.load(root)
                 : EffectsConfigSection.defaults();
         UpdateConfig update = UpdateConfig.load(root);
+        LegacyImportConfig legacyImport = LegacyImportConfig.load(root);
+        DecayConfigSection decay = DecayConfigSection.load(root);
+        KillPenaltyConfigSection killPenalty = root.contains("kill-penalty")
+                ? KillPenaltyConfigSection.load(root)
+                : KillPenaltyConfigSection.defaults();
+        SoundsConfigSection sounds = root.contains("sounds")
+                ? SoundsConfigSection.load(root)
+                : SoundsConfigSection.defaults();
+        HistoryConfig history = HistoryConfig.load(root);
 
-        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects, update);
+        return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
+                duel, effects, update, legacyImport, decay, killPenalty, sounds, history);
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -137,7 +136,12 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                update
+                update,
+                legacyImport,
+                decay,
+                killPenalty,
+                sounds,
+                history
         );
     }
 
@@ -152,7 +156,12 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                update
+                update,
+                legacyImport,
+                decay,
+                killPenalty,
+                sounds,
+                history
         );
     }
 
@@ -167,7 +176,12 @@ public record PluginConfig(
                 permissions,
                 duel,
                 Objects.requireNonNull(newEffects, "effects must not be null"),
-                update
+                update,
+                legacyImport,
+                decay,
+                killPenalty,
+                sounds,
+                history
         );
     }
 
@@ -182,7 +196,112 @@ public record PluginConfig(
                 permissions,
                 duel,
                 effects,
-                Objects.requireNonNull(newUpdate, "update must not be null")
+                Objects.requireNonNull(newUpdate, "update must not be null"),
+                legacyImport,
+                decay,
+                killPenalty,
+                sounds,
+                history
+        );
+    }
+
+    public PluginConfig withLegacyImport(LegacyImportConfig newLegacyImport) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                Objects.requireNonNull(newLegacyImport, "legacyImport must not be null"),
+                decay,
+                killPenalty,
+                sounds,
+                history
+        );
+    }
+
+    public PluginConfig withDecay(DecayConfigSection newDecay) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                legacyImport,
+                Objects.requireNonNull(newDecay, "decay must not be null"),
+                killPenalty,
+                sounds,
+                history
+        );
+    }
+
+    public PluginConfig withKillPenalty(KillPenaltyConfigSection newKillPenalty) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                legacyImport,
+                decay,
+                Objects.requireNonNull(newKillPenalty, "killPenalty must not be null"),
+                sounds,
+                history
+        );
+    }
+
+    public PluginConfig withSounds(SoundsConfigSection newSounds) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                legacyImport,
+                decay,
+                killPenalty,
+                Objects.requireNonNull(newSounds, "sounds must not be null"),
+                history
+        );
+    }
+
+    public PluginConfig withHistory(HistoryConfig newHistory) {
+        return new PluginConfig(
+                language,
+                chatPrefix,
+                tiers,
+                confidence,
+                psychosis,
+                honor,
+                permissions,
+                duel,
+                effects,
+                update,
+                legacyImport,
+                decay,
+                killPenalty,
+                sounds,
+                Objects.requireNonNull(newHistory, "history must not be null")
         );
     }
 }

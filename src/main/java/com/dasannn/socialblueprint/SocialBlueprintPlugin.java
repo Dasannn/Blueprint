@@ -17,8 +17,12 @@ import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
 import com.dasannn.socialblueprint.storage.StorageLifecycleCoordinator;
 import com.dasannn.socialblueprint.feature.honor.HonorService;
+import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.feature.legacy.LegacyImportService;
+import com.dasannn.socialblueprint.storage.CompensationRepository;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -29,6 +33,8 @@ import com.dasannn.socialblueprint.feature.effects.AmbientEffectScheduler;
 import com.dasannn.socialblueprint.feature.effects.FakeSilverfishService;
 import com.dasannn.socialblueprint.storage.CompensationRepository;
 import java.io.File;
+import java.util.Optional;
+import java.util.UUID;
 
 public final class SocialBlueprintPlugin extends JavaPlugin {
 
@@ -46,6 +52,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private ProfileService profileService;
     private HonorService honorService;
     private com.dasannn.socialblueprint.feature.update.UpdateService updateService;
+    private LegacyImportService legacyImportService;
     private Economy economy;
     private AmbientEntityRegistry ambientEntityRegistry;
     private FakeSilverfishService fakeSilverfishService;
@@ -273,6 +280,23 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 getLogger()
         );
 
+        this.legacyImportService = new LegacyImportService(
+                storageEngine,
+                reputationRepository,
+                profileRepository,
+                auditRepository,
+                messageRegistry,
+                playerLookup,
+                getDataFolder(),
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    }
+                },
+                () -> getServer().getConsoleSender(),
+                getLogger()
+        );
+
         PluginCommand statusCmd = getCommand("status");
         if (statusCmd != null) {
             StatusCommandExecutor executor = new StatusCommandExecutor(
@@ -283,6 +307,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     duelService,
                     auditRepository,
                     ambientEntityRegistry::cleanForPlayer,
+                    legacyImportService,
                     this,
                     updateService
             );
@@ -370,6 +395,10 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     public HonorService getHonorService() {
         return honorService;
+    }
+
+    public LegacyImportService getLegacyImportService() {
+        return legacyImportService;
     }
 
     public CompensationRepository getCompensationRepository() {

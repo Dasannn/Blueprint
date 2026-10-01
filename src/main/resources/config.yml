@@ -218,3 +218,13 @@ update:
 
   # Maximum allowed download size in bytes for release assets (SB-074). Default: 10485760 (10 MB).
   max-download-bytes: 10485760
+  admin-import: "socialblueprint.admin.import"
+
+# ==============================================================================
+# Legacy Import (T-090, T-091, T-092)
+# ==============================================================================
+legacy-import:
+  # Import rows keyed only by a name, resolving the name as it is owned today.
+  # Off by default: Minecraft names can be reused, so a name-keyed row can
+  # attach an old record to a different player.
+  trust-name-lookup: false

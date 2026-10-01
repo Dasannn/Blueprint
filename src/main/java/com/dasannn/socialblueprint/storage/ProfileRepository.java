@@ -34,7 +34,7 @@ public final class ProfileRepository {
         return engine.runAsync(conn -> saveInternal(conn, profile));
     }
 
-    private void saveInternal(Connection conn, PlayerProfile profile) throws SQLException {
+    void saveInternal(Connection conn, PlayerProfile profile) throws SQLException {
         String sql = """
             INSERT INTO player_profile (uuid, last_known_name, effects_opt_out, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?)
@@ -42,6 +42,22 @@ public final class ProfileRepository {
                 last_known_name = excluded.last_known_name,
                 effects_opt_out = excluded.effects_opt_out,
                 updated_at = excluded.updated_at;
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, profile.id().toString());
+            ps.setString(2, profile.lastKnownName());
+            ps.setInt(3, profile.effectsOptOut() ? 1 : 0);
+            ps.setString(4, StorageTimestamps.format(profile.createdAt()));
+            ps.setString(5, StorageTimestamps.format(profile.updatedAt()));
+            ps.executeUpdate();
+        }
+    }
+
+    public void insertIfAbsentInternal(Connection conn, PlayerProfile profile) throws SQLException {
+        String sql = """
+            INSERT INTO player_profile (uuid, last_known_name, effects_opt_out, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(uuid) DO NOTHING;
         """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, profile.id().toString());
