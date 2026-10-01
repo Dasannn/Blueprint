@@ -297,7 +297,8 @@ for a moment, then vanishes. Its displayed victim name comes from a real victim
 in **that killer's own** eligible non-duel `psychosis_event` rows, resolved by
 UUID to a known name. Read the existing history; do not invent a victim or
 write a new event. If no such victim has a resolvable name, skip the effect.
-It is a packet-only fake player entity with a distinct ghost appearance and a
+It is a packet-only, non-pickable text display (not a fake player, which the
+client could target) with a distinct ghost appearance and a
 message-file label identifying it as a ghost. It never copies a real player's
 skin, account UUID, tab-list identity or ordinary nameplate in a way that could
 be mistaken for that player actually being there. It appears and vanishes,
@@ -570,8 +571,8 @@ accompanied.
 **SB-091.** Sound slots are addressed by name, so an owner can retarget an
 existing slot to a different Minecraft sound, and new slots added by later
 features need no code change beyond playing them. Sounds obey SB-041 where they
-belong to a private ambient effect: they reach only the affected player.
-
+belong to a private ambient effect: they reach only the affected player.
+
 **SB-092.** A slot may hold **several layers**, each with its own key, volume,
 pitch, category and a delay in ticks. They play in order from one trigger, so an
 owner can build a chord (every layer at delay `0`), a sequence, or a quiet
