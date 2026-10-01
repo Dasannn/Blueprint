@@ -16,7 +16,9 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -25,9 +27,10 @@ import java.util.regex.Pattern;
 
 /**
  * Merges missing configuration sections, keys, and comments from bundled defaults
- * into disk configuration and message files on server upgrade (T-104).
+ * into disk configuration on server upgrade (T-104). Message files additionally
+ * use stored shipped defaults to update untouched translations safely.
  *
- * <p>Rules:
+ * <p>Config merge rules:
  * <ul>
  *   <li>Never change a value the server already has.</li>
  *   <li>Never reorder or delete anything.</li>
@@ -158,7 +161,7 @@ public final class ConfigMerger {
     }
 
     /**
-     * Merges missing translation keys into all messages_*.yml files present in the data folder.
+     * Three-way merges translations in all messages_*.yml files present in the data folder.
      */
     public static int mergeMessageFiles(File dataFolder, Logger logger) {
         if (dataFolder == null || !dataFolder.exists()) {
@@ -194,6 +197,10 @@ public final class ConfigMerger {
     public static int mergeFile(File diskFile, String bundledYamlContent, String version, boolean isConfigFile, Logger logger) {
         Objects.requireNonNull(diskFile, "diskFile must not be null");
         Objects.requireNonNull(bundledYamlContent, "bundledYamlContent must not be null");
+
+        if (!isConfigFile) {
+            return mergeMessageFile(diskFile, bundledYamlContent, logger);
+        }
 
         if (!diskFile.exists()) {
             return 0;
@@ -263,6 +270,111 @@ public final class ConfigMerger {
             return count;
         } catch (Exception e) {
             throw new IllegalStateException("Failed to merge missing configuration defaults into " + diskFile.getName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Stores plugin-owned baselines separately from editable messages. Without a
+     * baseline, existing values are preserved because their origin is unknown.
+     * Returns the number of added keys, retaining the existing merge API contract.
+     */
+    private static int mergeMessageFile(File diskFile, String bundledContent, Logger logger) {
+        if (!diskFile.exists()) {
+            return 0;
+        }
+        Path baselinePath = diskFile.toPath().resolveSibling(".defaults").resolve(diskFile.getName());
+        try {
+            String diskContent = Files.readString(diskFile.toPath(), StandardCharsets.UTF_8);
+            Map<String, String> current = messageValues(diskContent);
+            Map<String, String> shipped = messageValues(bundledContent);
+            Map<String, String> expected = new HashMap<>(current);
+            boolean firstRun = !Files.exists(baselinePath);
+            Map<String, String> baseline = firstRun ? shipped
+                    : messageValues(Files.readString(baselinePath, StandardCharsets.UTF_8));
+
+            List<YamlEntry> bundledTree = parseYamlEntries(Arrays.asList(bundledContent.split("\\r?\\n", -1)));
+            List<String> lines = new ArrayList<>(Arrays.asList(diskContent.split("\\r?\\n", -1)));
+            List<YamlEntry> missing = findMissingEntries(bundledTree, parseYamlEntries(lines));
+            for (YamlEntry entry : missing) {
+                insertEntry(lines, entry, bundledTree);
+            }
+
+            int added = 0;
+            int updated = 0;
+            List<String> conflicts = new ArrayList<>();
+            for (String key : shipped.keySet().stream().sorted().toList()) {
+                String newValue = shipped.get(key);
+                if (!current.containsKey(key)) {
+                    added++;
+                    expected.put(key, newValue);
+                } else if (!firstRun && !Objects.equals(newValue, baseline.get(key))) {
+                    if (baseline.containsKey(key) && Objects.equals(current.get(key), baseline.get(key))) {
+                        // Copy the shipped YAML representation, including block scalar lines.
+                        // This avoids reinterpreting strings such as "true" or "[text]".
+                        YamlEntry replacement = findNodeInTree(bundledTree, key);
+                        int start = findKeyLine(lines, key);
+                        if (replacement == null || start < 0) {
+                            throw new IllegalStateException("Cannot locate message key " + key);
+                        }
+                        int indentShift = leadingSpaces(lines.get(start)) - replacement.indent();
+                        int end = findEntryEndLine(lines, start);
+                        List<String> replacementLines = new ArrayList<>();
+                        replacementLines.add(replacement.keyLine());
+                        replacementLines.addAll(replacement.valueLines());
+                        lines.subList(start, end).clear();
+                        lines.addAll(start, replacementLines.stream()
+                                .map(line -> line.isBlank() ? line : " ".repeat(Math.max(0, leadingSpaces(line) + indentShift)) + line.stripLeading())
+                                .toList());
+                        updated++;
+                        expected.put(key, newValue);
+                    } else {
+                        conflicts.add(key);
+                    }
+                }
+            }
+
+            String merged = String.join(diskContent.contains("\r\n") ? "\r\n" : "\n", lines);
+            Map<String, String> mergedValues = messageValues(merged);
+            // Reject unsupported YAML layouts rather than overwrite the baseline with a failed merge.
+            if (!expected.equals(mergedValues)) {
+                throw new IllegalStateException("Merged messages do not match the expected values");
+            }
+            if (added > 0 || updated > 0) {
+                writeMessageFile(diskFile.toPath(), merged);
+            }
+            Files.createDirectories(baselinePath.getParent());
+            writeMessageFile(baselinePath, "# Plugin-managed shipped defaults. DO NOT EDIT.\n" + bundledContent);
+            if (logger != null) {
+                logger.info("[SocialBlueprint] Added " + added + " missing entries to " + diskFile.getName()
+                        + "; updated " + updated + " untouched entries; conflicting keys: "
+                        + (conflicts.isEmpty() ? "none" : String.join(", ", conflicts))
+                        + (firstRun ? "; no baseline: cannot know what was customised on this first upgrade; "
+                        + "preserved existing values and added missing keys only" : ""));
+            }
+            return added;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to merge message defaults into " + diskFile.getName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static Map<String, String> messageValues(String content) throws Exception {
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.load(new StringReader(content));
+        return MessageRegistry.flattenKeys(yaml);
+    }
+
+    private static void writeMessageFile(Path target, String content) throws IOException {
+        Path temporary = target.resolveSibling(target.getFileName() + ".tmp." + UUID.randomUUID());
+        try {
+            Files.writeString(temporary, content, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
 
