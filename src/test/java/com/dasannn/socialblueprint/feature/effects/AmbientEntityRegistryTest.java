@@ -186,8 +186,8 @@ class AmbientEntityRegistryTest {
     }
 
     @Test
-    @DisplayName("T-073 / SB-042 Trigger 5: Entities for an opting-out player are cleaned immediately")
-    void cleanedOnPlayerOptOut() {
+    @DisplayName("T-073: Repeated player cleanup leaves no active fake")
+    void repeatedPlayerCleanupIsSafe() {
         UUID player = UUID.randomUUID();
         AtomicBoolean taskCancelled = new AtomicBoolean(false);
         AtomicBoolean cleanupRan = new AtomicBoolean(false);
@@ -200,7 +200,8 @@ class AmbientEntityRegistryTest {
         registry.register(entry);
         assertThat(registry.getActiveCount()).isEqualTo(1);
 
-        // Player toggles opt-out -> cleanForPlayer invoked
+        // Repeated player cleanup is harmless
+        registry.cleanForPlayer(player);
         registry.cleanForPlayer(player);
 
         assertThat(registry.getActiveCount()).isEqualTo(0);

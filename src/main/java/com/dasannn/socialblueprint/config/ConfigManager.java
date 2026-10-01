@@ -89,6 +89,29 @@ public class ConfigManager {
         reload();
     }
 
+    private void retireEffectsKeys() {
+        removeObsoleteKeys(configFile, List.of("effects.threshold", "effects.silverfish.duration-ticks",
+                "effects.fake-announcement.fake-names", "permissions.effects"));
+        for (String language : List.of("en", "es")) {
+            removeObsoleteKeys(new File(configFile.getParentFile(), "messages_" + language + ".yml"),
+                    List.of("effects.opt-out-enabled", "effects.opt-out-disabled"));
+        }
+    }
+
+    private void removeObsoleteKeys(File file, List<String> keys) {
+        if (!file.exists()) return;
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        for (String key : keys) {
+            if (yaml.contains(key)) {
+                try {
+                    YamlFileUpdater.removeLeafAndSave(file, key);
+                } catch (IOException e) {
+                    throw new ConfigValidationException(key, "Cannot retire obsolete key: " + e.getMessage());
+                }
+            }
+        }
+    }
+
     public CompletableFuture<RuntimeSnapshot> reloadAsync() {
         return CompletableFuture.supplyAsync(this::reload, ioExecutor);
     }
@@ -103,6 +126,7 @@ public class ConfigManager {
             migrateLegacyHonorWindowIfNeeded(configFile, logger);
             File dataFolder = configFile.getParentFile();
             ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
+            retireEffectsKeys();
 
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
             PluginConfig newConfig = PluginConfig.load(yaml);
@@ -359,7 +383,7 @@ public class ConfigManager {
         if ("honor.multipliers".equals(path)) {
             return parseDoubleList(raw);
         }
-        if ("kill-penalty.exempt-worlds".equals(path) || "effects.fake-announcement.fake-names".equals(path)) {
+        if ("kill-penalty.exempt-worlds".equals(path)) {
             return parseStringList(raw);
         }
         return parseValue(raw);
@@ -370,7 +394,7 @@ public class ConfigManager {
             List<Double> list = parseDoubleList(raw);
             return list.toString();
         }
-        if ("kill-penalty.exempt-worlds".equals(path) || "effects.fake-announcement.fake-names".equals(path)) {
+        if ("kill-penalty.exempt-worlds".equals(path)) {
             List<String> list = parseStringList(raw);
             return "[" + String.join(", ", list) + "]";
         }
@@ -507,7 +531,6 @@ public class ConfigManager {
         set.add("permissions.admin-adjust");
         set.add("permissions.admin-config");
         set.add("permissions.duel");
-        set.add("permissions.effects");
         set.add("permissions.version");
         set.add("permissions.admin-update");
         set.add("permissions.admin-import");
@@ -518,18 +541,19 @@ public class ConfigManager {
         set.add("duel.disconnect.action");
         set.add("duel.attack-context-window");
 
-        set.add("effects.threshold");
         set.add("effects.check-interval");
+        set.add("effects.quiet-interval.medium");
+        set.add("effects.quiet-interval.high");
+        set.add("effects.quiet-interval.extreme");
+        set.add("effects.max-episode-ticks");
         set.add("effects.silverfish.cooldown");
         set.add("effects.silverfish.session-cap");
-        set.add("effects.silverfish.duration-ticks");
         set.add("effects.whisper.cooldown");
         set.add("effects.whisper.session-cap");
         set.add("effects.creeper.cooldown");
         set.add("effects.creeper.session-cap");
         set.add("effects.fake-announcement.cooldown");
         set.add("effects.fake-announcement.session-cap");
-        set.add("effects.fake-announcement.fake-names");
 
         set.add("legacy-import.trust-name-lookup");
 
@@ -633,18 +657,19 @@ public class ConfigManager {
         }
 
         if (config.effects() != null) {
-            if ("effects.threshold".equals(path)) return String.valueOf(config.effects().threshold());
+            if ("effects.quiet-interval.medium".equals(path)) return formatDuration(config.effects().mediumQuietInterval());
+            if ("effects.quiet-interval.high".equals(path)) return formatDuration(config.effects().highQuietInterval());
+            if ("effects.quiet-interval.extreme".equals(path)) return formatDuration(config.effects().extremeQuietInterval());
+            if ("effects.max-episode-ticks".equals(path)) return String.valueOf(config.effects().maxEpisodeTicks());
             if ("effects.check-interval".equals(path)) return formatDuration(config.effects().checkInterval());
             if ("effects.silverfish.cooldown".equals(path)) return formatDuration(config.effects().silverfish().cooldown());
             if ("effects.silverfish.session-cap".equals(path)) return String.valueOf(config.effects().silverfish().sessionCap());
-            if ("effects.silverfish.duration-ticks".equals(path)) return String.valueOf(config.effects().silverfish().durationTicks());
             if ("effects.whisper.cooldown".equals(path)) return formatDuration(config.effects().whisper().cooldown());
             if ("effects.whisper.session-cap".equals(path)) return String.valueOf(config.effects().whisper().sessionCap());
             if ("effects.creeper.cooldown".equals(path)) return formatDuration(config.effects().creeper().cooldown());
             if ("effects.creeper.session-cap".equals(path)) return String.valueOf(config.effects().creeper().sessionCap());
             if ("effects.fake-announcement.cooldown".equals(path)) return formatDuration(config.effects().fakeAnnouncement().cooldown());
             if ("effects.fake-announcement.session-cap".equals(path)) return String.valueOf(config.effects().fakeAnnouncement().sessionCap());
-            if ("effects.fake-announcement.fake-names".equals(path)) return config.effects().fakeAnnouncement().fakeNames().toString();
         }
 
         if (config.legacyImport() != null && "legacy-import.trust-name-lookup".equals(path)) {

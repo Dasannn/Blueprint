@@ -23,8 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Dispatches individual low-status ambient effects privately to an affected player
- * per SB-040, SB-041, SB-092, Decision 0002, and T-138.
+ * Dispatches private Psychosis effects (SB-041, SB-092, SB-098, SB-099).
  * Absolutely private: no broadcast, no server logging, no leakage to other players.
  */
 public class AmbientEffectDispatcher {
@@ -43,11 +42,12 @@ public class AmbientEffectDispatcher {
         void play(Player player, SoundLayerConfig layer);
     }
 
-    private final Plugin plugin;
+    private final MessageRegistry messageRegistry;
     private final FakeSilverfishService silverfishService;
     private final SoundScheduler scheduler;
     private final SoundPlayer soundPlayer;
     private final Map<UUID, List<SoundScheduler.TaskHandle>> pendingTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, Runnable> activeSoundStops = new ConcurrentHashMap<>();
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
     private final Random random = new Random();
 
@@ -78,7 +78,7 @@ public class AmbientEffectDispatcher {
             SoundScheduler scheduler,
             SoundPlayer soundPlayer
     ) {
-        this.plugin = plugin;
+        this.messageRegistry = Objects.requireNonNull(messageRegistry, "MessageRegistry must not be null");
         this.silverfishService = Objects.requireNonNull(silverfishService, "FakeSilverfishService must not be null");
         this.scheduler = scheduler != null ? scheduler : defaultScheduler(plugin);
         this.soundPlayer = soundPlayer != null ? soundPlayer : defaultSoundPlayer();
@@ -90,7 +90,7 @@ public class AmbientEffectDispatcher {
                 org.bukkit.scheduler.BukkitTask bt = plugin.getServer().getScheduler().runTaskLater(plugin, task, delay);
                 return bt::cancel;
             }
-            return () -> {};
+            return null;
         };
     }
 
@@ -108,30 +108,30 @@ public class AmbientEffectDispatcher {
         Objects.requireNonNull(config, "config must not be null");
 
         return switch (type) {
-            case SILVERFISH -> dispatchSilverfish(player, config);
+            case SILVERFISH -> dispatchSilverfish(player);
             case WHISPER -> {
                 dispatchWhisper(player, snapshot);
                 yield true;
             }
             case CREEPER_SOUND -> {
-                dispatchCreeperSound(player, snapshot);
+                dispatchCreeperSound(player, config, snapshot);
                 yield true;
             }
             case FAKE_ANNOUNCEMENT -> {
-                dispatchFakeAnnouncement(player, config, snapshot);
+                dispatchFakeAnnouncement(player, snapshot);
                 yield true;
             }
         };
     }
 
-    private boolean dispatchSilverfish(Player player, EffectsConfigSection config) {
+    private boolean dispatchSilverfish(Player player) {
         double angle = random.nextDouble() * 2 * Math.PI;
         double distance = 1.5 + random.nextDouble() * 2.0;
         double dx = Math.cos(angle) * distance;
         double dz = Math.sin(angle) * distance;
 
         Location at = player.getLocation().clone().add(dx, 0, dz);
-        ActiveEntityEntry entry = silverfishService.spawnSilverfish(player, at, config.silverfish().durationTicks());
+        ActiveEntityEntry entry = silverfishService.spawnSilverfish(player, at);
         return entry != null;
     }
 
@@ -144,8 +144,20 @@ public class AmbientEffectDispatcher {
         player.sendMessage(ColorParser.parse(raw));
     }
 
-    private void dispatchCreeperSound(Player player, RuntimeSnapshot snapshot) {
-        playSoundSlot(player, "creeper-fuse", snapshot);
+    private void dispatchCreeperSound(Player player, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+        SoundSlotConfig slot = snapshot.config().sounds().get("creeper-fuse");
+        int bound = config.maxEpisodeTicks();
+        SoundSlotConfig bounded = new SoundSlotConfig(slot.layers().stream()
+                .filter(layer -> layer.delay() < bound).toList());
+        playSoundSlot(player, bounded, "creeper-fuse", snapshot);
+        if (!bounded.isSilent()) {
+            UUID id = player.getUniqueId();
+            Runnable stop = () -> stopLayers(player, bounded);
+            activeSoundStops.put(id, stop);
+            scheduleTracked(id, () -> {
+                if (activeSoundStops.remove(id, stop)) stop.run();
+            }, bound);
+        }
     }
 
     /**
@@ -187,17 +199,43 @@ public class AmbientEffectDispatcher {
         if (player == null) {
             return;
         }
+        scheduleTracked(playerId, () -> {
+            if (player.isOnline()) {
+                playLayerSafely(player, layer, slotName, snapshot);
+            }
+        }, layer.delay());
+    }
+
+    private void stopLayers(Player player, SoundSlotConfig slot) {
+        for (SoundLayerConfig layer : slot.layers()) {
+            if (!layer.isSilent()) {
+                try {
+                    player.stopSound(layer.key(), layer.category());
+                } catch (Throwable ignored) {
+                    // Match sound playback's quiet failure policy.
+                }
+            }
+        }
+    }
+
+    public boolean hasPending(UUID playerId) {
+        List<SoundScheduler.TaskHandle> handles = pendingTasks.get(playerId);
+        return handles != null && !handles.isEmpty();
+    }
+
+    public void reserveEpisode(UUID playerId, long ticks) {
+        scheduleTracked(playerId, () -> {}, ticks);
+    }
+
+    private void scheduleTracked(UUID playerId, Runnable action, long delayTicks) {
         AtomicReference<SoundScheduler.TaskHandle> handleRef = new AtomicReference<>();
         SoundScheduler.TaskHandle handle = scheduler.schedule(() -> {
             try {
-                if (player.isOnline()) {
-                    playLayerSafely(player, layer, slotName, snapshot);
-                }
+                action.run();
             } finally {
                 removePendingTask(playerId, handleRef.get());
             }
-        }, layer.delay());
-
+        }, delayTicks);
         if (handle != null) {
             handleRef.set(handle);
             addPendingTask(playerId, handle);
@@ -225,6 +263,8 @@ public class AmbientEffectDispatcher {
         if (playerId == null) {
             return;
         }
+        Runnable stop = activeSoundStops.remove(playerId);
+        if (stop != null) stop.run();
         List<SoundScheduler.TaskHandle> handles = pendingTasks.remove(playerId);
         if (handles != null) {
             for (SoundScheduler.TaskHandle handle : handles) {
@@ -236,6 +276,11 @@ public class AmbientEffectDispatcher {
                 }
             }
         }
+    }
+
+    public void cancelAllPending() {
+        for (UUID id : Set.copyOf(pendingTasks.keySet())) cancelPending(id);
+        for (UUID id : Set.copyOf(activeSoundStops.keySet())) cancelPending(id);
     }
 
     private void addPendingTask(UUID playerId, SoundScheduler.TaskHandle handle) {
@@ -252,16 +297,10 @@ public class AmbientEffectDispatcher {
         }
     }
 
-    private void dispatchFakeAnnouncement(Player player, EffectsConfigSection config, RuntimeSnapshot snapshot) {
-        List<String> names = config.fakeAnnouncement().fakeNames();
-        String fakeName = (!names.isEmpty()) ? names.get(random.nextInt(names.size())) : "Herobrine";
-
+    private void dispatchFakeAnnouncement(Player player, RuntimeSnapshot snapshot) {
         boolean isJoin = random.nextBoolean();
         String key = isJoin ? "effects.fake-join" : "effects.fake-leave";
-        String raw = (snapshot != null && snapshot.messages() != null)
-                ? snapshot.messages().resolveRaw(key, warnedKeys, null)
-                : "";
-        Component announcement = ColorParser.renderTemplate(raw, Map.of("player", fakeName));
+        Component announcement = messageRegistry.render(snapshot, key, Map.of("player", player.getName()));
 
         // Send privately to the affected player alone - never broadcasted or logged
         player.sendMessage(announcement);

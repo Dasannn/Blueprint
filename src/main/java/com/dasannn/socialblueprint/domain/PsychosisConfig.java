@@ -31,6 +31,6 @@ public record PsychosisConfig(
     }
 
     public static PsychosisConfig defaults() {
-        return new PsychosisConfig(Duration.ofHours(24), 2, 5, 10);
+        return new PsychosisConfig(Duration.ofHours(72), 2, 5, 10);
     }
 }

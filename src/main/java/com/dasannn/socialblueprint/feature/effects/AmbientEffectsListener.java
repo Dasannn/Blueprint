@@ -54,7 +54,9 @@ public class AmbientEffectsListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
-        registry.cleanForPlayerWorldChange(event.getPlayer().getUniqueId());
+        UUID playerId = event.getPlayer().getUniqueId();
+        registry.cleanForPlayerWorldChange(playerId);
+        if (dispatcher != null) dispatcher.cancelPending(playerId);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)

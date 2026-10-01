@@ -36,35 +36,32 @@ public final class ProfileRepository {
 
     void saveInternal(Connection conn, PlayerProfile profile) throws SQLException {
         String sql = """
-            INSERT INTO player_profile (uuid, last_known_name, effects_opt_out, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO player_profile (uuid, last_known_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(uuid) DO UPDATE SET
                 last_known_name = excluded.last_known_name,
-                effects_opt_out = excluded.effects_opt_out,
                 updated_at = excluded.updated_at;
         """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, profile.id().toString());
             ps.setString(2, profile.lastKnownName());
-            ps.setInt(3, profile.effectsOptOut() ? 1 : 0);
-            ps.setString(4, StorageTimestamps.format(profile.createdAt()));
-            ps.setString(5, StorageTimestamps.format(profile.updatedAt()));
+            ps.setString(3, StorageTimestamps.format(profile.createdAt()));
+            ps.setString(4, StorageTimestamps.format(profile.updatedAt()));
             ps.executeUpdate();
         }
     }
 
     public void insertIfAbsentInternal(Connection conn, PlayerProfile profile) throws SQLException {
         String sql = """
-            INSERT INTO player_profile (uuid, last_known_name, effects_opt_out, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO player_profile (uuid, last_known_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(uuid) DO NOTHING;
         """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, profile.id().toString());
             ps.setString(2, profile.lastKnownName());
-            ps.setInt(3, profile.effectsOptOut() ? 1 : 0);
-            ps.setString(4, StorageTimestamps.format(profile.createdAt()));
-            ps.setString(5, StorageTimestamps.format(profile.updatedAt()));
+            ps.setString(3, StorageTimestamps.format(profile.createdAt()));
+            ps.setString(4, StorageTimestamps.format(profile.updatedAt()));
             ps.executeUpdate();
         }
     }
@@ -73,7 +70,7 @@ public final class ProfileRepository {
         Objects.requireNonNull(id, "PlayerId must not be null");
         return engine.execute(conn -> {
             String sql = """
-                SELECT uuid, last_known_name, effects_opt_out, created_at, updated_at
+                SELECT uuid, last_known_name, created_at, updated_at
                 FROM player_profile
                 WHERE uuid = ?;
             """;
@@ -94,7 +91,7 @@ public final class ProfileRepository {
         String normalized = name.trim().toLowerCase(Locale.ROOT);
         return engine.execute(conn -> {
             String sql = """
-                SELECT uuid, last_known_name, effects_opt_out, created_at, updated_at
+                SELECT uuid, last_known_name, created_at, updated_at
                 FROM player_profile
                 WHERE LOWER(last_known_name) = ?;
             """;
@@ -113,10 +110,9 @@ public final class ProfileRepository {
     private static PlayerProfile mapRow(ResultSet rs) throws SQLException {
         PlayerId id = PlayerId.fromString(rs.getString("uuid"));
         String lastKnownName = rs.getString("last_known_name");
-        boolean effectsOptOut = rs.getInt("effects_opt_out") != 0;
         Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
         Instant updatedAt = StorageTimestamps.parse(rs.getString("updated_at"));
 
-        return new PlayerProfile(id, lastKnownName, effectsOptOut, createdAt, updatedAt);
+        return new PlayerProfile(id, lastKnownName, createdAt, updatedAt);
     }
 }

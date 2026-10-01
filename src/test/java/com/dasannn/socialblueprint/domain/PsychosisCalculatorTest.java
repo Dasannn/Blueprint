@@ -18,6 +18,17 @@ class PsychosisCalculatorTest {
     private final Instant baseTime = Instant.parse("2026-09-29T12:00:00Z");
 
     @Test
+    void defaultWindowRetainsKillsFor72HoursInsteadOf24() {
+        PsychosisCalculator defaultCalculator = new PsychosisCalculator(PsychosisConfig.defaults());
+        PlayerId killer = PlayerId.of(UUID.randomUUID());
+        List<PsychosisEvent> events = List.of(
+                new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime),
+                new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
+        assertThat(defaultCalculator.calculate(killer, events, baseTime.plus(Duration.ofHours(48)))).isEqualTo(PsychosisLevel.MEDIUM);
+        assertThat(defaultCalculator.calculate(killer, events, baseTime.plus(Duration.ofHours(72)))).isEqualTo(PsychosisLevel.LOW);
+    }
+
+    @Test
     @DisplayName("T-014, SB-005: Player with no kills resolves to lowest level LOW")
     void noKillsResolvesToLow() {
         PlayerId killer = PlayerId.of(UUID.randomUUID());

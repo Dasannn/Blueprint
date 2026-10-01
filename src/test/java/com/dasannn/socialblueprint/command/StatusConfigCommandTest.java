@@ -78,6 +78,17 @@ class StatusConfigCommandTest {
     }
 
     @Test
+    void effectConfigCompletionRetiresOldKeysAndOffersEpisodeControls() {
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+        assertThat(command.tabComplete(admin, new String[]{"effects."}))
+                .contains("effects.check-interval", "effects.quiet-interval.medium", "effects.quiet-interval.high",
+                        "effects.quiet-interval.extreme", "effects.max-episode-ticks")
+                .doesNotContain("effects.threshold", "effects.silverfish.duration-ticks", "effects.fake-announcement.fake-names");
+        assertThat(command.tabComplete(admin, new String[]{"permissions."})).doesNotContain("permissions.effects");
+        assertThat(configManager.isEditableKey("permissions.effects")).isFalse();
+    }
+
+    @Test
     @DisplayName("T-035: Permission denied when sender lacks admin-config permission")
     void permissionDenied() {
         MockSender sender = new MockSender("RegularPlayer");

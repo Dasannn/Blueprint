@@ -123,8 +123,6 @@ duel:
   reconnected: '&e{player}&a reconnected to the duel!'
 
 effects:
-  opt-out-enabled: '&7Ambient effects disabled for you.'
-  opt-out-disabled: '&7Ambient effects enabled for you.'
   fake-join: '&e{player} joined the game'
   fake-leave: '&e{player} left the game'
   whisper-1: '&#202020...'

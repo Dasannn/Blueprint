@@ -212,7 +212,6 @@ class StatusDuelCommandTest {
                 auditRepo,
                 Runnable::run,
                 () -> onlinePlayers,
-                null,
                 null
         );
     }

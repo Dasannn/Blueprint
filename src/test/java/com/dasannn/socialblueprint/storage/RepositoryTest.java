@@ -58,6 +58,31 @@ class RepositoryTest {
     }
 
     @Test
+    void retiredOptOutColumnRemainsUntouchedAndDoesNotEnterProfile() {
+        PlayerId id = PlayerId.of(UUID.randomUUID());
+        profileRepo.save(PlayerProfile.create(id, "Steve", baseTime));
+        storage.run(conn -> {
+            try (var statement = conn.prepareStatement("UPDATE player_profile SET effects_opt_out = 1 WHERE uuid = ?")) {
+                statement.setString(1, id.toString());
+                statement.executeUpdate();
+            }
+        });
+        PlayerProfile profile = profileRepo.findById(id).orElseThrow();
+        profileRepo.save(profile.withName("Renamed", baseTime.plusSeconds(1)));
+        int retained = storage.execute(conn -> {
+            try (var statement = conn.prepareStatement("SELECT effects_opt_out FROM player_profile WHERE uuid = ?")) {
+                statement.setString(1, id.toString());
+                try (var result = statement.executeQuery()) {
+                    result.next();
+                    return result.getInt(1);
+                }
+            }
+        });
+        assertThat(retained).isEqualTo(1);
+        assertThat(profileRepo.findById(id).orElseThrow().lastKnownName()).isEqualTo("Renamed");
+    }
+
+    @Test
     @DisplayName("T-018, T-021: ReputationRepository saves and retrieves events with generated IDs")
     void reputationEventsPersistence() {
         PlayerId actor = PlayerId.of(UUID.randomUUID());
@@ -128,22 +153,19 @@ class RepositoryTest {
         Optional<PlayerProfile> foundById = profileRepo.findById(id);
         assertThat(foundById).isPresent();
         assertThat(foundById.get().lastKnownName()).isEqualTo("Steve");
-        assertThat(foundById.get().effectsOptOut()).isFalse();
 
         Optional<PlayerProfile> foundByName = profileRepo.findByName("steve");
         assertThat(foundByName).isPresent();
         assertThat(foundByName.get().id()).isEqualTo(id);
 
-        // Update name and opt-out
+        // Update name
         PlayerProfile updated = foundById.get()
-                .withName("SuperSteve", baseTime.plusSeconds(100))
-                .withEffectsOptOut(true, baseTime.plusSeconds(100));
+                .withName("SuperSteve", baseTime.plusSeconds(100));
         profileRepo.save(updated);
 
         Optional<PlayerProfile> reloaded = profileRepo.findById(id);
         assertThat(reloaded).isPresent();
         assertThat(reloaded.get().lastKnownName()).isEqualTo("SuperSteve");
-        assertThat(reloaded.get().effectsOptOut()).isTrue();
     }
 
     @Test

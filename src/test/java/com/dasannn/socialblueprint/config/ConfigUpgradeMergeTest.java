@@ -53,6 +53,43 @@ class ConfigUpgradeMergeTest {
     }
 
     @Test
+    void upgradeRetiresObsoleteEffectsKeysAndPreservesOwnerValues() throws Exception {
+        String bundled;
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
+            bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        String old = bundled.replace("  window: 72h", "  window: 48h")
+                .replace("effects:\n", "effects:\n  threshold: -99\n")
+                .replace("  silverfish:\n", "  silverfish:\n    duration-ticks: 999\n")
+                .replace("  fake-announcement:\n", "  fake-announcement:\n    fake-names: [OldVisitor]\n")
+                .replace("permissions:\n", "permissions:\n  effects: sb.effects\n");
+        Files.writeString(configFile.toPath(), old, StandardCharsets.UTF_8);
+        for (String language : List.of("en", "es")) {
+            Files.writeString(new File(tempDir, "messages_" + language + ".yml").toPath(),
+                    "effects:\n  opt-out-enabled: old-enabled\n  opt-out-disabled: old-disabled\n", StandardCharsets.UTF_8);
+        }
+        ConfigManager manager = new ConfigManager(configFile, messageRegistry, Runnable::run, testLogger);
+        manager.initialize();
+        String updated = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
+        assertThat(updated).doesNotContain("threshold: -99", "duration-ticks:", "fake-names:", "effects: sb.effects");
+        assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(48));
+        assertThat(manager.isEditableKey("effects.threshold")).isFalse();
+        assertThat(manager.isEditableKey("effects.silverfish.duration-ticks")).isFalse();
+        assertThat(manager.isEditableKey("effects.fake-announcement.fake-names")).isFalse();
+        assertThat(manager.isEditableKey("effects.opt-out-enabled")).isFalse();
+        manager.set("psychosis.window", "96h");
+        assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(96));
+        manager.set("effects.quiet-interval.medium", "6m");
+        assertThat(manager.config().effects().mediumQuietInterval()).isEqualTo(java.time.Duration.ofMinutes(6));
+        manager.reload();
+        assertThat(manager.config().effects().mediumQuietInterval()).isEqualTo(java.time.Duration.ofMinutes(6));
+        for (String language : List.of("en", "es")) {
+            assertThat(Files.readString(new File(tempDir, "messages_" + language + ".yml").toPath()))
+                    .doesNotContain("opt-out-enabled:", "opt-out-disabled:");
+        }
+    }
+
+    @Test
     @DisplayName("T-104: An old file missing three sections gains exactly those three, with comments, and pre-existing values are byte-identical")
     void oldFileMissingThreeSectionsGainsThoseThreeWithCommentsAndByteIdenticalValues() throws Exception {
         // Prepare an old config.yml containing core sections from previous release, missing decay, kill-penalty, and sounds

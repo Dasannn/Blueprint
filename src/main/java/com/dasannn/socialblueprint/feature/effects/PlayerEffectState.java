@@ -12,6 +12,16 @@ import java.util.Objects;
  */
 public class PlayerEffectState {
 
+    private long nextEpisodeMillis;
+
+    public synchronized boolean canStartEpisode(long nowMillis) {
+        return nowMillis >= nextEpisodeMillis;
+    }
+
+    public synchronized void recordEpisode(long nowMillis, long durationMillis) {
+        nextEpisodeMillis = nowMillis > Long.MAX_VALUE - durationMillis ? Long.MAX_VALUE : nowMillis + durationMillis;
+    }
+
     private final Map<AmbientEffectType, Long> lastFiredMillis = new EnumMap<>(AmbientEffectType.class);
     private final Map<AmbientEffectType, Integer> sessionCounts = new EnumMap<>(AmbientEffectType.class);
 

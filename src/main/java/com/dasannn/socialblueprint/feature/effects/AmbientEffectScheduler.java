@@ -5,8 +5,8 @@ import com.dasannn.socialblueprint.config.EffectsConfigSection;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.PlayerSocialView;
+import com.dasannn.socialblueprint.domain.PsychosisLevel;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -23,10 +23,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * Main-thread scheduler for low-status ambient effects per T-070, SB-040, and SB-043.
- * - Fires below a configurable status threshold.
+ * Main-thread scheduler for private Psychosis episodes (SB-096, SB-097).
+ * - The lowest Psychosis level triggers nothing.
  * - Enforces independent cooldown and per-session cap per effect.
- * - Skips players who have opted out (SB-044).
  */
 public class AmbientEffectScheduler {
 
@@ -90,29 +89,29 @@ public class AmbientEffectScheduler {
         }
         lastCheckTimestamp = now;
 
-        int threshold = cfg.threshold();
-
         for (Player player : onlinePlayersSupplier.get()) {
             if (!player.isOnline()) {
                 continue;
             }
             PlayerId id = PlayerId.of(player.getUniqueId());
 
-            // 1. Opt-out check (SB-044) - unknown must never mean opted in (Finding 5)
-            if (profileService.getEffectsOptOutState(id) != ProfileService.OptOutState.OPTED_IN) {
-                continue;
-            }
-
-            // 2. Below status threshold check (SB-040)
+            // The view contains only plain values. Its database load runs on the storage executor;
+            // a cold cache returns LOW until loaded. Player access and dispatch stay on this main thread.
             PlayerSocialView view = profileService.getViewQuick(id, snapshot);
-            if (view.status() >= threshold) {
+            PsychosisLevel level = view.psychosis();
+            if (level == PsychosisLevel.LOW) {
                 continue;
             }
 
-            // 3. Rate limiting and session cap per effect (SB-043)
             PlayerEffectState state = getOrCreateState(player.getUniqueId());
+            if (!state.canStartEpisode(now) || dispatcher.hasPending(player.getUniqueId())) {
+                continue;
+            }
             List<AmbientEffectType> eligible = new ArrayList<>();
             for (AmbientEffectType type : AmbientEffectType.values()) {
+                if (type == AmbientEffectType.SILVERFISH && level == PsychosisLevel.MEDIUM) {
+                    continue;
+                }
                 if (state.canFire(type, cfg.getEffect(type), now)) {
                     eligible.add(type);
                 }
@@ -127,6 +126,12 @@ public class AmbientEffectScheduler {
             boolean success = dispatcher.dispatch(player, chosen, cfg, snapshot);
             if (success) {
                 state.recordFired(chosen, now);
+                long quietMillis = cfg.quietInterval(level).toMillis();
+                long episodeTicks = chosen == AmbientEffectType.CREEPER_SOUND ? cfg.maxEpisodeTicks() : 0L;
+                state.recordEpisode(now, episodeTicks * 50L + quietMillis);
+                // Also retain the gate in server ticks: lag must not let a new episode
+                // overlap delayed layers or consume the quiet interval.
+                dispatcher.reserveEpisode(player.getUniqueId(), episodeTicks + (quietMillis + 49L) / 50L);
             }
         }
     }

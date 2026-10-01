@@ -71,15 +71,8 @@ public class ProfileService {
             }
     );
 
-    public enum OptOutState {
-        UNKNOWN,
-        OPTED_IN,
-        OPTED_OUT
-    }
-
     private final ConcurrentMap<PlayerId, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
     private final ConcurrentMap<PlayerId, Integer> playerGenerations = new ConcurrentHashMap<>();
-    private final ConcurrentMap<PlayerId, OptOutState> optOutCache = new ConcurrentHashMap<>();
     private final Set<PlayerId> evictedPlayers = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<PlayerId, Long> lastQuitEpochs = new ConcurrentHashMap<>();
     private final AtomicLong quitEpoch = new AtomicLong();
@@ -257,8 +250,6 @@ public class ProfileService {
 
             Optional<PlayerProfile> profile = profileRepository.findById(id);
             String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
-            optOutCache.put(id, profile.map(PlayerProfile::effectsOptOut).orElse(false)
-                    ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
 
             TierLadder ladder = cfg.tiers().ladder();
             Tier tier = ladder.resolve(status.value());
@@ -422,7 +413,6 @@ public class ProfileService {
                     .map(p -> p.withName(name, now))
                     .orElseGet(() -> PlayerProfile.create(id, name, now));
             profileRepository.save(profile);
-            optOutCache.put(id, profile.effectsOptOut() ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
             loadViewInternal(id, name, snapshot, gen, requestEpoch);
         }).exceptionally(error -> {
             logger.log(Level.WARNING, "Failed to warm up profile for player " + id + " (" + name + ")", error);
@@ -456,7 +446,6 @@ public class ProfileService {
 
     public void evict(PlayerId id) {
         if (id != null) {
-            optOutCache.remove(id);
             synchronized (loadLock) {
                 evictedPlayers.add(id);
                 viewCache.remove(id);
@@ -464,44 +453,6 @@ public class ProfileService {
                 lastQuitEpochs.put(id, quitEpoch.incrementAndGet());
             }
         }
-    }
-
-    public OptOutState getEffectsOptOutState(PlayerId id) {
-        if (id == null) return OptOutState.UNKNOWN;
-        return optOutCache.getOrDefault(id, OptOutState.UNKNOWN);
-    }
-
-    public boolean isEffectsOptedOut(PlayerId id) {
-        return getEffectsOptOutState(id) == OptOutState.OPTED_OUT;
-    }
-
-    public void setEffectsOptOutCache(PlayerId id, boolean optOut) {
-        if (id == null) return;
-        optOutCache.put(id, optOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
-    }
-
-    public void setEffectsOptOutState(PlayerId id, OptOutState state) {
-        if (id == null) return;
-        if (state == null || state == OptOutState.UNKNOWN) {
-            optOutCache.remove(id);
-        } else {
-            optOutCache.put(id, state);
-        }
-    }
-
-    public CompletableFuture<Boolean> toggleEffectsOptOutAsync(PlayerId id, String playerName) {
-        Objects.requireNonNull(id, "PlayerId must not be null");
-        return storageEngine.supplyAsync(() -> {
-            Instant now = Instant.now();
-            Optional<PlayerProfile> existing = profileRepository.findById(id);
-            boolean newOptOut = existing.map(p -> !p.effectsOptOut()).orElse(true);
-            PlayerProfile updated = existing
-                    .map(p -> p.withEffectsOptOut(newOptOut, now))
-                    .orElseGet(() -> new PlayerProfile(id, playerName != null ? playerName : id.toString(), newOptOut, now, now));
-            profileRepository.save(updated);
-            optOutCache.put(id, newOptOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
-            return newOptOut;
-        });
     }
 
     public boolean isCached(PlayerId id) {

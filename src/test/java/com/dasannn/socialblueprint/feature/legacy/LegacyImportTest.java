@@ -652,16 +652,15 @@ class LegacyImportTest {
     }
 
     @Test
-    @DisplayName("Finding 2: Import does not overwrite existing profile state (preserves opt-out and current name)")
+    @DisplayName("Finding 2: Import does not overwrite existing profile state (preserves current name)")
     void importDoesNotOverwriteExistingProfile() throws Exception {
         UUID uuidPlayer = UUID.fromString("55555555-5555-5555-5555-555555555555");
         PlayerId targetId = PlayerId.of(uuidPlayer);
 
-        // Pre-existing profile with effectsOptOut = true and a current live name
+        // Pre-existing profile with a current live name
         PlayerProfile existingProfile = new PlayerProfile(
                 targetId,
                 "CurrentLiveName",
-                true,
                 baseTime.minus(Duration.ofDays(30)),
                 baseTime.minus(Duration.ofDays(5))
         );
@@ -685,10 +684,9 @@ class LegacyImportTest {
         assertThat(events).hasSize(1);
         assertThat(events.getFirst().delta()).isEqualTo(40);
 
-        // 2. Profile MUST NOT have been overwritten: opt-out remains true, name remains CurrentLiveName
+        // 2. Profile MUST NOT have been overwritten: name remains CurrentLiveName
         Optional<PlayerProfile> currentProfile = profileRepo.findById(targetId);
         assertThat(currentProfile).isPresent();
-        assertThat(currentProfile.get().effectsOptOut()).isTrue();
         assertThat(currentProfile.get().lastKnownName()).isEqualTo("CurrentLiveName");
     }
 
@@ -717,7 +715,6 @@ class LegacyImportTest {
         Optional<PlayerProfile> createdProfile = profileRepo.findById(targetId);
         assertThat(createdProfile).isPresent();
         assertThat(createdProfile.get().lastKnownName()).isEqualTo("NewPlayer");
-        assertThat(createdProfile.get().effectsOptOut()).isFalse();
     }
 
     @Test

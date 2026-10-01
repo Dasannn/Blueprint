@@ -61,6 +61,11 @@ public final class YamlFileUpdater {
         }
     }
 
+    /** Removes an obsolete key and its children without reformatting the rest of the file. */
+    public static void removeLeafAndSave(File targetFile, String path) throws IOException {
+        updateLeafAndSave(targetFile, path, null);
+    }
+
     public static String updateLeafContent(String yamlContent, String path, String rawValue) {
         String[] segments = path.split("\\.");
         List<String> lines = new ArrayList<>(Arrays.asList(yamlContent.split("\\r?\\n", -1)));
@@ -123,9 +128,9 @@ public final class YamlFileUpdater {
             throw new IllegalArgumentException("Key path '" + path + "' was not found in YAML content");
         }
 
-        String formattedValue = formatYamlValue(rawValue);
+        String formattedValue = rawValue != null ? formatYamlValue(rawValue) : "";
         String newLine = matchedIndent + matchedKey + ": " + formattedValue + inlineComment;
-        lines.set(matchedLineIndex, newLine);
+        lines.set(matchedLineIndex, rawValue != null ? newLine : "");
 
         // Remove any block child lines (e.g. list items or map entries) that followed this key
         int nextIdx = matchedLineIndex + 1;

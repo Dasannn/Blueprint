@@ -8,6 +8,8 @@ import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.config.SingleEffectConfig;
 import com.dasannn.socialblueprint.domain.CombatContext;
 import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.domain.PsychosisEvent;
+import com.dasannn.socialblueprint.domain.PsychosisLevel;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
@@ -51,6 +53,7 @@ class AmbientEffectSchedulerTest {
     private MessageRegistry messageRegistry;
     private ProfileService profileService;
     private ReputationRepository reputationRepo;
+    private PsychosisRepository psychosisRepo;
     private AmbientEffectScheduler scheduler;
     private final List<DispatchedRecord> dispatchedList = new ArrayList<>();
     private final List<Player> onlinePlayers = new ArrayList<>();
@@ -74,13 +77,12 @@ class AmbientEffectSchedulerTest {
         configManager.initialize();
 
         // Custom effects config with known cooldowns and caps
-        SingleEffectConfig silverfish = new SingleEffectConfig(Duration.ofSeconds(60), 2, 40, List.of());
-        SingleEffectConfig whisper = new SingleEffectConfig(Duration.ofSeconds(30), 3, 0, List.of());
-        SingleEffectConfig creeper = new SingleEffectConfig(Duration.ofSeconds(120), 1, 0, List.of());
-        SingleEffectConfig fakeAnnounce = new SingleEffectConfig(Duration.ofSeconds(300), 1, 0, List.of("FakeUser"));
+        SingleEffectConfig silverfish = new SingleEffectConfig(Duration.ofSeconds(60), 2);
+        SingleEffectConfig whisper = new SingleEffectConfig(Duration.ofSeconds(30), 3);
+        SingleEffectConfig creeper = new SingleEffectConfig(Duration.ofSeconds(120), 1);
+        SingleEffectConfig fakeAnnounce = new SingleEffectConfig(Duration.ofSeconds(300), 1);
 
         EffectsConfigSection effectsCfg = new EffectsConfigSection(
-                -10,
                 Duration.ofSeconds(30),
                 silverfish,
                 whisper,
@@ -96,7 +98,7 @@ class AmbientEffectSchedulerTest {
 
         StatusCache statusCache = new StatusCache();
         reputationRepo = new ReputationRepository(storage, statusCache);
-        PsychosisRepository psychosisRepo = new PsychosisRepository(storage);
+        psychosisRepo = new PsychosisRepository(storage);
         ProfileRepository profileRepo = new ProfileRepository(storage);
         PlayerLookup testLookup = nameOrUuid -> Optional.empty();
 
@@ -148,7 +150,9 @@ class AmbientEffectSchedulerTest {
     }
 
     private Player createMockPlayer(UUID uuid, String name) {
+        Thread mainThread = Thread.currentThread();
         InvocationHandler handler = (proxy, method, args) -> {
+            assertThat(Thread.currentThread()).as("Player API must stay on the main thread").isSameAs(mainThread);
             String m = method.getName();
             if ("equals".equals(m) && method.getParameterCount() == 1) return proxy == args[0];
             if ("hashCode".equals(m) && method.getParameterCount() == 0) return System.identityHashCode(proxy);
@@ -180,9 +184,115 @@ class AmbientEffectSchedulerTest {
         profileService.loadViewAsync(id, "Player-" + uuid.toString().substring(0, 4), configManager.snapshot().config().tiers().ladder()).join();
     }
 
+    private void setPsychosis(UUID uuid, int kills) {
+        PlayerId id = PlayerId.of(uuid);
+        for (int i = 0; i < kills; i++) {
+            psychosisRepo.saveAsync(new PsychosisEvent(id, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, Instant.now())).join();
+        }
+        profileService.loadViewAsync(id, "TestPlayer", configManager.snapshot()).join();
+    }
+
     @Test
-    @DisplayName("T-070 / SB-040: Status at or above threshold never triggers ambient effects")
-    void statusAtOrAboveThresholdNeverFires() {
+    void coldCacheWaitsForPlainPsychosisViewAndNeverTouchesPlayerOnStorageThread() {
+        UUID uuid = UUID.randomUUID();
+        PlayerId id = PlayerId.of(uuid);
+        onlinePlayers.add(createMockPlayer(uuid, "ColdCache"));
+        for (int i = 0; i < 5; i++) {
+            psychosisRepo.saveAsync(new PsychosisEvent(id, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, Instant.now())).join();
+        }
+        scheduler.tickAt(1_000_000L);
+        assertThat(dispatchedList).isEmpty();
+        profileService.loadViewAsync(id, "ColdCache", configManager.snapshot()).join();
+        scheduler.tickAt(1_030_000L);
+        assertThat(dispatchedList).hasSize(1);
+    }
+
+    @Test
+    void highPsychosisCanReceivePhantomWithOtherEffectsDisabled() {
+        UUID uuid = UUID.randomUUID();
+        onlinePlayers.add(createMockPlayer(uuid, "High"));
+        EffectsConfigSection current = configManager.config().effects();
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        EffectsConfigSection onlyPhantom = new EffectsConfigSection(current.checkInterval(), current.silverfish(), disabled, disabled, disabled);
+        RuntimeSnapshot before = configManager.snapshot();
+        configManager.snapshotReference().set(new RuntimeSnapshot(before.config().withEffects(onlyPhantom), before.messages()));
+        setPsychosis(uuid, 5);
+        scheduler.tickAt(1_000_000L);
+        assertThat(dispatchedList).singleElement().satisfies(record -> assertThat(record.type()).isEqualTo(AmbientEffectType.SILVERFISH));
+    }
+
+    @Test
+    void lowStatusWithoutPsychosisAndHighStatusWithPsychosisAreIndependent() {
+        UUID low = UUID.randomUUID();
+        UUID high = UUID.randomUUID();
+        Player lowPlayer = createMockPlayer(low, "LowStatus");
+        Player highPlayer = createMockPlayer(high, "HighStatus");
+        onlinePlayers.addAll(List.of(lowPlayer, highPlayer));
+        setPlayerStatus(low, -50);
+        setPlayerStatus(high, 50);
+        setPsychosis(high, 5);
+        scheduler.tickAt(1_000_000L);
+        assertThat(dispatchedList).extracting(DispatchedRecord::player).containsExactly(highPlayer);
+    }
+
+    @Test
+    void mediumNeverReceivesPhantomAndCannotChainDifferentEffectsDuringQuiet() {
+        UUID uuid = UUID.randomUUID();
+        onlinePlayers.add(createMockPlayer(uuid, "Medium"));
+        setPsychosis(uuid, 2);
+        scheduler.tickAt(1_000_000L);
+        assertThat(dispatchedList).hasSize(1);
+        assertThat(dispatchedList.getFirst().type()).isNotEqualTo(AmbientEffectType.SILVERFISH);
+        scheduler.tickAt(1_030_000L);
+        assertThat(dispatchedList).hasSize(1);
+        scheduler.tickAt(1_330_000L);
+        assertThat(dispatchedList).hasSize(2);
+        assertThat(dispatchedList).allSatisfy(record -> assertThat(record.type()).isNotEqualTo(AmbientEffectType.SILVERFISH));
+    }
+
+    @Test
+    void schedulerCadenceActuallyDiffersForMediumHighAndExtreme() {
+        UUID medium = UUID.randomUUID();
+        UUID high = UUID.randomUUID();
+        UUID extreme = UUID.randomUUID();
+        Player mediumPlayer = createMockPlayer(medium, "Medium");
+        Player highPlayer = createMockPlayer(high, "High");
+        Player extremePlayer = createMockPlayer(extreme, "Extreme");
+        onlinePlayers.addAll(List.of(mediumPlayer, highPlayer, extremePlayer));
+        setPsychosis(medium, 2);
+        setPsychosis(high, 5);
+        setPsychosis(extreme, 10);
+        scheduler.tickAt(1_000_000L);
+        assertThat(dispatchedList).hasSize(3);
+        scheduler.tickAt(1_060_000L);
+        assertThat(dispatchedList).filteredOn(record -> record.player() == mediumPlayer).hasSize(1);
+        assertThat(dispatchedList).filteredOn(record -> record.player() == highPlayer).hasSize(1);
+        assertThat(dispatchedList).filteredOn(record -> record.player() == extremePlayer).hasSize(2);
+        scheduler.tickAt(1_140_000L);
+        assertThat(dispatchedList).filteredOn(record -> record.player() == mediumPlayer).hasSize(1);
+        assertThat(dispatchedList).filteredOn(record -> record.player() == highPlayer).hasSize(2);
+    }
+
+    @Test
+    void cadenceDecreasesByLevelAndEveryEpisodeKeepsSilence() {
+        EffectsConfigSection cfg = configManager.snapshot().config().effects();
+        assertThat(cfg.quietInterval(PsychosisLevel.MEDIUM)).isGreaterThan(cfg.quietInterval(PsychosisLevel.HIGH));
+        assertThat(cfg.quietInterval(PsychosisLevel.HIGH)).isGreaterThan(cfg.quietInterval(PsychosisLevel.EXTREME));
+        for (PsychosisLevel level : List.of(PsychosisLevel.MEDIUM, PsychosisLevel.HIGH, PsychosisLevel.EXTREME)) {
+            PlayerEffectState state = new PlayerEffectState();
+            long end = 1_000_000L + cfg.maxEpisodeTicks() * 50L;
+            long quiet = cfg.quietInterval(level).toMillis();
+            assertThat(quiet).isPositive();
+            state.recordEpisode(1_000_000L, cfg.maxEpisodeTicks() * 50L + quiet);
+            assertThat(state.canStartEpisode(end)).isFalse();
+            assertThat(state.canStartEpisode(end + quiet - 1)).isFalse();
+            assertThat(state.canStartEpisode(end + quiet)).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("T-070 / SB-040: Lowest Psychosis triggers nothing at any status")
+    void lowestPsychosisNeverFiresRegardlessOfStatus() {
         UUID p1 = UUID.randomUUID();
         UUID p2 = UUID.randomUUID();
         UUID p3 = UUID.randomUUID();
@@ -191,9 +301,10 @@ class AmbientEffectSchedulerTest {
         onlinePlayers.add(createMockPlayer(p2, "AboveThreshold"));
         onlinePlayers.add(createMockPlayer(p3, "PositiveStatus"));
 
-        setPlayerStatus(p1, -10); // Exactly at threshold (-10), not below
-        setPlayerStatus(p2, -5);  // Above threshold
-        setPlayerStatus(p3, 20);  // High status
+        setPlayerStatus(p1, -50); // Lowest Psychosis, deeply negative status
+        setPlayerStatus(p2, -5);  // Lowest Psychosis, negative status
+        setPlayerStatus(p3, 20);  // Lowest Psychosis, positive status
+        setPsychosis(p3, 1); // A kill below the Medium threshold still triggers nothing.
 
         scheduler.tickAt(100_000L);
 
@@ -201,13 +312,14 @@ class AmbientEffectSchedulerTest {
     }
 
     @Test
-    @DisplayName("T-070 / SB-040: Status strictly below threshold fires an eligible ambient effect")
-    void statusBelowThresholdFiresEffect() {
+    @DisplayName("T-070 / SB-040: High status with Psychosis receives an ambient effect")
+    void highStatusWithPsychosisFiresEffect() {
         UUID p = UUID.randomUUID();
         Player player = createMockPlayer(p, "LowStatusPlayer");
         onlinePlayers.add(player);
 
-        setPlayerStatus(p, -11); // Below -10 threshold
+        setPlayerStatus(p, 50);
+        setPsychosis(p, 5);
 
         scheduler.tickAt(100_000L);
 
@@ -223,6 +335,7 @@ class AmbientEffectSchedulerTest {
         Player player = createMockPlayer(p, "CooldownPlayer");
         onlinePlayers.add(player);
         setPlayerStatus(p, -15);
+        setPsychosis(p, 5);
 
         PlayerEffectState state = scheduler.getOrCreateState(p);
         long t0 = 1_000_000L;
@@ -251,6 +364,7 @@ class AmbientEffectSchedulerTest {
         Player player = createMockPlayer(p, "CapPlayer");
         onlinePlayers.add(player);
         setPlayerStatus(p, -20);
+        setPsychosis(p, 5);
 
         PlayerEffectState state = scheduler.getOrCreateState(p);
         EffectsConfigSection cfg = configManager.snapshot().config().effects();
@@ -271,28 +385,13 @@ class AmbientEffectSchedulerTest {
     }
 
     @Test
-    @DisplayName("T-075 / SB-044: Opted-out players never receive any ambient effect")
-    void optedOutPlayersNeverReceiveEffects() {
-        UUID p = UUID.randomUUID();
-        Player player = createMockPlayer(p, "OptedOutPlayer");
-        onlinePlayers.add(player);
-        setPlayerStatus(p, -50); // Deep in low status
-
-        // Toggle opt-out to true
-        profileService.toggleEffectsOptOutAsync(PlayerId.of(p), "OptedOutPlayer").join();
-
-        scheduler.tickAt(100_000L);
-
-        assertThat(dispatchedList).isEmpty();
-    }
-
-    @Test
     @DisplayName("T-070 / SB-043: Player quit resets session counts so caps refresh for next session")
     void playerQuitResetsSessionCaps() {
         UUID p = UUID.randomUUID();
         Player player = createMockPlayer(p, "QuittingPlayer");
         onlinePlayers.add(player);
         setPlayerStatus(p, -20);
+        setPsychosis(p, 5);
 
         PlayerEffectState state = scheduler.getOrCreateState(p);
         EffectsConfigSection cfg = configManager.snapshot().config().effects();
@@ -310,55 +409,13 @@ class AmbientEffectSchedulerTest {
     }
 
     @Test
-    @DisplayName("Finding 5: Unknown opt-out state suppresses effects; delayed profile load never treats unknown as opted in")
-    void unknownOptOutStateSuppressesEffectsUntilLoaded() {
-        UUID uuid = UUID.randomUUID();
-        Player player = createMockPlayer(uuid, "DelayedPlayer");
-        onlinePlayers.add(player);
-
-        PlayerId id = PlayerId.of(uuid);
-        reputationRepo.saveAsync(new ReputationEvent(
-                PlayerId.of(UUID.randomUUID()),
-                id,
-                -25,
-                HonorKind.ADMIN_TAKE,
-                0.0,
-                "Reputation set",
-                Instant.now()
-        )).join();
-
-        // Ensure state is explicitly UNKNOWN in ProfileService cache
-        assertThat(profileService.getEffectsOptOutState(id)).isEqualTo(ProfileService.OptOutState.UNKNOWN);
-
-        // Tick scheduler while load is pending / unknown -> MUST suppress effects
-        scheduler.tickAt(100_000L);
-        assertThat(dispatchedList).isEmpty();
-
-        // Simulate delayed load completing with opt-out = true
-        profileService.setEffectsOptOutCache(id, true);
-        assertThat(profileService.getEffectsOptOutState(id)).isEqualTo(ProfileService.OptOutState.OPTED_OUT);
-
-        scheduler.tickAt(200_000L);
-        assertThat(dispatchedList).isEmpty();
-
-        // If player changes mind and opts in -> effect can fire.
-        // Warm the view cache first: getViewQuick reads the cache, and loading it
-        // here also loads the opt-out flag, so the opt-in below must come after.
-        profileService.loadViewAsync(id, "DelayedPlayer", configManager.snapshot().config().tiers().ladder()).join();
-        profileService.setEffectsOptOutCache(id, false);
-        assertThat(profileService.getEffectsOptOutState(id)).isEqualTo(ProfileService.OptOutState.OPTED_IN);
-
-        scheduler.tickAt(300_000L);
-        assertThat(dispatchedList).hasSize(1);
-    }
-
-    @Test
     @DisplayName("Finding 6: effects.check-interval changes dynamically at runtime without server restart")
     void checkIntervalChangesDynamicallyAtRuntime() {
         UUID uuid = UUID.randomUUID();
         Player player = createMockPlayer(uuid, "IntervalPlayer");
         onlinePlayers.add(player);
         setPlayerStatus(uuid, -20);
+        setPsychosis(uuid, 5);
 
         // Initial config interval is 30s
         long t0 = 100_000L;
@@ -373,7 +430,6 @@ class AmbientEffectSchedulerTest {
         // Dynamically update config to 5s interval (without restarting scheduler)
         EffectsConfigSection current = configManager.snapshot().config().effects();
         EffectsConfigSection updated = new EffectsConfigSection(
-                current.threshold(),
                 Duration.ofSeconds(5),
                 current.silverfish(),
                 current.whisper(),
@@ -385,8 +441,8 @@ class AmbientEffectSchedulerTest {
                 configManager.snapshot().messages()
         ));
 
-        // Now t2 is 15 seconds after t0 (5 seconds after t1) -> elapsed 15s >= 5s interval -> FIRES!
-        long t2 = t1 + 5_000L;
+        // After the High quiet period, the shorter check interval allows another episode.
+        long t2 = t0 + 135_000L;
         scheduler.tickAt(t2);
         assertThat(dispatchedList).hasSize(2);
     }
@@ -398,6 +454,7 @@ class AmbientEffectSchedulerTest {
         Player player = createMockPlayer(uuid, "FailingDispatchPlayer");
         onlinePlayers.add(player);
         setPlayerStatus(uuid, -20);
+        setPsychosis(uuid, 5);
 
         // Replace scheduler with one that has a failing dispatcher
         java.util.concurrent.atomic.AtomicBoolean dispatchSuccess = new java.util.concurrent.atomic.AtomicBoolean(false);

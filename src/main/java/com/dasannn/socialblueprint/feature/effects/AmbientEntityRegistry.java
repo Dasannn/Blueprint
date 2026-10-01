@@ -12,13 +12,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Registry of active low-status ambient entities per T-073, SB-042, and ARCHITECTURE.md §5.
+ * Registry of active private ambient entities per T-073, SB-099, and ARCHITECTURE.md §5.
  * Strictly cleaned on:
- * 1. Despawn timer
+ * 1. Disappearance
  * 2. Player quit
  * 3. Player world change
  * 4. Plugin disable
- * 5. Player opt-out
  * No entity survives any of them.
  */
 public class AmbientEntityRegistry {
@@ -65,7 +64,7 @@ public class AmbientEntityRegistry {
     }
 
     /**
-     * Trigger 2 & 5: Cleaned on player quit or opt-out.
+     * Trigger 2: Cleaned on player quit.
      */
     public void cleanForPlayer(UUID playerId) {
         if (playerId == null) return;

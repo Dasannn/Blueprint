@@ -1,31 +1,82 @@
 package com.dasannn.socialblueprint.config;
 
 import com.dasannn.socialblueprint.feature.effects.AmbientEffectType;
+import com.dasannn.socialblueprint.domain.PsychosisLevel;
 import org.bukkit.configuration.ConfigurationSection;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 /**
- * Immutable configuration section for low-status ambient effects per SB-040, SB-043,
- * and Decision 0002.
+ * Immutable configuration for private Psychosis episodes (SB-043, SB-097).
  */
 public record EffectsConfigSection(
-        int threshold,
         Duration checkInterval,
         SingleEffectConfig silverfish,
         SingleEffectConfig whisper,
         SingleEffectConfig creeper,
-        SingleEffectConfig fakeAnnouncement
+        SingleEffectConfig fakeAnnouncement,
+        Duration mediumQuietInterval,
+        Duration highQuietInterval,
+        Duration extremeQuietInterval,
+        int maxEpisodeTicks
 ) {
     public EffectsConfigSection {
         Objects.requireNonNull(checkInterval, "checkInterval must not be null");
+        if (checkInterval.isNegative() || checkInterval.isZero()
+                || checkInterval.compareTo(Duration.ofMillis((Long.MAX_VALUE - 20_000L) / 3L)) > 0) {
+            throw new ConfigValidationException("effects.check-interval", "Check interval must be positive and fit the episode cadence");
+        }
         Objects.requireNonNull(silverfish, "silverfish config must not be null");
         Objects.requireNonNull(whisper, "whisper config must not be null");
         Objects.requireNonNull(creeper, "creeper config must not be null");
         Objects.requireNonNull(fakeAnnouncement, "fakeAnnouncement config must not be null");
+        mediumQuietInterval = floor(mediumQuietInterval, 3);
+        highQuietInterval = floor(highQuietInterval, 2);
+        extremeQuietInterval = floor(extremeQuietInterval, 1);
+        if (mediumQuietInterval.compareTo(highQuietInterval) <= 0
+                || highQuietInterval.compareTo(extremeQuietInterval) <= 0) {
+            throw new ConfigValidationException("effects.quiet-interval", "Intervals must decrease from medium to high to extreme");
+        }
+        if (maxEpisodeTicks < 1 || maxEpisodeTicks > 200) {
+            throw new ConfigValidationException("effects.max-episode-ticks", "Episode must last 1 to 200 ticks");
+        }
+    }
+
+    public EffectsConfigSection(Duration checkInterval, SingleEffectConfig silverfish,
+                                SingleEffectConfig whisper, SingleEffectConfig creeper, SingleEffectConfig fakeAnnouncement) {
+        this(checkInterval, silverfish, whisper, creeper, fakeAnnouncement,
+                Duration.ofMinutes(5), Duration.ofMinutes(2), Duration.ofSeconds(30), 200);
+    }
+
+    private static Duration floor(Duration value, int seconds) {
+        Objects.requireNonNull(value, "quiet interval must not be null");
+        if (value.isNegative()) {
+            throw new ConfigValidationException("effects.quiet-interval", "Quiet interval must not be negative");
+        }
+        if (value.compareTo(Duration.ofMillis(Long.MAX_VALUE - 20_000L)) > 0) {
+            throw new ConfigValidationException("effects.quiet-interval", "Quiet interval is too large");
+        }
+        return value.compareTo(Duration.ofSeconds(seconds)) < 0 ? Duration.ofSeconds(seconds) : value;
+    }
+
+    public Duration quietInterval(PsychosisLevel level) {
+        Duration configured = switch (level) {
+            case LOW -> throw new IllegalArgumentException("Low Psychosis has no episodes");
+            case MEDIUM -> mediumQuietInterval;
+            case HIGH -> highQuietInterval;
+            case EXTREME -> extremeQuietInterval;
+        };
+        // Distinct cadence must survive the scheduler's check interval, even when
+        // all owner-provided quiet periods and per-effect cooldowns are zero.
+        int checks = switch (level) {
+            case MEDIUM -> 3;
+            case HIGH -> 2;
+            case EXTREME -> 1;
+            case LOW -> throw new IllegalArgumentException("Low Psychosis has no episodes");
+        };
+        Duration minimum = checkInterval.multipliedBy(checks);
+        return configured.compareTo(minimum) < 0 ? minimum : configured;
     }
 
     public SingleEffectConfig getEffect(AmbientEffectType type) {
@@ -38,101 +89,39 @@ public record EffectsConfigSection(
     }
 
     public static EffectsConfigSection defaults() {
-        return new EffectsConfigSection(
-                -10,
-                Duration.ofSeconds(30),
-                SingleEffectConfig.of(Duration.ofMinutes(10), 3, 40),
+        return new EffectsConfigSection(Duration.ofSeconds(30),
+                SingleEffectConfig.of(Duration.ofMinutes(10), 3),
                 SingleEffectConfig.of(Duration.ofMinutes(5), 5),
                 SingleEffectConfig.of(Duration.ofMinutes(8), 3),
-                SingleEffectConfig.of(Duration.ofMinutes(15), 2, List.of("Herobrine"))
-        );
+                SingleEffectConfig.of(Duration.ofMinutes(15), 2));
     }
 
     public static EffectsConfigSection load(ConfigurationSection root) {
         Objects.requireNonNull(root, "Root ConfigurationSection must not be null");
         ConfigurationSection section = root.getConfigurationSection("effects");
-        if (section == null) {
-            return defaults();
+        if (section == null) return defaults();
+        if (section.contains("max-episode-ticks") && !section.isInt("max-episode-ticks")) {
+            throw new ConfigValidationException("effects.max-episode-ticks", "Episode bound must be an integer");
         }
-
-        // 1. threshold (int, default -10)
-        int threshold = section.getInt("threshold", -10);
-
-        // 2. check-interval (Duration, strictly positive, default 30s)
-        Duration checkInterval = Duration.ofSeconds(30);
-        if (section.contains("check-interval")) {
-            checkInterval = DurationParser.parsePositive(section.getString("check-interval"), "effects.check-interval");
-        }
-
-        // 3. silverfish
-        SingleEffectConfig silverfish = loadEffect(section, "silverfish", Duration.ofMinutes(10), 3, 40, null);
-
-        // 4. whisper
-        SingleEffectConfig whisper = loadEffect(section, "whisper", Duration.ofMinutes(5), 5, 0, null);
-
-        // 5. creeper
-        SingleEffectConfig creeper = loadEffect(section, "creeper", Duration.ofMinutes(8), 3, 0, null);
-
-        // 6. fake-announcement
-        SingleEffectConfig fakeAnnouncement = loadEffect(section, "fake-announcement", Duration.ofMinutes(15), 2, 0, List.of("Herobrine"));
-
-        return new EffectsConfigSection(threshold, checkInterval, silverfish, whisper, creeper, fakeAnnouncement);
+        return new EffectsConfigSection(
+                DurationParser.parsePositive(section.getString("check-interval", "30s"), "effects.check-interval"),
+                loadEffect(section, "silverfish", "10m", 3),
+                loadEffect(section, "whisper", "5m", 5),
+                loadEffect(section, "creeper", "8m", 3),
+                loadEffect(section, "fake-announcement", "15m", 2),
+                DurationParser.parseNonNegative(section.getString("quiet-interval.medium", "5m"), "effects.quiet-interval.medium"),
+                DurationParser.parseNonNegative(section.getString("quiet-interval.high", "2m"), "effects.quiet-interval.high"),
+                DurationParser.parseNonNegative(section.getString("quiet-interval.extreme", "30s"), "effects.quiet-interval.extreme"),
+                section.getInt("max-episode-ticks", 200));
     }
 
-    private static SingleEffectConfig loadEffect(
-            ConfigurationSection parent,
-            String subKey,
-            Duration defaultCooldown,
-            int defaultCap,
-            int defaultDurationTicks,
-            List<String> defaultFakeNames
-    ) {
-        ConfigurationSection sub = parent.getConfigurationSection(subKey);
-        String fullPrefix = "effects." + subKey;
-        if (sub == null) {
-            return new SingleEffectConfig(defaultCooldown, defaultCap, defaultDurationTicks, defaultFakeNames);
+    private static SingleEffectConfig loadEffect(ConfigurationSection section, String key, String cooldownDefault, int capDefault) {
+        String prefix = "effects." + key;
+        Duration cooldown = DurationParser.parseNonNegative(section.getString(key + ".cooldown", cooldownDefault), prefix + ".cooldown");
+        int cap = section.getInt(key + ".session-cap", capDefault);
+        if (cap < 0) {
+            throw new ConfigValidationException(prefix + ".session-cap", "Session cap must not be negative");
         }
-
-        Duration cooldown = defaultCooldown;
-        if (sub.contains("cooldown")) {
-            cooldown = DurationParser.parseNonNegative(sub.getString("cooldown"), fullPrefix + ".cooldown");
-        }
-
-        int sessionCap = defaultCap;
-        if (sub.contains("session-cap")) {
-            sessionCap = sub.getInt("session-cap");
-            if (sessionCap < 0) {
-                throw new ConfigValidationException(fullPrefix + ".session-cap",
-                        "Session cap must not be negative, got: " + sessionCap);
-            }
-        }
-
-        int durationTicks = defaultDurationTicks;
-        if (sub.contains("duration-ticks")) {
-            durationTicks = sub.getInt("duration-ticks");
-            if (durationTicks <= 0) {
-                throw new ConfigValidationException(fullPrefix + ".duration-ticks",
-                        "Duration ticks must be strictly positive, got: " + durationTicks);
-            }
-        }
-
-        List<String> fakeNames = defaultFakeNames != null ? defaultFakeNames : List.of();
-        if (sub.contains("fake-names")) {
-            List<String> list = sub.getStringList("fake-names");
-            if (list.isEmpty()) {
-                throw new ConfigValidationException(fullPrefix + ".fake-names",
-                        "Fake names list must not be empty");
-            }
-            for (int i = 0; i < list.size(); i++) {
-                String name = list.get(i);
-                if (name == null || name.isBlank()) {
-                    throw new ConfigValidationException(fullPrefix + ".fake-names[" + i + "]",
-                            "Fake player name must not be blank");
-                }
-            }
-            fakeNames = new ArrayList<>(list);
-        }
-
-        return new SingleEffectConfig(cooldown, sessionCap, durationTicks, fakeNames);
+        return SingleEffectConfig.of(cooldown, cap);
     }
 }

@@ -392,7 +392,6 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     honorService,
                     duelService,
                     auditRepository,
-                    ambientEntityRegistry::cleanForPlayer,
                     legacyImportService,
                     this,
                     updateService,
@@ -417,6 +416,9 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         }
         if (ambientEffectScheduler != null) {
             ambientEffectScheduler.stop();
+        }
+        if (ambientEffectDispatcher != null) {
+            ambientEffectDispatcher.cancelAllPending();
         }
         if (ambientEntityRegistry != null) {
             ambientEntityRegistry.cleanAll();

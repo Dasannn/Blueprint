@@ -22,7 +22,6 @@ permissions:
       socialblueprint.take: true
       socialblueprint.view: true
       socialblueprint.duel: true
-      socialblueprint.effects: true
       socialblueprint.version: true
       socialblueprint.admin: true
 
@@ -63,9 +62,6 @@ permissions:
     description: Permite al jugador participar en duelos
     default: true
 
-  socialblueprint.effects:
-    description: Permite al jugador activar o desactivar sus propios efectos ambientales
-    default: true
   socialblueprint.admin.update:
     description: Permite al administrador descargar actualizaciones del plugin
   socialblueprint.admin.import:

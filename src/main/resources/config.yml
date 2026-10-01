@@ -100,8 +100,8 @@ decay:
 # If these thresholds are too aggressive for an active PvP server, raise them below.
 # ==============================================================================
 psychosis:
-  # Rolling evaluation window for counting PvP kills (default: 24 hours).
-  window: 24h
+  # Rolling evaluation window for counting PvP kills (default: 72 hours).
+  window: 72h
 
   # Kill count threshold to reach 'Medium' psychosis (default: 2 kills).
   # Represents an occasional player-killer within the window.
@@ -155,7 +155,6 @@ permissions:
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
   duel: "socialblueprint.duel"
-  effects: "socialblueprint.effects"
   version: "socialblueprint.version"
   admin-update: "socialblueprint.admin.update"
   admin-import: "socialblueprint.admin.import"
@@ -184,23 +183,29 @@ duel:
 
 
 # ==============================================================================
-# Low-Status Ambient Effects (SB-040, SB-043, Decision 0002)
+# Psychosis Ambient Effects (SB-043, SB-096 to SB-101)
 #
-# Private, cosmetic, rate-limited effects delivered only to players below the threshold.
+# Private, cosmetic episodes triggered by Medium, High and Extreme Psychosis.
 # ==============================================================================
 effects:
+  # Silence after a complete episode. Must decrease Medium > High > Extreme.
+  # Minimums: 3/2/1 seconds and 3/2/1 scheduler checks respectively, even with zero cooldowns.
+  quiet-interval:
+    medium: 5m
+    high: 2m
+    extreme: 30s
+  # Complete sound episode bound, including delayed layers; range 1 to 200 ticks.
+  # Layers at or beyond this bound are skipped; playback is stopped at the bound.
+  max-episode-ticks: 200
   # Session caps reset on player relog and on server restart.
-  # Status threshold below which ambient effects can fire (default: -10).
-  threshold: -10
 
-  # How often the effect scheduler checks online low-status players (default: 30s).
+  # How often the effect scheduler checks online players with Psychosis (default: 30s).
   check-interval: 30s
 
-  # Silverfish ambient effect (SB-040, SB-042)
+  # Immediate packet-only silverfish glimpse; High and Extreme only (SB-099)
   silverfish:
     cooldown: 10m
     session-cap: 3
-    duration-ticks: 40
 
   # Near-black whispered chat lines (SB-040)
   whisper:
@@ -216,8 +221,6 @@ effects:
   fake-announcement:
     cooldown: 15m
     session-cap: 2
-    fake-names:
-      - "Herobrine"
 
 # ==============================================================================
 # Updates from GitHub (SB-070 to SB-076, T-080 to T-085)

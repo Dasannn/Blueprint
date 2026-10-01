@@ -123,8 +123,6 @@ duel:
   reconnected: '&e{player}&a ¡se reconectó al duelo!'
 
 effects:
-  opt-out-enabled: '&7Efectos ambientales desactivados para ti.'
-  opt-out-disabled: '&7Efectos ambientales activados para ti.'
   fake-join: '&e{player} se ha unido a la partida'
   fake-leave: '&e{player} ha salido de la partida'
   whisper-1: '&#202020...'
