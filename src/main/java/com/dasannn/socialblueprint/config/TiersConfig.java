@@ -8,15 +8,49 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.logging.Logger;
 
 /**
- * Immutable configuration for the tier ladder section per T-030, T-031, and T-036.
+ * Immutable configuration for the tier ladder section per T-030, T-031, T-036, and T-112.
  * Validates presence of all nine tiers, strictly ordered thresholds, and names the offending key on failure.
+ * Symmetric negative thresholds (-5, -15, -30, -50) are default per SB-011a.
+ * On load, existing server configurations with differing negative thresholds are preserved and logged (T-112).
  */
 public record TiersConfig(
         Map<Tier, TierConfig> tiers,
         TierLadder ladder
 ) {
+    /**
+     * Default symmetric tier ladder thresholds per T-112 and SB-011a.
+     */
+    public static final Map<Tier, Integer> DEFAULT_THRESHOLDS = Map.of(
+            Tier.CRIMINAL, -50,
+            Tier.FORAJIDO, -30,
+            Tier.DELINCUENTE, -15,
+            Tier.TEMERARIO, -5,
+            Tier.PARTICULAR, 0,
+            Tier.AFABLE, 5,
+            Tier.HONORABLE, 15,
+            Tier.INSIGNE, 30,
+            Tier.ILUSTRE, 50
+    );
+
+    /**
+     * Former shipped negative tier ladder thresholds (-30, -20, -10, -1).
+     */
+    public static final Map<Tier, Integer> LEGACY_SHIPPED_THRESHOLDS = Map.of(
+            Tier.CRIMINAL, -30,
+            Tier.FORAJIDO, -20,
+            Tier.DELINCUENTE, -10,
+            Tier.TEMERARIO, -1
+    );
+
+    private static final java.util.Set<String> REPORTED_MIGRATIONS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    public static void resetMigrationNotices() {
+        REPORTED_MIGRATIONS.clear();
+    }
+
     public TiersConfig {
         Objects.requireNonNull(tiers, "Tiers map must not be null");
         Objects.requireNonNull(ladder, "TierLadder must not be null");
@@ -33,10 +67,18 @@ public record TiersConfig(
     }
 
     /**
-     * Loads and strictly validates the tier ladder from configuration.
-     * Supports both `tiers.<tierKey>` and root `<tierKey>` paths.
+     * Loads and strictly validates the tier ladder from configuration without a logger.
      */
     public static TiersConfig load(ConfigurationSection root) {
+        return load(root, null);
+    }
+
+    /**
+     * Loads and strictly validates the tier ladder from configuration.
+     * Supports both `tiers.<tierKey>` and root `<tierKey>` paths.
+     * Reports migration difference for negative tiers without silently reclassifying (T-112).
+     */
+    public static TiersConfig load(ConfigurationSection root, Logger logger) {
         Objects.requireNonNull(root, "ConfigurationSection must not be null");
 
         ConfigurationSection tiersSection = root.getConfigurationSection("tiers");
@@ -105,6 +147,21 @@ public record TiersConfig(
             if (tier.isPositive() && threshold <= 0) {
                 throw new ConfigValidationException(thresholdKey,
                         "Positive tier '" + tier.displayName() + "' threshold must be strictly positive (> 0), got " + threshold);
+            }
+
+            // Report migration difference for legacy shipped negative tiers once per migration (T-112, SB-011a)
+            if (tier.isNegative() && logger != null) {
+                Integer legacyThreshold = LEGACY_SHIPPED_THRESHOLDS.get(tier);
+                Integer defThreshold = DEFAULT_THRESHOLDS.get(tier);
+                if (legacyThreshold != null && threshold == legacyThreshold && defThreshold != null && threshold != defThreshold) {
+                    String noticeKey = logger.getName() + ":" + tier.configKey() + ":" + threshold;
+                    if (REPORTED_MIGRATIONS.add(noticeKey)) {
+                        logger.info(String.format(
+                                "[SocialBlueprint] Tier '%s' (%s) stored threshold %d differs from default %d; keeping stored threshold",
+                                tier.displayName(), tier.configKey(), threshold, defThreshold
+                        ));
+                    }
+                }
             }
 
             tierConfigs.put(tier, new TierConfig(tier, prefix, threshold));

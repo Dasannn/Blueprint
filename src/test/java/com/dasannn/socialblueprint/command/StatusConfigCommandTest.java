@@ -153,7 +153,7 @@ class StatusConfigCommandTest {
                 .containsKey("error");
 
         // Verify snapshot was untouched
-        assertThat(configManager.config().tiers().get(com.dasannn.socialblueprint.domain.Tier.TEMERARIO).threshold()).isEqualTo(-1);
+        assertThat(configManager.config().tiers().get(com.dasannn.socialblueprint.domain.Tier.TEMERARIO).threshold()).isEqualTo(-5);
     }
 
     @Test

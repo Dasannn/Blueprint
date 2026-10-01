@@ -1,5 +1,6 @@
 package com.dasannn.socialblueprint.storage;
 
+import com.dasannn.socialblueprint.domain.DecayConfig;
 import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
@@ -32,11 +33,34 @@ public final class ReputationRepository {
 
     private final StorageEngine engine;
     private final StatusCache statusCache;
+    private final java.util.function.Supplier<DecayConfig> decayConfigSupplier;
+    private final java.time.Clock clock;
     private final java.util.List<java.util.function.Consumer<PlayerId>> invalidationListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    public ReputationRepository(StorageEngine engine, StatusCache statusCache) {
+    public ReputationRepository(
+            StorageEngine engine,
+            StatusCache statusCache,
+            java.util.function.Supplier<DecayConfig> decayConfigSupplier,
+            java.time.Clock clock
+    ) {
         this.engine = Objects.requireNonNull(engine, "StorageEngine must not be null");
         this.statusCache = Objects.requireNonNull(statusCache, "StatusCache must not be null");
+        this.decayConfigSupplier = (decayConfigSupplier != null)
+                ? decayConfigSupplier
+                : () -> DecayConfig.defaults();
+        this.clock = (clock != null) ? clock : java.time.Clock.systemUTC();
+    }
+
+    public ReputationRepository(
+            StorageEngine engine,
+            StatusCache statusCache,
+            java.util.function.Supplier<DecayConfig> decayConfigSupplier
+    ) {
+        this(engine, statusCache, decayConfigSupplier, java.time.Clock.systemUTC());
+    }
+
+    public ReputationRepository(StorageEngine engine, StatusCache statusCache) {
+        this(engine, statusCache, () -> DecayConfig.defaults(), java.time.Clock.systemUTC());
     }
 
     public void addInvalidationListener(java.util.function.Consumer<PlayerId> listener) {
@@ -188,6 +212,20 @@ public final class ReputationRepository {
             Instant now,
             AuditRepository auditRepository
     ) {
+        return executeAdminAdjustmentAsync(actorId, targetId, kind, amount, operation, reason, now, auditRepository, decayConfigSupplier.get());
+    }
+
+    public CompletableFuture<AdminAdjustmentResult> executeAdminAdjustmentAsync(
+            PlayerId actorId,
+            PlayerId targetId,
+            HonorKind kind,
+            int amount,
+            String operation,
+            String reason,
+            Instant now,
+            AuditRepository auditRepository,
+            DecayConfig decay
+    ) {
         Objects.requireNonNull(targetId, "targetId must not be null");
         Objects.requireNonNull(kind, "kind must not be null");
         Objects.requireNonNull(operation, "operation must not be null");
@@ -195,13 +233,15 @@ public final class ReputationRepository {
         Objects.requireNonNull(now, "now must not be null");
         Objects.requireNonNull(auditRepository, "auditRepository must not be null");
 
+        DecayConfig activeDecay = (decay != null) ? decay : decayConfigSupplier.get();
+
         return engine.executeAsync(conn -> {
             boolean initialAutoCommit = conn.getAutoCommit();
             try {
                 conn.setAutoCommit(false);
 
                 List<ReputationEvent> events = findByTargetInternal(conn, targetId.toString());
-                Status before = Status.fromEvents(events);
+                Status before = Status.fromEvents(events, activeDecay, now);
 
                 int delta;
                 int afterScore;
@@ -380,11 +420,16 @@ public final class ReputationRepository {
     }
 
     /**
-     * Derives status from cache, rebuilding from stored events if absent.
+     * Derives status from cache, rebuilding from stored events if absent using active decay configuration and current time.
      */
     public Status getStatus(PlayerId target) {
         Objects.requireNonNull(target, "Target must not be null");
-        return statusCache.getOrRebuild(target, () -> findByTarget(target));
+        return getStatus(target, decayConfigSupplier.get(), clock.instant());
+    }
+
+    public Status getStatus(PlayerId target, DecayConfig decay, Instant now) {
+        Objects.requireNonNull(target, "Target must not be null");
+        return statusCache.getOrRebuild(target, () -> findByTarget(target), decay, now);
     }
 
     public int countActorRatingsSince(PlayerId actor, Instant since) {

@@ -44,10 +44,10 @@ class ConfigValidationTest {
         assertThat(tiers.prefix(Tier.ILUSTRE)).isEqualTo("&7[&b||||&7]");
 
         // Verify signed thresholds
-        assertThat(tiers.get(Tier.CRIMINAL).threshold()).isEqualTo(-30);
-        assertThat(tiers.get(Tier.FORAJIDO).threshold()).isEqualTo(-20);
-        assertThat(tiers.get(Tier.DELINCUENTE).threshold()).isEqualTo(-10);
-        assertThat(tiers.get(Tier.TEMERARIO).threshold()).isEqualTo(-1);
+        assertThat(tiers.get(Tier.CRIMINAL).threshold()).isEqualTo(-50);
+        assertThat(tiers.get(Tier.FORAJIDO).threshold()).isEqualTo(-30);
+        assertThat(tiers.get(Tier.DELINCUENTE).threshold()).isEqualTo(-15);
+        assertThat(tiers.get(Tier.TEMERARIO).threshold()).isEqualTo(-5);
         assertThat(tiers.get(Tier.PARTICULAR).threshold()).isEqualTo(0);
         assertThat(tiers.get(Tier.AFABLE).threshold()).isEqualTo(5);
         assertThat(tiers.get(Tier.HONORABLE).threshold()).isEqualTo(15);
@@ -56,10 +56,14 @@ class ConfigValidationTest {
 
         // Verify domain ladder resolution
         assertThat(tiers.ladder().resolve(Status.of(-100))).isEqualTo(Tier.CRIMINAL);
-        assertThat(tiers.ladder().resolve(Status.of(-30))).isEqualTo(Tier.CRIMINAL);
-        assertThat(tiers.ladder().resolve(Status.of(-25))).isEqualTo(Tier.FORAJIDO);
+        assertThat(tiers.ladder().resolve(Status.of(-50))).isEqualTo(Tier.CRIMINAL);
+        assertThat(tiers.ladder().resolve(Status.of(-40))).isEqualTo(Tier.FORAJIDO);
+        assertThat(tiers.ladder().resolve(Status.of(-30))).isEqualTo(Tier.FORAJIDO);
+        assertThat(tiers.ladder().resolve(Status.of(-20))).isEqualTo(Tier.DELINCUENTE);
         assertThat(tiers.ladder().resolve(Status.of(-15))).isEqualTo(Tier.DELINCUENTE);
+        assertThat(tiers.ladder().resolve(Status.of(-10))).isEqualTo(Tier.TEMERARIO);
         assertThat(tiers.ladder().resolve(Status.of(-5))).isEqualTo(Tier.TEMERARIO);
+        assertThat(tiers.ladder().resolve(Status.of(-4))).isEqualTo(Tier.PARTICULAR);
         assertThat(tiers.ladder().resolve(Status.ZERO)).isEqualTo(Tier.PARTICULAR);
         assertThat(tiers.ladder().resolve(Status.of(4))).isEqualTo(Tier.PARTICULAR);
         assertThat(tiers.ladder().resolve(Status.of(5))).isEqualTo(Tier.AFABLE);
@@ -73,6 +77,12 @@ class ConfigValidationTest {
         assertThat(config.confidence().lowThreshold()).isEqualTo(1.0);
         assertThat(config.confidence().establishedThreshold()).isEqualTo(5.0);
         assertThat(config.confidence().highThreshold()).isEqualTo(15.0);
+
+        // Verify Decay settings (SB-006, T-110)
+        assertThat(config.decay().enabled()).isTrue();
+        assertThat(config.decay().halfLife()).isEqualTo(Duration.ofDays(30));
+        assertThat(config.decay().floor()).isEqualTo(0.0);
+        assertThat(config.decay().cacheTtl()).isEqualTo(Duration.ofSeconds(60));
 
         // Verify Psychosis settings
         assertThat(config.psychosis().window()).isEqualTo(Duration.ofHours(24));
@@ -498,6 +508,86 @@ class ConfigValidationTest {
                 .isInstanceOf(ConfigValidationException.class)
                 .hasMessageContaining("update.api-url")
                 .matches(e -> ((ConfigValidationException) e).key().equals("update.api-url"));
+    @DisplayName("T-110: Missing decay section or required keys fails naming the key")
+    void missingDecaySectionOrKeysFailNamingKey() {
+        // An absent section is an older server's configuration, not an error: it loads
+        // with the shipped defaults so an upgrade still enables. A section that is
+        // present is validated strictly, key by key.
+        YamlConfiguration yamlSection = loadValidYaml();
+        yamlSection.set("decay", null);
+        PluginConfig withoutDecay = PluginConfig.load(yamlSection);
+        assertThat(withoutDecay.decay()).isEqualTo(DecayConfigSection.defaults());
+
+        // Finding 8: Present but not a section must fail naming 'decay'
+        YamlConfiguration yamlScalar = loadValidYaml();
+        yamlScalar.set("decay", false);
+        assertThatThrownBy(() -> PluginConfig.load(yamlScalar))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay"));
+
+        YamlConfiguration yamlString = loadValidYaml();
+        yamlString.set("decay", "broken");
+        assertThatThrownBy(() -> PluginConfig.load(yamlString))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay"));
+
+        YamlConfiguration yamlEnabled = loadValidYaml();
+        yamlEnabled.set("decay.enabled", null);
+        assertThatThrownBy(() -> PluginConfig.load(yamlEnabled))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.enabled"));
+
+        YamlConfiguration yamlHalfLife = loadValidYaml();
+        yamlHalfLife.set("decay.half-life", null);
+        assertThatThrownBy(() -> PluginConfig.load(yamlHalfLife))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.half-life"));
+
+        YamlConfiguration yamlFloor = loadValidYaml();
+        yamlFloor.set("decay.floor", null);
+        assertThatThrownBy(() -> PluginConfig.load(yamlFloor))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.floor"));
+    }
+
+    @Test
+    @DisplayName("T-110: Invalid decay values fail validation naming the offending key")
+    void invalidDecayValuesFailNamingKey() {
+        YamlConfiguration yamlNonBool = loadValidYaml();
+        yamlNonBool.set("decay.enabled", "not-a-boolean");
+        assertThatThrownBy(() -> PluginConfig.load(yamlNonBool))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.enabled"));
+
+        YamlConfiguration yamlNegHalfLife = loadValidYaml();
+        yamlNegHalfLife.set("decay.half-life", "-5d");
+        assertThatThrownBy(() -> PluginConfig.load(yamlNegHalfLife))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.half-life"));
+
+        YamlConfiguration yamlNegFloor = loadValidYaml();
+        yamlNegFloor.set("decay.floor", -0.1);
+        assertThatThrownBy(() -> PluginConfig.load(yamlNegFloor))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.floor"));
+
+        YamlConfiguration yamlExcessFloor = loadValidYaml();
+        yamlExcessFloor.set("decay.floor", 1.5);
+        assertThatThrownBy(() -> PluginConfig.load(yamlExcessFloor))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.floor"));
+
+        YamlConfiguration yamlNanFloor = loadValidYaml();
+        yamlNanFloor.set("decay.floor", "NaN");
+        assertThatThrownBy(() -> PluginConfig.load(yamlNanFloor))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.floor"));
+
+        YamlConfiguration yamlOversizedHalfLife = loadValidYaml();
+        yamlOversizedHalfLife.set("decay.half-life", "36501d");
+        assertThatThrownBy(() -> PluginConfig.load(yamlOversizedHalfLife))
+                .isInstanceOf(ConfigValidationException.class)
+                .matches(e -> ((ConfigValidationException) e).key().equals("decay.half-life"));
     }
 
     private static YamlConfiguration loadValidYaml() {

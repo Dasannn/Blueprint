@@ -31,6 +31,7 @@ import com.dasannn.socialblueprint.feature.effects.AmbientEntityRegistry;
 import com.dasannn.socialblueprint.feature.effects.AmbientEffectDispatcher;
 import com.dasannn.socialblueprint.feature.effects.AmbientEffectScheduler;
 import com.dasannn.socialblueprint.feature.effects.FakeSilverfishService;
+import java.time.Clock;
 import com.dasannn.socialblueprint.storage.CompensationRepository;
 import java.io.File;
 import java.util.Optional;
@@ -159,8 +160,16 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             return;
         }
         this.storageEngine = engine;
-        this.statusCache = new StatusCache();
-        this.reputationRepository = new ReputationRepository(storageEngine, statusCache);
+        this.statusCache = new StatusCache(
+                configManager.config().decay().cacheTtl(),
+                Clock.systemUTC(),
+                () -> configManager.config().decay().toDomain()
+        );
+        this.reputationRepository = new ReputationRepository(
+                storageEngine,
+                statusCache,
+                () -> configManager.config().decay().toDomain()
+        );
         this.profileRepository = new ProfileRepository(storageEngine);
         this.psychosisRepository = new PsychosisRepository(storageEngine);
         this.auditRepository = new AuditRepository(storageEngine);
@@ -178,6 +187,15 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 playerLookup,
                 getLogger()
         );
+
+        this.configManager.addSnapshotListener(snapshot -> {
+            if (this.statusCache != null) {
+                this.statusCache.updateTtl(snapshot.config().decay().cacheTtl());
+            }
+            if (this.profileService != null) {
+                this.profileService.invalidateAll();
+            }
+        });
 
         this.honorService = new HonorService(
                 configManager,

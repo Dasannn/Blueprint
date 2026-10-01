@@ -21,16 +21,16 @@ chat-prefix: '&8[&bSocialBlueprint&8]&r '
 tiers:
   tier-4:
     prefix: '&7[&4||||&7]'
-    threshold: -30
+    threshold: -50
   tier-3:
     prefix: '&7[&c|||&7]'
-    threshold: -20
+    threshold: -30
   tier-2:
     prefix: '&7[&c||&7]'
-    threshold: -10
+    threshold: -15
   tier-1:
     prefix: '&7[&c|&7]'
-    threshold: -1
+    threshold: -5
   tier0:
     prefix: '&7[&f|&7]'
     threshold: 0
@@ -73,6 +73,24 @@ confidence:
   # Minimum effective rating weight for 'High' confidence (default: 15.0).
   # Requires opinions from approximately 15 recent distinct players.
   high-threshold: 15.0
+
+# ==============================================================================
+# Reputation Decay (SB-006, Constitution Â§2.6, T-110)
+#
+# A reputation event's contribution to social status falls with its age.
+# Nothing is deleted: the row stays, only its weight drops.
+# This is separate from Reputation Confidence's age weighting (SB-003).
+# ==============================================================================
+decay:
+  # Weight of a reputation event in the current status, by age.
+  # A weight of 1.0 is a brand-new event; the weight halves every half-life.
+  enabled: true
+  half-life: 30d
+  # Weight below which an event stops counting at all (0.0 keeps the tail).
+  floor: 0.0
+  # How long a derived status stays cached. Status now changes with time, not
+  # only with writes, so this bounds how stale a displayed value can be.
+  cache-ttl: 60s
 
 # ==============================================================================
 # Killing Psychosis (SB-004, T-014)

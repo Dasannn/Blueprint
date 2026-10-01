@@ -294,15 +294,9 @@ class RepositoryTest {
 
             // Unblock reader to complete its rebuild
             writerFinished.countDown();
-            Status staleDerived = readerFuture.get();
-            assertThat(staleDerived.value()).isEqualTo(1);
-
-            // The cache must NOT contain the stale value 1 because an invalidation happened during rebuild
-            assertThat(statusCache.get(target)).isEmpty();
-
-            // Fresh getStatus rebuilds with the latest events -> total 6
-            Status freshStatus = reputationRepo.getStatus(target);
-            assertThat(freshStatus.value()).isEqualTo(6);
+            Status derived = readerFuture.get();
+            // Under P9 Finding 4, getOrRebuild detects generation moved, reloads, and returns the current derived status (6)
+            assertThat(derived.value()).isEqualTo(6);
             assertThat(statusCache.get(target)).contains(Status.of(6));
         } finally {
             readerExecutor.shutdownNow();

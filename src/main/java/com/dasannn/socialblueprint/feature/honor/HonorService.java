@@ -588,7 +588,8 @@ public class HonorService {
                             "admin_give",
                             "admin give",
                             now,
-                            auditRepository
+                            auditRepository,
+                            snapshot.config().decay().toDomain()
                     ).handle((res, ex) -> {
                         mainThreadRunner.accept(() -> {
                             if (ex == null) {
@@ -642,7 +643,8 @@ public class HonorService {
                             "admin_take",
                             "admin take",
                             now,
-                            auditRepository
+                            auditRepository,
+                            snapshot.config().decay().toDomain()
                     ).handle((res, ex) -> {
                         mainThreadRunner.accept(() -> {
                             if (ex == null) {
@@ -695,7 +697,8 @@ public class HonorService {
                             "admin_reset",
                             "admin reset",
                             now,
-                            auditRepository
+                            auditRepository,
+                            snapshot.config().decay().toDomain()
                     ).handle((res, ex) -> {
                         mainThreadRunner.accept(() -> {
                             if (ex == null) {

@@ -21,6 +21,7 @@ import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -33,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 /**
@@ -47,6 +49,8 @@ public class ProfileService {
     public static final int MAX_VIEW_CACHE_SIZE = 1000;
     public static final int MAX_PENDING_LOADS = 1000;
 
+    private record CachedView(PlayerSocialView view, Instant expiresAt, int generation) {}
+
     private final StorageEngine storageEngine;
     private final ReputationRepository reputationRepository;
     private final PsychosisRepository psychosisRepository;
@@ -55,11 +59,12 @@ public class ProfileService {
     private final ConfigManager configManager;
     private final PlayerLookup playerLookup;
     private final Logger logger;
+    private final Clock clock;
 
-    private final Map<PlayerId, PlayerSocialView> viewCache = Collections.synchronizedMap(
+    private final Map<PlayerId, CachedView> viewCache = Collections.synchronizedMap(
             new LinkedHashMap<>(128, 0.75f, true) {
                 @Override
-                protected boolean removeEldestEntry(Map.Entry<PlayerId, PlayerSocialView> eldest) {
+                protected boolean removeEldestEntry(Map.Entry<PlayerId, CachedView> eldest) {
                     return size() > MAX_VIEW_CACHE_SIZE;
                 }
             }
@@ -74,7 +79,42 @@ public class ProfileService {
     private final ConcurrentMap<PlayerId, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
     private final ConcurrentMap<PlayerId, Integer> playerGenerations = new ConcurrentHashMap<>();
     private final ConcurrentMap<PlayerId, OptOutState> optOutCache = new ConcurrentHashMap<>();
+    private final Set<PlayerId> evictedPlayers = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<PlayerId, Long> lastQuitEpochs = new ConcurrentHashMap<>();
+    private final AtomicLong quitEpoch = new AtomicLong();
     private final Object loadLock = new Object();
+
+    public ProfileService(
+            StorageEngine storageEngine,
+            ReputationRepository reputationRepository,
+            PsychosisRepository psychosisRepository,
+            ProfileRepository profileRepository,
+            StatusCache statusCache,
+            ConfigManager configManager,
+            PlayerLookup playerLookup,
+            Logger logger,
+            Clock clock
+    ) {
+        this.storageEngine = Objects.requireNonNull(storageEngine, "StorageEngine must not be null");
+        this.reputationRepository = Objects.requireNonNull(reputationRepository, "ReputationRepository must not be null");
+        this.psychosisRepository = Objects.requireNonNull(psychosisRepository, "PsychosisRepository must not be null");
+        this.profileRepository = Objects.requireNonNull(profileRepository, "ProfileRepository must not be null");
+        this.statusCache = Objects.requireNonNull(statusCache, "StatusCache must not be null");
+        this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
+        this.playerLookup = playerLookup;
+        this.logger = logger != null ? logger : Logger.getLogger(ProfileService.class.getName());
+        this.clock = clock != null ? clock : Clock.systemUTC();
+
+        // Connect repository writes directly to view cache invalidation
+        this.reputationRepository.addInvalidationListener(this::invalidate);
+        this.psychosisRepository.addInvalidationListener(this::invalidate);
+
+        // Connect configuration updates to view and status cache invalidation and TTL refresh (Finding 7)
+        this.configManager.addSnapshotListener(snapshot -> {
+            this.invalidateAll();
+            this.statusCache.updateTtl(snapshot.config().decay().cacheTtl());
+        });
+    }
 
     public ProfileService(
             StorageEngine storageEngine,
@@ -86,24 +126,13 @@ public class ProfileService {
             PlayerLookup playerLookup,
             Logger logger
     ) {
-        this.storageEngine = Objects.requireNonNull(storageEngine, "StorageEngine must not be null");
-        this.reputationRepository = Objects.requireNonNull(reputationRepository, "ReputationRepository must not be null");
-        this.psychosisRepository = Objects.requireNonNull(psychosisRepository, "PsychosisRepository must not be null");
-        this.profileRepository = Objects.requireNonNull(profileRepository, "ProfileRepository must not be null");
-        this.statusCache = Objects.requireNonNull(statusCache, "StatusCache must not be null");
-        this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
-        this.playerLookup = playerLookup;
-        this.logger = logger != null ? logger : Logger.getLogger(ProfileService.class.getName());
-
-        // Connect repository writes directly to view cache invalidation
-        this.reputationRepository.addInvalidationListener(this::invalidate);
-        this.psychosisRepository.addInvalidationListener(this::invalidate);
+        this(storageEngine, reputationRepository, psychosisRepository, profileRepository, statusCache, configManager, playerLookup, logger, Clock.systemUTC());
     }
 
     /**
      * Fast profile lookup designed for {@link io.papermc.paper.event.player.AsyncChatEvent} (T-042).
-     * If the profile is in the cache, returns it immediately without waiting on JDBC or a future.
-     * If absent, returns the neutral default immediately and schedules an asynchronous background fetch
+     * If the profile is in the cache and unexpired, returns it immediately without waiting on JDBC or a future.
+     * If absent or expired, returns the neutral default immediately and schedules an asynchronous background fetch
      * on the storage executor (submitting to the executor takes the queue lock, but does not block on database I/O).
      * Maintains exactly one in-flight load per player and bounds total pending loads.
      */
@@ -112,9 +141,23 @@ public class ProfileService {
             return PlayerSocialView.neutral(PlayerId.of(new UUID(0, 0)), "Unknown", snapshot.config().tiers().ladder());
         }
 
-        PlayerSocialView cached = viewCache.get(id);
+        CachedView cached;
+        synchronized (loadLock) {
+            cached = viewCache.get(id);
+        }
+
         if (cached != null) {
-            return cached;
+            Instant now = clock.instant();
+            int currentGen = playerGenerations.getOrDefault(id, 0);
+            if (cached.generation() == currentGen && !now.isAfter(cached.expiresAt())) {
+                return cached.view();
+            }
+            // Expired on read or generation moved: invalidate and queue background rebuild (Finding 2)
+            synchronized (loadLock) {
+                viewCache.remove(id, cached);
+            }
+            loadViewAsync(id, cached.view().name(), snapshot);
+            return PlayerSocialView.neutral(id, cached.view().name(), snapshot.config().tiers().ladder());
         }
 
         // Neutral default per SB-005 and T-042
@@ -145,6 +188,7 @@ public class ProfileService {
 
         CompletableFuture<PlayerSocialView> future;
         int loadGen;
+        long requestEpoch;
         synchronized (loadLock) {
             existing = inFlightLoads.get(id);
             if (existing != null) {
@@ -160,15 +204,13 @@ public class ProfileService {
             future = new CompletableFuture<>();
             inFlightLoads.put(id, future);
             loadGen = playerGenerations.getOrDefault(id, 0);
+            requestEpoch = quitEpoch.get();
         }
 
-        storageEngine.supplyAsync(() -> loadViewInternal(id, fallbackName, snapshot, loadGen))
+        storageEngine.supplyAsync(() -> loadViewInternal(id, fallbackName, snapshot, loadGen, requestEpoch))
                 .whenComplete((view, ex) -> {
                     synchronized (loadLock) {
                         inFlightLoads.remove(id, future);
-                        if (!inFlightLoads.containsKey(id)) {
-                            playerGenerations.remove(id);
-                        }
                     }
                     if (ex != null) {
                         future.completeExceptionally(ex);
@@ -184,37 +226,61 @@ public class ProfileService {
         return loadViewAsync(id, fallbackName, configManager.snapshot());
     }
 
-    private PlayerSocialView loadViewInternal(PlayerId id, String fallbackName, RuntimeSnapshot snapshot, int loadGeneration) {
-        List<ReputationEvent> repEvents = reputationRepository.findByTarget(id);
-        Status status = Status.fromEvents(repEvents);
+    private PlayerSocialView loadViewInternal(PlayerId id, String fallbackName, RuntimeSnapshot snapshot, int initialGen, long requestEpoch) {
+        int expectedGen = initialGen;
+        while (true) {
+            synchronized (loadLock) {
+                if (evictedPlayers.contains(id) || lastQuitEpochs.getOrDefault(id, 0L) > requestEpoch) {
+                    Optional<PlayerProfile> profile = profileRepository.findById(id);
+                    String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
+                    return PlayerSocialView.neutral(id, name, snapshot.config().tiers().ladder());
+                }
+                if (expectedGen < 0) {
+                    expectedGen = playerGenerations.getOrDefault(id, 0);
+                }
+            }
 
-        PluginConfig cfg = snapshot.config();
-        ConfidenceCalculator confCalc = new ConfidenceCalculator(cfg.confidence().toDomain());
-        Instant now = Instant.now();
-        ConfidenceLevel conf = confCalc.calculate(repEvents, now);
-        int contributors = confCalc.countDistinctActors(repEvents);
+            List<ReputationEvent> repEvents = reputationRepository.findByTarget(id);
+            PluginConfig cfg = snapshot.config();
+            Instant now = clock.instant();
+            Status status = Status.fromEvents(repEvents, cfg.decay().toDomain(), now);
 
-        Instant windowStart = now.minus(cfg.psychosis().window());
-        List<PsychosisEvent> kills = psychosisRepository.findKillsByKillerSince(id, windowStart);
-        PsychosisCalculator psychCalc = new PsychosisCalculator(cfg.psychosis().toDomain());
-        PsychosisLevel psych = psychCalc.calculate(id, kills, now);
+            ConfidenceCalculator confCalc = new ConfidenceCalculator(cfg.confidence().toDomain());
+            ConfidenceLevel conf = confCalc.calculate(repEvents, now);
+            int contributors = confCalc.countDistinctActors(repEvents);
 
-        Optional<PlayerProfile> profile = profileRepository.findById(id);
-        String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
-        boolean optedOut = profile.map(PlayerProfile::effectsOptOut).orElse(false);
-        optOutCache.put(id, optedOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
+            Instant windowStart = now.minus(cfg.psychosis().window());
+            List<PsychosisEvent> kills = psychosisRepository.findKillsByKillerSince(id, windowStart);
+            PsychosisCalculator psychCalc = new PsychosisCalculator(cfg.psychosis().toDomain());
+            PsychosisLevel psych = psychCalc.calculate(id, kills, now);
 
-        TierLadder ladder = cfg.tiers().ladder();
-        Tier tier = ladder.resolve(status.value());
-        PlayerSocialView view = new PlayerSocialView(id, name, status.value(), tier, conf, psych, contributors);
+            Optional<PlayerProfile> profile = profileRepository.findById(id);
+            String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
+            optOutCache.put(id, profile.map(PlayerProfile::effectsOptOut).orElse(false)
+                    ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
 
-        // If the player quit while this load was in-flight, its generation will not match
-        int currentGen = playerGenerations.getOrDefault(id, 0);
-        if (currentGen == loadGeneration) {
-            viewCache.put(id, view);
+            TierLadder ladder = cfg.tiers().ladder();
+            Tier tier = ladder.resolve(status.value());
+            PlayerSocialView view = new PlayerSocialView(id, name, status.value(), tier, conf, psych, contributors);
+
+            synchronized (loadLock) {
+                if (evictedPlayers.contains(id) || lastQuitEpochs.getOrDefault(id, 0L) > requestEpoch) {
+                    // A quit rejects every earlier load, including those that finish after rejoin.
+                    return view;
+                }
+                int currentGen = playerGenerations.getOrDefault(id, 0);
+                if (currentGen != expectedGen) {
+                    // Generation moved while loading; reload to ensure fresh derived view (Finding 4)
+                    expectedGen = currentGen;
+                    continue;
+                }
+
+                Instant expiresAt = now.plus(cfg.decay().cacheTtl());
+                viewCache.put(id, new CachedView(view, expiresAt, currentGen));
+                statusCache.put(id, status, cfg.decay().toDomain());
+                return view;
+            }
         }
-        statusCache.put(id, status);
-        return view;
     }
 
     /**
@@ -316,6 +382,7 @@ public class ProfileService {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
+        long requestEpoch = quitEpoch.get();
         return resolveTargetIdentityAsync(trimmed)
                 .thenCompose(optIdentity -> {
                     if (optIdentity.isEmpty()) {
@@ -324,7 +391,7 @@ public class ProfileService {
                     TargetIdentity target = optIdentity.get();
                     int gen = playerGenerations.getOrDefault(target.id(), 0);
                     return storageEngine.supplyAsync(() ->
-                            Optional.of(loadViewInternal(target.id(), target.name(), snapshot, gen))
+                            Optional.of(loadViewInternal(target.id(), target.name(), snapshot, gen, requestEpoch))
                     );
                 });
     }
@@ -341,8 +408,11 @@ public class ProfileService {
         Objects.requireNonNull(snapshot, "RuntimeSnapshot must not be null");
 
         int gen;
+        long requestEpoch;
         synchronized (loadLock) {
+            evictedPlayers.remove(id);
             gen = playerGenerations.getOrDefault(id, 0);
+            requestEpoch = quitEpoch.get();
         }
         storageEngine.submitAsync(() -> {
             Instant now = Instant.now();
@@ -352,7 +422,7 @@ public class ProfileService {
                     .orElseGet(() -> PlayerProfile.create(id, name, now));
             profileRepository.save(profile);
             optOutCache.put(id, profile.effectsOptOut() ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
-            loadViewInternal(id, name, snapshot, gen);
+            loadViewInternal(id, name, snapshot, gen, requestEpoch);
         });
     }
 
@@ -362,13 +432,21 @@ public class ProfileService {
 
     public void invalidate(PlayerId id) {
         if (id != null) {
-            viewCache.remove(id);
+            synchronized (loadLock) {
+                viewCache.remove(id);
+                playerGenerations.compute(id, (k, g) -> (g == null ? 1 : g + 1));
+            }
             statusCache.invalidate(id);
         }
     }
 
     public void invalidateAll() {
-        viewCache.clear();
+        synchronized (loadLock) {
+            viewCache.clear();
+            for (PlayerId id : playerGenerations.keySet()) {
+                playerGenerations.compute(id, (k, g) -> (g == null ? 1 : g + 1));
+            }
+        }
         statusCache.invalidateAll();
     }
 
@@ -376,21 +454,10 @@ public class ProfileService {
         if (id != null) {
             optOutCache.remove(id);
             synchronized (loadLock) {
+                evictedPlayers.add(id);
                 viewCache.remove(id);
                 playerGenerations.compute(id, (k, g) -> (g == null ? 0 : g) + 1);
-            }
-            if (!storageEngine.isClosed()) {
-                try {
-                    storageEngine.submitAsync(() -> {
-                        synchronized (loadLock) {
-                            playerGenerations.remove(id);
-                        }
-                    });
-                } catch (Exception ignored) {
-                    playerGenerations.remove(id);
-                }
-            } else {
-                playerGenerations.remove(id);
+                lastQuitEpochs.put(id, quitEpoch.incrementAndGet());
             }
         }
     }
@@ -434,7 +501,14 @@ public class ProfileService {
     }
 
     public boolean isCached(PlayerId id) {
-        return id != null && viewCache.containsKey(id);
+        if (id == null) return false;
+        CachedView cached;
+        synchronized (loadLock) {
+            cached = viewCache.get(id);
+        }
+        if (cached == null) return false;
+        int currentGen = playerGenerations.getOrDefault(id, 0);
+        return cached.generation() == currentGen && !clock.instant().isAfter(cached.expiresAt());
     }
 
     public StatusCache statusCache() {
