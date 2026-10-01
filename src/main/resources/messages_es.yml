@@ -40,7 +40,7 @@ commands:
     invalid-key: '&cClave de configuración desconocida o no editable: &f{key}'
     reload-success: '&aConfiguración recargada exitosamente.'
   admin:
-    usage: '&eUso: &f/status admin <give|take|reset> <jugador> [cantidad]'
+    usage: '&eUso: &f/status admin <give|take|reset|import> <jugador> [cantidad]'
     give-success: '&aSe añadieron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
     take-success: '&aSe retiraron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
     reset-success: '&aSe restableció el estatus de &e{target}&a a neutral (0).'

@@ -40,7 +40,7 @@ commands:
     invalid-key: '&cUnknown or uneditable configuration key: &f{key}'
     reload-success: '&aConfiguration reloaded successfully.'
   admin:
-    usage: '&eUsage: &f/status admin <give|take|reset> <player> [amount]'
+    usage: '&eUsage: &f/status admin <give|take|reset|import> <player> [amount]'
     give-success: '&aSuccessfully added &e{amount}&a honor to &e{target}&a. New status: &f{status}'
     take-success: '&aSuccessfully removed &e{amount}&a honor from &e{target}&a. New status: &f{status}'
     reset-success: '&aSuccessfully reset status for &e{target}&a to neutral (0).'
