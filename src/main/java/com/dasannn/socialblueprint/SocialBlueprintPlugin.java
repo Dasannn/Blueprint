@@ -195,7 +195,15 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     }
                     return null;
                 },
-                java.time.Clock.systemUTC()
+                java.time.Clock.systemUTC(),
+                new com.dasannn.socialblueprint.feature.gui.GuiRenderer(messageRegistry, uuid -> {
+                    if (getServer() != null) {
+                        return getServer().getOfflinePlayer(uuid);
+                    }
+                    return null;
+                }),
+                compensationRepository,
+                getLogger()
         );
 
         this.duelService = new com.dasannn.socialblueprint.feature.duel.DuelService(
@@ -231,7 +239,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         );
 
         getServer().getPluginManager().registerEvents(
-                new AsyncChatListener(profileService, configManager, messageRegistry),
+                new AsyncChatListener(profileService, configManager, messageRegistry, statusGuiService),
                 this
         );
         getServer().getPluginManager().registerEvents(
@@ -265,7 +273,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new com.dasannn.socialblueprint.platform.listener.StatusGuiListener(statusGuiService),
+                new com.dasannn.socialblueprint.platform.listener.StatusGuiListener(statusGuiService, getLogger()),
                 this
         );
 

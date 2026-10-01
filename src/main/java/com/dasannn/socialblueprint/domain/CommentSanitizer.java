@@ -26,6 +26,9 @@ public final class CommentSanitizer {
     // Matches MiniMessage / XML tags like <click:...>, <hover:...>, <red>, etc.
     private static final Pattern TAG_PATTERN = Pattern.compile("<[^>]+>");
 
+    // Matches Unicode format controls (category Cf: bidi overrides like U+202E, zero-width chars, etc.)
+    private static final Pattern UNICODE_FORMAT_PATTERN = Pattern.compile("[\\p{Cf}\\u2028\\u2029\\uFEFF]");
+
     private CommentSanitizer() {
     }
 
@@ -53,6 +56,9 @@ public final class CommentSanitizer {
 
         // Strip any remaining stray section signs (§) so client never parses them
         text = text.replace("§", "");
+
+        // Strip Unicode format controls (bidi overrides U+202E, zero-width chars, etc.) at display time (Finding 5)
+        text = UNICODE_FORMAT_PATTERN.matcher(text).replaceAll("");
 
         text = text.replaceAll("\\s+", " ").trim();
         return text.length() > ReputationEvent.MAX_REASON_LENGTH

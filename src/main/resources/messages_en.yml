@@ -77,6 +77,7 @@ honor:
   distrust-usage: '&eUsage: &f/status distrust <player> <reason>'
   give-usage: '&eUsage: &f/status give <player> [reason]'
   take-usage: '&eUsage: &f/status take <player> <reason>'
+  reason-too-long: '&cReason cannot exceed {max} characters.'
 
 duel:
   challenge-sent: '&7You challenged &e{target}&7 to a duel.'
@@ -147,4 +148,7 @@ gui:
     already-revealed: '&7This rater''s identity is already revealed.'
     insufficient-funds: '&cYou need {cost} to reveal this rater''s identity.'
     success: '&aRevealed rater &e{player}&a for &6{cost}&a.'
+  prompt-reason: '&eType the reason for taking honor from &f{player}&e in chat within 60 seconds (or type &ccancel&e).'
+  prompt-cancelled: '&7Rating cancelled.'
+  prompt-expired: '&cRating reason prompt expired.'
 

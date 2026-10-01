@@ -37,16 +37,34 @@ public class AsyncChatListener implements Listener {
     private final ProfileService profileService;
     private final ConfigManager configManager;
     private final MessageRegistry messageRegistry;
+    private final com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService;
 
     public AsyncChatListener(ProfileService profileService, ConfigManager configManager, MessageRegistry messageRegistry) {
+        this(profileService, configManager, messageRegistry, null);
+    }
+
+    public AsyncChatListener(
+            ProfileService profileService,
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
+    ) {
         this.profileService = Objects.requireNonNull(profileService, "ProfileService must not be null");
         this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "MessageRegistry must not be null");
+        this.statusGuiService = statusGuiService;
     }
 
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
         try {
+            // Hook GUI pending written reason prompt before normal chat formatting (Finding 3)
+            if (statusGuiService != null && statusGuiService.hasPendingReason(event.getPlayer().getUniqueId())) {
+                event.setCancelled(true);
+                String rawReason = extractPlainText(event.message());
+                statusGuiService.consumePendingReason(event.getPlayer(), rawReason);
+                return;
+            }
             // Read one immutable snapshot per event (T-040, T-042)
             RuntimeSnapshot snapshot = configManager.snapshot();
 
@@ -169,5 +187,19 @@ public class AsyncChatListener implements Listener {
                 .append(line4)
                 .append(Component.newline())
                 .append(line5);
+    }
+
+    public static String extractPlainText(Component component) {
+        if (component == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        if (component instanceof net.kyori.adventure.text.TextComponent tc) {
+            sb.append(tc.content());
+        }
+        for (Component child : component.children()) {
+            sb.append(extractPlainText(child));
+        }
+        return sb.toString();
     }
 }

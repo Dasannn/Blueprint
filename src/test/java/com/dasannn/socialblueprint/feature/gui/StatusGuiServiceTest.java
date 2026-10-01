@@ -51,7 +51,10 @@ import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -67,7 +70,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.logging.Logger;
+import org.bukkit.inventory.InventoryView;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -87,6 +92,7 @@ public class StatusGuiServiceTest {
     private HonorService honorService;
     private StatusGuiService guiService;
     private Economy mockEconomy;
+    private TestClock testClock;
 
     private final Queue<Runnable> mainThreadQueue = new ConcurrentLinkedQueue<>();
     private final Map<UUID, Double> economyBalances = new ConcurrentHashMap<>();
@@ -159,6 +165,7 @@ public class StatusGuiServiceTest {
 
         setupMockBukkitServer();
 
+        testClock = new TestClock();
         guiService = new StatusGuiService(
                 messageRegistry,
                 profileService,
@@ -168,8 +175,9 @@ public class StatusGuiServiceTest {
                 mainThreadQueue::add,
                 mockEconomy,
                 uuid -> createMockOfflinePlayer(uuid, offlineNames.getOrDefault(uuid, "Player_" + uuid.toString().substring(0, 4))),
-                Clock.systemUTC(),
-                null // Untested by unit tests and covered on live server in P11; unit tests assert plain layout
+                testClock,
+                null,
+                compensationRepo
         );
     }
 
@@ -411,7 +419,7 @@ public class StatusGuiServiceTest {
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
         assertThat(holder.totalPages()).isEqualTo(2);
         assertThat(holder.currentPage()).isEqualTo(0);
-        assertThat(holder.ratingsForCurrentPage()).hasSize(7);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(7);
 
         GuiLayout page0Layout = holder.layout();
         assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_PREV_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_PREVIOUS);
@@ -422,7 +430,7 @@ public class StatusGuiServiceTest {
         // Click next banner at slot 26
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_NEXT_ROW2);
         assertThat(holder.currentPage()).isEqualTo(1);
-        assertThat(holder.ratingsForCurrentPage()).hasSize(3);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(3);
 
         GuiLayout page1Layout = holder.layout();
         assertThat(page1Layout.get(10).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
@@ -432,7 +440,7 @@ public class StatusGuiServiceTest {
         // Click previous banner at slot 18
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_PREV_ROW2);
         assertThat(holder.currentPage()).isEqualTo(0);
-        assertThat(holder.ratingsForCurrentPage()).hasSize(7);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(7);
         assertThat(holder.layout().get(16).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
     }
 
@@ -458,7 +466,7 @@ public class StatusGuiServiceTest {
 
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
-        assertThat(holder.ratings().size()).isEqualTo(1);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(1);
 
         // Add another event to database
         reputationRepo.saveAsync(new ReputationEvent(
@@ -466,7 +474,7 @@ public class StatusGuiServiceTest {
         )).join();
 
         // Open holder still only has snapshot of 1 rating
-        assertThat(holder.ratings().size()).isEqualTo(1);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(1);
     }
 
     // =========================================================================
@@ -498,8 +506,8 @@ public class StatusGuiServiceTest {
     }
 
     @Test
-    @DisplayName("T-123: Clicking red banner delegates to HonorService with NEGATIVE honor (requires reason)")
-    void clickTakeBannerRequiresReason() {
+    @DisplayName("Finding 3: Clicking red banner prompts chat for reason and completes negative honor entirely from GUI")
+    void clickTakeBannerPromptsChatReasonAndCompletesNegativeHonorEntirelyFromGui() {
         UUID targetUuid = UUID.randomUUID();
         offlineNames.put(targetUuid, "TargetUser");
         onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(PlayerId.of(targetUuid), "TargetUser", true));
@@ -515,12 +523,29 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // Click slot 7 (Take Honor) without reason -> HonorService rejects with reason-required
+        // 1. Click slot 7 (Take Honor) -> closes inventory and initiates chat prompt
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_TOP_TAKE_BANNER);
         drainMainThreadQueue();
 
-        assertThat(messageRegistry.hasCall("honor.reason-required")).isTrue();
-        assertThat(honorService.getPendingConfirmation(viewerUuid)).isEmpty();
+        assertThat(guiService.hasPendingReason(viewerUuid)).isTrue();
+        assertThat(messageRegistry.hasCall("gui.prompt-reason")).isTrue();
+
+        // 2. Chat listener consumes written reason
+        awaitQueued(guiService.consumePendingReason(viewer, "Unfair trade"));
+
+        // Prompt consumed, negative confirmation prepared in HonorService
+        assertThat(guiService.hasPendingReason(viewerUuid)).isFalse();
+        assertThat(honorService.getPendingConfirmation(viewerUuid)).isPresent();
+        var pending = honorService.getPendingConfirmation(viewerUuid).get();
+        assertThat(pending.kind()).isEqualTo(HonorKind.NEGATIVE);
+        assertThat(pending.reason()).isEqualTo("Unfair trade");
+
+        // 3. Confirm rating
+        awaitQueued(honorService.confirmPlayerHonor(viewer, configManager.snapshot()));
+        var events = reputationRepo.findByTargetAsync(PlayerId.of(targetUuid)).join();
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().delta()).isEqualTo(-1);
+        assertThat(events.getFirst().reason()).isEqualTo("Unfair trade");
     }
 
     // =========================================================================
@@ -553,33 +578,39 @@ public class StatusGuiServiceTest {
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
         // 1. By default, rater is not revealed to regular viewer
-        ReputationEvent event = holder.ratings().get(0);
-        assertThat(guiService.isRaterRevealed(viewer, event, holder)).isFalse();
+        assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isFalse();
         assertThat(holder.layout().get(10).titleKey()).isEqualTo("gui.history.anonymous-rater");
 
         // 2. Click rater head at slot 10 to reveal
         guiService.handleClick(viewer, holder, 10);
+        awaitGuiOutcome(() -> holder.revealedEventIds().contains(saved.id()));
         Set<Long> revealedEvents = raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join();
-        drainMainThreadQueue();
 
         // Vault charged 100.0 (500.0 -> 400.0)
         assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
 
         // Now revealed in holder
-        assertThat(guiService.isRaterRevealed(viewer, event, holder)).isTrue();
+        assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isTrue();
         assertThat(holder.layout().get(10).titleKey()).isEqualTo("gui.history.revealed-rater");
         assertThat(holder.layout().get(10).titlePlaceholders()).containsEntry("player", "SecretRater");
 
         // Persisted in SQLite
         assertThat(revealedEvents).containsExactly(saved.id());
 
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+        StatusGuiHolder reopenedHolder = (StatusGuiHolder) openedInventories.get(1).getHolder();
+        assertThat(reopenedHolder.layout().get(10).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(reopenedHolder.layout().get(10).titlePlaceholders()).containsEntry("player", "SecretRater");
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
+
         // 3. Different viewer still sees Anonymous
         UUID otherViewerUuid = UUID.randomUUID();
         Player otherViewer = createMockPlayer("OtherViewer", otherViewerUuid, "socialblueprint.show", "socialblueprint.show-others");
         guiService.openGuiAsync(otherViewer, "TargetUser", configManager.snapshot()).join();
         drainMainThreadQueue();
-        StatusGuiHolder otherHolder = (StatusGuiHolder) openedInventories.get(1).getHolder();
-        assertThat(guiService.isRaterRevealed(otherViewer, event, otherHolder)).isFalse();
+        StatusGuiHolder otherHolder = (StatusGuiHolder) openedInventories.get(2).getHolder();
+        assertThat(guiService.isRaterRevealed(otherViewer, saved, otherHolder)).isFalse();
         assertThat(otherHolder.layout().get(10).titleKey()).isEqualTo("gui.history.anonymous-rater");
     }
 
@@ -611,12 +642,13 @@ public class StatusGuiServiceTest {
 
         // Click slot 10 to reveal
         guiService.handleClick(brokeViewer, holder, 10);
-        drainMainThreadQueue();
+        awaitGuiOutcome(() -> messageRegistry.hasCall("gui.reveal.insufficient-funds"));
 
         // Balance untouched
         assertThat(economyBalances.get(brokeViewerUuid)).isEqualTo(50.0);
         // Error message received
         assertThat(messageRegistry.hasCall("gui.reveal.insufficient-funds")).isTrue();
+        assertThat(holder.layout().get(10).titleKey()).isEqualTo("gui.history.anonymous-rater");
         // Not persisted
         assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(brokeViewerUuid).join()).isEmpty();
     }
@@ -769,6 +801,319 @@ public class StatusGuiServiceTest {
         assertThat(events.getFirst().target()).isEqualTo(targetId);
     }
 
+    private static long countRaterHeads(GuiLayout layout) {
+        if (layout == null) return 0;
+        long count = 0;
+        for (int i = 0; i < layout.size(); i++) {
+            GuiSlot s = layout.get(i);
+            if (s != null && s.iconKind() == GuiIconKind.RATER_HEAD) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    // =========================================================================
+    // Review Findings (Findings 1 - 8)
+    // =========================================================================
+
+    @Test
+    @DisplayName("Finding 1: StatusGuiHolder does not expose ReputationEvents or actor UUIDs")
+    void holderDoesNotExposeReputationEventsOrActorUuids() {
+        for (var method : StatusGuiHolder.class.getMethods()) {
+            assertThat(method.getName()).isNotEqualTo("ratings");
+            assertThat(method.getName()).isNotEqualTo("ratingsForCurrentPage");
+            assertThat(method.getReturnType()).isNotEqualTo(ReputationEvent.class);
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 2: Rapid consecutive clicks on rater head do not charge twice")
+    void revealRapidClickDoesNotChargeTwice() {
+        UUID targetUuid = UUID.randomUUID();
+        PlayerId targetId = PlayerId.of(targetUuid);
+        UUID raterUuid = UUID.randomUUID();
+        PlayerId raterId = PlayerId.of(raterUuid);
+        offlineNames.put(targetUuid, "TargetUser");
+        offlineNames.put(raterUuid, "SecretRater");
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(targetId, "TargetUser", true));
+
+        reputationRepo.saveAsync(new ReputationEvent(
+                raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "Rapid click test", Instant.now()
+        )).join();
+
+        UUID viewerUuid = UUID.randomUUID();
+        economyBalances.put(viewerUuid, 500.0);
+        Player viewer = createMockPlayer("Viewer", viewerUuid, "socialblueprint.show", "socialblueprint.show-others");
+
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+
+        Inventory inv = openedInventories.getLast();
+        StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
+
+        // Fire two clicks without draining main queue in between
+        guiService.handleClick(viewer, holder, 10);
+        guiService.handleClick(viewer, holder, 10);
+
+        drainMainThreadQueue();
+
+        // Charged exactly once (500 -> 400), not twice (not 300)
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
+        assertThat(compensationRepo.findByPlayerAsync(viewerUuid).join()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Finding 2: Duplicate reveal save refunds the player and cleans compensation")
+    void revealDuplicateSaveRefundsPlayer() {
+        UUID targetUuid = UUID.randomUUID();
+        PlayerId targetId = PlayerId.of(targetUuid);
+        UUID raterUuid = UUID.randomUUID();
+        PlayerId raterId = PlayerId.of(raterUuid);
+        offlineNames.put(targetUuid, "TargetUser");
+        offlineNames.put(raterUuid, "SecretRater");
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(targetId, "TargetUser", true));
+
+        ReputationEvent event = reputationRepo.saveAsync(new ReputationEvent(
+                raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "Duplicate test", Instant.now()
+        )).join();
+
+        UUID viewerUuid = UUID.randomUUID();
+        economyBalances.put(viewerUuid, 400.0); // An earlier successful reveal already cost 100.0
+        Player viewer = createMockPlayer("Viewer", viewerUuid, "socialblueprint.show", "socialblueprint.show-others");
+
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+
+        Inventory inv = openedInventories.getLast();
+        StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
+
+        // Pre-insert into rater reveal repo so saveRevealAsync inside reveal flow detects duplicate (returns false)
+        raterRevealRepo.saveRevealAsync(viewerUuid, event.id(), raterUuid, 100.0, Instant.now()).join();
+
+        // Now trigger reveal click
+        guiService.handleClick(viewer, holder, 10);
+        awaitGuiOutcome(() -> messageRegistry.hasCall("gui.reveal.already-revealed")
+                && economyBalances.get(viewerUuid) == 400.0);
+        awaitGuiOutcome(() -> compensationRepo.findByPlayerAsync(viewerUuid).join().isEmpty());
+
+        // Refunded: balance matches one successful reveal, never two
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
+        assertThat(messageRegistry.hasCall("gui.reveal.already-revealed")).isTrue();
+        assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join()).containsExactly(event.id());
+        assertThat(compensationRepo.findByPlayerAsync(viewerUuid).join()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Finding 3: Take honor chat prompt expires after 60s timeout")
+    void takeHonorChatPromptExpiresAfterTimeout() {
+        UUID viewerUuid = UUID.randomUUID();
+        Player viewer = createMockPlayer("Viewer", viewerUuid);
+
+        guiService.promptForTakeHonorReason(viewer, "TargetUser", configManager.snapshot());
+        assertThat(guiService.hasPendingReason(viewerUuid)).isTrue();
+
+        testClock.advance(Duration.ofSeconds(61));
+
+        awaitQueued(guiService.consumePendingReason(viewer, "Too late"));
+
+        assertThat(messageRegistry.hasCall("gui.prompt-expired")).isTrue();
+        assertThat(honorService.getPendingConfirmation(viewerUuid)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Finding 3: Take honor chat prompt is cancelled on quit")
+    void takeHonorChatPromptCancelledOnQuit() {
+        UUID viewerUuid = UUID.randomUUID();
+        Player viewer = createMockPlayer("Viewer", viewerUuid);
+
+        guiService.promptForTakeHonorReason(viewer, "TargetUser", configManager.snapshot());
+        assertThat(guiService.hasPendingReason(viewerUuid)).isTrue();
+
+        guiService.cancelPendingReason(viewerUuid);
+        assertThat(guiService.hasPendingReason(viewerUuid)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 3: Take honor chat prompt can be cancelled by player typing cancel")
+    void takeHonorChatPromptCancelledByPlayer() {
+        UUID viewerUuid = UUID.randomUUID();
+        Player viewer = createMockPlayer("Viewer", viewerUuid);
+
+        guiService.promptForTakeHonorReason(viewer, "TargetUser", configManager.snapshot());
+        assertThat(guiService.hasPendingReason(viewerUuid)).isTrue();
+
+        awaitQueued(guiService.consumePendingReason(viewer, "cancel"));
+        assertThat(guiService.hasPendingReason(viewerUuid)).isFalse();
+        assertThat(messageRegistry.hasCall("gui.prompt-cancelled")).isTrue();
+        assertThat(honorService.getPendingConfirmation(viewerUuid)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Finding 4: Superseded open GUI request does not replace newer inventory")
+    void supersededOpenGuiRequestDoesNotReplaceNewerInventory() {
+        UUID targetA = UUID.randomUUID();
+        UUID targetB = UUID.randomUUID();
+        offlineNames.put(targetA, "TargetA");
+        offlineNames.put(targetB, "TargetB");
+        onlineLookupMap.put("targeta", new PlayerLookup.KnownPlayer(PlayerId.of(targetA), "TargetA", true));
+        onlineLookupMap.put("targetb", new PlayerLookup.KnownPlayer(PlayerId.of(targetB), "TargetB", true));
+
+        UUID viewerUuid = UUID.randomUUID();
+        Player viewer = createMockPlayer("Viewer", viewerUuid, "socialblueprint.show", "socialblueprint.show-others");
+
+        int initialOpenedCount = openedInventories.size();
+
+        // 1. First open request (will be superseded)
+        CompletableFuture<Void> firstReq = guiService.openGuiAsync(viewer, "TargetA", configManager.snapshot());
+
+        // 2. Second open request immediately follows (supersedes request 1)
+        CompletableFuture<Void> secondReq = guiService.openGuiAsync(viewer, "TargetB", configManager.snapshot());
+
+        CompletableFuture.allOf(firstReq, secondReq).join();
+        drainMainThreadQueue();
+
+        // Exactly one inventory opened (for TargetB, not TargetA)
+        assertThat(openedInventories.size()).isEqualTo(initialOpenedCount + 1);
+        StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        assertThat(holder.targetName()).isEqualTo("TargetB");
+    }
+
+    @Test
+    @DisplayName("Finding 5: Overlong reason exceeding 100 characters is rejected with message")
+    void reasonExceeding100CharsIsRejectedWithMessage() {
+        UUID targetUuid = UUID.randomUUID();
+        offlineNames.put(targetUuid, "TargetUser");
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(PlayerId.of(targetUuid), "TargetUser", true));
+
+        UUID viewerUuid = UUID.randomUUID();
+        economyBalances.put(viewerUuid, 1000.0);
+        Player viewer = createMockPlayer("Viewer", viewerUuid, "socialblueprint.show", "socialblueprint.show-others", "socialblueprint.take-reputation");
+
+        String overlongReason = "A".repeat(101);
+        awaitQueued(honorService.preparePlayerHonor(viewer, "TargetUser", HonorKind.NEGATIVE, overlongReason, configManager.snapshot()));
+
+        assertThat(messageRegistry.hasCall("honor.reason-too-long")).isTrue();
+        assertThat(honorService.getPendingConfirmation(viewerUuid)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Finding 5: Sanitizing tags to empty reason shows no-reason label")
+    void sanitizingToEmptyReasonShowsNoReasonLabel() {
+        UUID targetUuid = UUID.randomUUID();
+        PlayerId targetId = PlayerId.of(targetUuid);
+        offlineNames.put(targetUuid, "TargetUser");
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(targetId, "TargetUser", true));
+
+        // Rating with tags only, which sanitize to blank
+        reputationRepo.saveAsync(new ReputationEvent(
+                PlayerId.of(UUID.randomUUID()), targetId, 1, HonorKind.POSITIVE, 500.0, "&4§l   ", Instant.now()
+        )).join();
+
+        Player viewer = createMockPlayer("Viewer", UUID.randomUUID(), "socialblueprint.show", "socialblueprint.show-others");
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+
+        Inventory inv = openedInventories.getLast();
+        StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
+        GuiSlot paperSlot = holder.layout().get(19);
+        assertThat(paperSlot).isNotNull();
+        assertThat(paperSlot.lore()).isNotEmpty();
+        assertThat(paperSlot.lore().getFirst().key()).isEqualTo("gui.history.no-reason");
+    }
+
+    @Test
+    @DisplayName("Finding 6: Closed or departed viewer does not receive reveal message or render")
+    void departedOrClosedViewerDoesNotReceiveRevealMessageOrRender() {
+        UUID targetUuid = UUID.randomUUID();
+        PlayerId targetId = PlayerId.of(targetUuid);
+        UUID raterUuid = UUID.randomUUID();
+        offlineNames.put(targetUuid, "TargetUser");
+        offlineNames.put(raterUuid, "SecretRater");
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(targetId, "TargetUser", true));
+
+        reputationRepo.saveAsync(new ReputationEvent(
+                PlayerId.of(raterUuid), targetId, 1, HonorKind.POSITIVE, 500.0, "Great", Instant.now()
+        )).join();
+
+        UUID viewerUuid = UUID.randomUUID();
+        economyBalances.put(viewerUuid, 500.0);
+        List<String> messages = new ArrayList<>();
+        Player viewer = createMockPlayer("Viewer", viewerUuid, messages, "socialblueprint.show", "socialblueprint.show-others");
+
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+
+        Inventory inv = openedInventories.getLast();
+        StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
+
+        // Player closes inventory before reveal executes
+        viewer.closeInventory();
+
+        guiService.handleClick(viewer, holder, 10);
+        drainMainThreadQueue();
+
+        // No reveal messages sent to closed viewer
+        assertThat(messageRegistry.hasCall("gui.reveal.success")).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 7: Click dispatch rejects different viewer and dispatches on layout icon kind")
+    void clickDispatchUsesLayoutIconKindAndRejectsDifferentViewer() {
+        UUID targetUuid = UUID.randomUUID();
+        offlineNames.put(targetUuid, "TargetUser");
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(PlayerId.of(targetUuid), "TargetUser", true));
+
+        UUID viewerAUuid = UUID.randomUUID();
+        Player viewerA = createMockPlayer("ViewerA", viewerAUuid, "socialblueprint.show", "socialblueprint.show-others");
+
+        guiService.openGuiAsync(viewerA, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+
+        Inventory inv = openedInventories.getLast();
+        StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
+
+        // Viewer B tries to click in Viewer A's holder
+        UUID viewerBUuid = UUID.randomUUID();
+        Player viewerB = createMockPlayer("ViewerB", viewerBUuid, "socialblueprint.show", "socialblueprint.show-others");
+
+        guiService.handleClick(viewerB, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER);
+        drainMainThreadQueue();
+
+        // Viewer B action rejected
+        assertThat(honorService.getPendingConfirmation(viewerBUuid)).isEmpty();
+        assertThat(honorService.getPendingConfirmation(viewerAUuid)).isEmpty();
+
+        // Clicking an empty slot (e.g. slot 0 which has no icon) takes no action
+        guiService.handleClick(viewerA, holder, 0);
+        drainMainThreadQueue();
+        assertThat(honorService.getPendingConfirmation(viewerAUuid)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Finding 8: Layout decides GuiDyeKind for each tier")
+    void layoutDecidesDyeKindForEachTier() {
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        for (var entry : Map.of(
+                Tier.CRIMINAL, GuiDyeKind.RED,
+                Tier.FORAJIDO, GuiDyeKind.RED,
+                Tier.DELINCUENTE, GuiDyeKind.RED,
+                Tier.TEMERARIO, GuiDyeKind.RED,
+                Tier.PARTICULAR, GuiDyeKind.WHITE,
+                Tier.AFABLE, GuiDyeKind.LIME,
+                Tier.HONORABLE, GuiDyeKind.LIME,
+                Tier.INSIGNE, GuiDyeKind.LIME,
+                Tier.ILUSTRE, GuiDyeKind.LIGHT_BLUE).entrySet()) {
+            assertThat(GuiDyeKind.fromTier(entry.getKey())).isEqualTo(entry.getValue());
+            int status = snapshot.config().tiers().ladder().threshold(entry.getKey());
+            PlayerSocialView view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Test", status, entry.getKey(), ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 1);
+            GuiLayout layout = StatusGuiService.buildPageLayout(view, List.of(), 0, 1, Set.of(), null, snapshot, null);
+            GuiSlot dyeSlot = layout.get(StatusGuiService.SLOT_TOP_TIER_DYE);
+            assertThat(dyeSlot).isNotNull();
+            assertThat(dyeSlot.dyeKind()).isEqualTo(entry.getValue());
+        }
+    }
+
     // =========================================================================
     // Test Helpers & Mocks
     // =========================================================================
@@ -783,12 +1128,23 @@ public class StatusGuiServiceTest {
         drainMainThreadQueue();
     }
 
+    private void awaitGuiOutcome(BooleanSupplier done) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!done.getAsBoolean() && System.nanoTime() < deadline) {
+            drainMainThreadQueue();
+            Thread.onSpinWait();
+        }
+        drainMainThreadQueue();
+        assertThat(done.getAsBoolean()).isTrue();
+    }
+
     private Player createMockPlayer(String name, UUID uuid, String... permissions) {
         return createMockPlayer(name, uuid, new ArrayList<>(), permissions);
     }
 
     private Player createMockPlayer(String name, UUID uuid, List<String> messageOutput, String... permissions) {
         Set<String> perms = new HashSet<>(List.of(permissions));
+        Inventory[] activeInv = new Inventory[1];
 
         InvocationHandler handler = (proxy, method, args) -> {
             String mName = method.getName();
@@ -810,12 +1166,26 @@ public class StatusGuiServiceTest {
             }
             if ("openInventory".equals(mName)) {
                 if (args != null && args.length > 0 && args[0] instanceof Inventory inv) {
+                    activeInv[0] = inv;
                     openedInventories.add(inv);
                 }
                 return null;
             }
             if ("closeInventory".equals(mName)) {
+                activeInv[0] = null;
                 return null;
+            }
+            if ("getOpenInventory".equals(mName)) {
+                if (activeInv[0] == null) return null;
+                InvocationHandler viewHandler = (vProxy, vMethod, vArgs) -> {
+                    if ("getTopInventory".equals(vMethod.getName())) return activeInv[0];
+                    return defaultValue(vMethod.getReturnType());
+                };
+                return (InventoryView) Proxy.newProxyInstance(
+                        InventoryView.class.getClassLoader(),
+                        new Class<?>[]{InventoryView.class},
+                        viewHandler
+                );
             }
             return defaultValue(method.getReturnType());
         };
@@ -1112,5 +1482,18 @@ public class StatusGuiServiceTest {
         public Component render(String key) {
             return render(key, Collections.emptyMap());
         }
+    }
+
+    private static class TestClock extends Clock {
+        private Instant now = Instant.parse("2026-09-30T12:00:00Z");
+        private ZoneId zone = ZoneOffset.UTC;
+
+        public void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override public ZoneId getZone() { return zone; }
+        @Override public Clock withZone(ZoneId zone) { this.zone = zone; return this; }
+        @Override public Instant instant() { return now; }
     }
 }

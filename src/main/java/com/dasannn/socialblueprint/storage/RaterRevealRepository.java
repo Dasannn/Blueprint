@@ -31,26 +31,21 @@ public final class RaterRevealRepository {
 
     /**
      * Persists a reveal record for a viewer and rating event.
+     * Returns true if a new row was inserted, or false if already present (conflict do nothing).
      */
-    public void saveReveal(UUID viewerUuid, long eventId, UUID raterUuid, double cost, Instant createdAt) {
+    public boolean saveReveal(UUID viewerUuid, long eventId, UUID raterUuid, double cost, Instant createdAt) {
         Objects.requireNonNull(viewerUuid, "viewerUuid must not be null");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
-        engine.execute(conn -> {
-            saveRevealInternal(conn, viewerUuid, eventId, raterUuid, cost, createdAt);
-            return null;
-        });
+        return engine.execute(conn -> saveRevealInternal(conn, viewerUuid, eventId, raterUuid, cost, createdAt));
     }
 
-    public CompletableFuture<Void> saveRevealAsync(UUID viewerUuid, long eventId, UUID raterUuid, double cost, Instant createdAt) {
+    public CompletableFuture<Boolean> saveRevealAsync(UUID viewerUuid, long eventId, UUID raterUuid, double cost, Instant createdAt) {
         Objects.requireNonNull(viewerUuid, "viewerUuid must not be null");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
-        return engine.executeAsync(conn -> {
-            saveRevealInternal(conn, viewerUuid, eventId, raterUuid, cost, createdAt);
-            return null;
-        });
+        return engine.executeAsync(conn -> saveRevealInternal(conn, viewerUuid, eventId, raterUuid, cost, createdAt));
     }
 
-    private void saveRevealInternal(Connection conn, UUID viewerUuid, long eventId, UUID raterUuid, double cost, Instant createdAt) throws SQLException {
+    private boolean saveRevealInternal(Connection conn, UUID viewerUuid, long eventId, UUID raterUuid, double cost, Instant createdAt) throws SQLException {
         String sql = """
             INSERT INTO rater_reveal (viewer_uuid, event_id, rater_uuid, cost, created_at)
             VALUES (?, ?, ?, ?, ?)
@@ -66,7 +61,7 @@ public final class RaterRevealRepository {
             }
             ps.setDouble(4, cost);
             ps.setString(5, StorageTimestamps.format(createdAt));
-            ps.executeUpdate();
+            return ps.executeUpdate() > 0;
         }
     }
 

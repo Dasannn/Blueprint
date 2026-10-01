@@ -198,6 +198,13 @@ public class HonorService {
             return CompletableFuture.completedFuture(null);
         }
 
+        // Bounded reason length (Finding 5)
+        if (reason != null && reason.length() > com.dasannn.socialblueprint.domain.ReputationEvent.MAX_REASON_LENGTH) {
+            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.reason-too-long",
+                    Map.of("max", String.valueOf(com.dasannn.socialblueprint.domain.ReputationEvent.MAX_REASON_LENGTH))));
+            return CompletableFuture.completedFuture(null);
+        }
+
         // Permission check
         String permKey = kind == HonorKind.POSITIVE ? "give-reputation" : "take-reputation";
         if (!PermissionChecker.hasPermission(actor, permKey, snapshot)) {

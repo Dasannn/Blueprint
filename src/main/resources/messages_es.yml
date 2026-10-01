@@ -77,6 +77,7 @@ honor:
   distrust-usage: '&eUso: &f/status distrust <jugador> <motivo>'
   give-usage: '&eUso: &f/status give <jugador> [motivo]'
   take-usage: '&eUso: &f/status take <jugador> <motivo>'
+  reason-too-long: '&cLa razón no puede superar los {max} caracteres.'
 
 duel:
   challenge-sent: '&7Has retado a &e{target}&7 a un duelo.'
@@ -147,4 +148,7 @@ gui:
     already-revealed: '&7La identidad de este calificador ya ha sido revelada.'
     insufficient-funds: '&cNecesitas {cost} para revelar la identidad de este calificador.'
     success: '&aSe ha revelado al calificador &e{player}&a por &6{cost}&a.'
+  prompt-reason: '&eEscribe en el chat la razón para quitar honor a &f{player}&e en 60 segundos (o escribe &ccancelar&e).'
+  prompt-cancelled: '&7Calificación cancelada.'
+  prompt-expired: '&cEl tiempo para ingresar la razón ha expirado.'
 

@@ -16,7 +16,9 @@ public record GuiSlot(
         int slot,
         GuiIconKind iconKind,
         UUID owningPlayerId,
+        Long eventId,
         Tier tier,
+        GuiDyeKind dyeKind,
         String titleKey,
         Map<String, String> titlePlaceholders,
         List<GuiLoreLine> lore
@@ -27,15 +29,27 @@ public record GuiSlot(
         lore = lore != null ? Collections.unmodifiableList(lore) : Collections.emptyList();
     }
 
+    public GuiSlot(
+            int slot,
+            GuiIconKind iconKind,
+            UUID owningPlayerId,
+            Tier tier,
+            String titleKey,
+            Map<String, String> titlePlaceholders,
+            List<GuiLoreLine> lore
+    ) {
+        this(slot, iconKind, owningPlayerId, null, tier, tier != null ? GuiDyeKind.fromTier(tier) : null, titleKey, titlePlaceholders, lore);
+    }
+
     public static GuiSlot of(int slot, GuiIconKind iconKind, String titleKey) {
-        return new GuiSlot(slot, iconKind, null, null, titleKey, Collections.emptyMap(), Collections.emptyList());
+        return new GuiSlot(slot, iconKind, null, null, null, null, titleKey, Collections.emptyMap(), Collections.emptyList());
     }
 
     public static GuiSlot of(int slot, GuiIconKind iconKind, String titleKey, Map<String, String> titlePlaceholders) {
-        return new GuiSlot(slot, iconKind, null, null, titleKey, titlePlaceholders, Collections.emptyList());
+        return new GuiSlot(slot, iconKind, null, null, null, null, titleKey, titlePlaceholders, Collections.emptyList());
     }
 
     public static GuiSlot of(int slot, GuiIconKind iconKind, String titleKey, Map<String, String> titlePlaceholders, List<GuiLoreLine> lore) {
-        return new GuiSlot(slot, iconKind, null, null, titleKey, titlePlaceholders, lore);
+        return new GuiSlot(slot, iconKind, null, null, null, null, titleKey, titlePlaceholders, lore);
     }
 }

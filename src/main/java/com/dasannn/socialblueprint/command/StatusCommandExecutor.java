@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.UUID;
 import com.dasannn.socialblueprint.domain.PlayerId;
@@ -560,7 +561,12 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
     private void handleShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
         if (sender instanceof Player player && statusGuiService != null) {
-            this.lastExecution = statusGuiService.openGuiAsync(player, targetInput, snapshot);
+            this.lastExecution = statusGuiService.openGuiAsync(player, targetInput, snapshot)
+                    .exceptionally(ex -> {
+                        Logger.getLogger(StatusCommandExecutor.class.getName())
+                                .log(java.util.logging.Level.SEVERE, "Failed to open status GUI for " + player.getName(), ex);
+                        return null;
+                    });
         } else {
             this.lastExecution = executeShowProfile(sender, targetInput, snapshot);
         }

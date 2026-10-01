@@ -1035,22 +1035,30 @@ class P4CommandsPermissionsTest {
     }
 
     @Test
-    @DisplayName("Finding 8 / T-051: StatusTakeCommand bounds reason text to 100 characters before storage")
+    @DisplayName("Finding 8 / T-051: StatusTakeCommand rejects reasons over the limit and keeps reasons at the limit")
     void statusTakeBoundsReasonTextToMaxReasonLength() {
         Player actor = mockPlayer("WordyActor", "socialblueprint.take");
         Player target = mockPlayer("WordyTarget");
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
-        String longReason = "This is a very long reason that exceeds one hundred characters in total length to verify that StatusTakeCommand correctly bounds it before storage.";
-        assertThat(longReason.length()).isGreaterThan(100);
+        int limit = ReputationEvent.MAX_REASON_LENGTH;
+        String reasonAtLimit = "A".repeat(limit);
+        String longReason = reasonAtLimit + "B";
 
         runCommandSync(actor, "status", "take", "WordyTarget", longReason);
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.reason-too-long");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("max", String.valueOf(limit));
+        assertThat(honorService.getPendingConfirmation(actor.getUniqueId())).isEmpty();
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(1000.0);
+        assertThat(reputationRepo.findByTargetAsync(PlayerId.of(target.getUniqueId())).join()).isEmpty();
+
+        runCommandSync(actor, "status", "take", "WordyTarget", reasonAtLimit);
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
         runCommandSync(actor, "status", "confirm");
 
         List<ReputationEvent> events = reputationRepo.findByTargetAsync(PlayerId.of(target.getUniqueId())).join();
         assertThat(events).hasSize(1);
-        assertThat(events.getFirst().reason()).hasSize(100);
-        assertThat(events.getFirst().reason()).isEqualTo(longReason.substring(0, 100));
+        assertThat(events.getFirst().reason()).isEqualTo(reasonAtLimit);
     }
 
     // =========================================================================

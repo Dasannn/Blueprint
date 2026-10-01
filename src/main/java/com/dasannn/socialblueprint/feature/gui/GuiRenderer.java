@@ -67,6 +67,8 @@ public class GuiRenderer {
         }
 
         if (meta instanceof SkullMeta skullMeta && slot.owningPlayerId() != null) {
+            // Deliberate product decision (SB-082): Anonymity covers the name only;
+            // the rater's head carries their real skin so the player sees who rated them as a face.
             OfflinePlayer op = offlinePlayerResolver.apply(slot.owningPlayerId());
             if (op != null) {
                 skullMeta.setOwningPlayer(op);
@@ -99,10 +101,19 @@ public class GuiRenderer {
     public Material resolveMaterial(GuiSlot slot, RuntimeSnapshot snapshot) {
         return switch (slot.iconKind()) {
             case SUBJECT_HEAD, RATER_HEAD -> Material.PLAYER_HEAD;
-            case TIER_DYE -> StatusGuiService.resolveTierDye(slot.tier(), snapshot);
+            case TIER_DYE -> slot.dyeKind() != null ? mapDyeMaterial(slot.dyeKind()) : Material.WHITE_DYE;
             case GIVE_BANNER, PAGE_NEXT, DIRECTION_BANNER_POSITIVE -> Material.GREEN_BANNER;
             case TAKE_BANNER, PAGE_PREVIOUS, DIRECTION_BANNER_NEGATIVE -> Material.RED_BANNER;
             case REASON_PAPER, PAGE_INFO -> Material.PAPER;
+        };
+    }
+
+    private static Material mapDyeMaterial(GuiDyeKind dyeKind) {
+        return switch (dyeKind) {
+            case WHITE -> Material.WHITE_DYE;
+            case LIME -> Material.LIME_DYE;
+            case LIGHT_BLUE -> Material.LIGHT_BLUE_DYE;
+            case RED -> Material.RED_DYE;
         };
     }
 }

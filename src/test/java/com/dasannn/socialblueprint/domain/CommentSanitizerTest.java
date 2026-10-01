@@ -102,4 +102,23 @@ class CommentSanitizerTest {
         String test = "Text " + code + "Styled";
         assertThat(CommentSanitizer.toPlainText(test)).isEqualTo("Text Styled");
     }
+
+    @Test
+    @DisplayName("Finding 5: Strips Unicode format controls, bidi overrides (U+202E), and zero-width spaces")
+    void stripsUnicodeFormatControlsAndBidiOverrides() {
+        String hostileInput = "trusted\u202E\u200Bevil_action\u200E";
+        String sanitized = CommentSanitizer.toPlainText(hostileInput);
+
+        assertThat(sanitized).isEqualTo("trustedevil_action");
+        assertThat(sanitized).doesNotContain("\u202E").doesNotContain("\u200B").doesNotContain("\u200E");
+    }
+
+    @Test
+    @DisplayName("Finding 5: Reason consisting only of tags or format controls sanitizes to empty string")
+    void onlyTagsSanitizesToEmptyString() {
+        String tagOnly = "<bold><red></red></bold>\u202E\u200B";
+        String sanitized = CommentSanitizer.toPlainText(tagOnly);
+
+        assertThat(sanitized).isEmpty();
+    }
 }

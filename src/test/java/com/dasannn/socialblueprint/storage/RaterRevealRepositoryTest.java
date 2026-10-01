@@ -79,8 +79,11 @@ class RaterRevealRepositoryTest {
         long eventId = 55L;
         Instant now = Instant.parse("2026-09-30T12:00:00Z");
 
-        repository.saveRevealAsync(viewer, eventId, rater, 100.0, now).join();
-        repository.saveRevealAsync(viewer, eventId, rater, 100.0, now.plusSeconds(60)).join();
+        Boolean first = repository.saveRevealAsync(viewer, eventId, rater, 100.0, now).join();
+        Boolean second = repository.saveRevealAsync(viewer, eventId, rater, 100.0, now.plusSeconds(60)).join();
+
+        assertThat(first).isTrue();
+        assertThat(second).isFalse();
 
         Set<Long> reveals = repository.findRevealedEventsByViewerAsync(viewer).join();
         assertThat(reveals).containsExactly(eventId);
