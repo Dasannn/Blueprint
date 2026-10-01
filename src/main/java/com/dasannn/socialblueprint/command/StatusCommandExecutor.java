@@ -710,7 +710,16 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     } else {
                         sendProfile(sender, optView.get(), snapshot);
                     }
-                }));
+                }))
+                // Nobody observes this future, so a failure anywhere in the read
+                // used to leave the sender with no answer at all and nothing in
+                // the log: the command simply appeared to do nothing.
+                .exceptionally(error -> {
+                    Logger.getLogger(StatusCommandExecutor.class.getName()).log(
+                            java.util.logging.Level.SEVERE,
+                            "Failed to read the profile of '" + targetInput + "'", error);
+                    return null;
+                });
     }
 
     public void sendProfile(CommandSender sender, PlayerSocialView view, RuntimeSnapshot snapshot) {
