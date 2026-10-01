@@ -7,7 +7,7 @@ Requirements are numbered `SB-nnn` so tasks and reviews can cite them.
 
 ## 1. Scope of the first release
 
-Release 1 covers the core, duels, and the low-status ambient effects. The honor
+Release 1 covers the core, duels, and the Psychosis ambient effects. The honor
 economy, comments, GUI, Confidence, vouching and external integrations follow in
 later releases, in the order of §11.
 
@@ -31,8 +31,24 @@ not raise Confidence.
 **SB-004.** Killing Psychosis measures PvP frequency over a rolling window. It
 is never reduced by, and never reduces, social status.
 
+**SB-093.** The Psychosis rolling window defaults to **72 hours**, replacing
+the previous 24-hour default, and remains configurable in YAML and in-game.
+Eligible kills raise it immediately; their contribution expires only when they
+leave the window. It rises quickly and falls slowly, so stopping the killing
+allows recovery without making its consequences disappear after one evening.
+This changes neither the duel exemption (SB-031) nor the independent status
+penalty (SB-032).
+
 **SB-005.** A player with no record reads as status `0`, Confidence `Unknown`,
 Psychosis at its lowest level. Never as negative or suspect.
+
+**SB-087.** SB-005 answers for a **player**. A name that belongs to nobody
+is not a player with no record: `/status asdkjhasd` must say the player was
+not found, not invent a neutral profile. In offline mode any string resolves
+to some uuid, so resolution must require evidence that the name is real --
+a stored profile, a player online now, or one the server has seen before --
+and otherwise refuse. Inventing a profile for a typo teaches an operator
+to trust an answer that means nothing.
 
 **SB-006.** A reputation event's contribution to social status **decays with
 its age**, on a curve configured in YAML. Nothing is deleted: the event stays in
@@ -75,11 +91,33 @@ requirement, not an accident.
 
 ## 4. Chat
 
-**SB-020.** A low-status player's own chat messages are rendered darker, on a
-gradient from near-black (`#202020`) at the bottom to bright white at the top.
-Absolute black is never used.
+**SB-020.** Superseded by SB-094 and SB-095. The former status-based chat
+colour gradient attached the speaker's failing voice to the wrong metric.
 
-**SB-021.** Darkening never hides, truncates, delays or blocks a message.
+**SB-021.** Superseded by SB-095. The prohibition on silencing a player remains,
+but now applies to partial text corruption rather than darkening.
+
+**SB-094.** Status keeps the tier ladder and the coloured chat **prefix**.
+It no longer colours the message body. Status tells others how the community
+sees the speaker; it does not describe the speaker's state of mind.
+
+**SB-095.** Psychosis can corrupt the speaker's message by substituting letters,
+scrambling words or mangling characters. At medium Psychosis this happens
+occasionally, at high more often, and at extreme frequently, with intact
+messages between episodes at every level (SB-097). The lowest level leaves
+messages intact. Every reader receives the **same corrupted text**, including
+the speaker: this is the speaker's voice failing, not a reader's hallucination.
+Governed by `docs/decisions/0006-psychosis-corrupts-the-speakers-chat.md`.
+
+Corruption affects only part of a message and leaves it readable enough to
+communicate. It never renders the whole line illegible, hides, blocks, delays or
+truncates it: a fully unreadable line would mute the player, turning a cosmetic
+effect into exclusion. If a short message cannot be partially corrupted while
+remaining readable, it stays intact. Prefixes and the name hover are untouched.
+The frequency and extent are configurable, but no setting may remove these
+guards. Rater-supplied text is still stored as written and rendered as plain
+text under SB-083, never parsed for colour, formatting or click actions; chat
+corruption gives no permission to reinterpret a rating or its reason.
 
 **SB-022.** Hovering a player's name in chat shows a compact summary: status,
 tier, Confidence, Psychosis, and the number of distinct players who contributed.
@@ -120,25 +158,64 @@ cannot identify, and in any world listed as exempt in YAML. Setting the delta to
 **SB-033.** Duel state survives a player disconnect long enough to distinguish a
 combat log from a normal quit; the handling is configurable.
 
-## 6. Low-status ambient effects
+## 6. Psychosis ambient effects
 
-Governed by `docs/decisions/0002-low-status-effects-are-private-and-cosmetic.md`.
+Governed by `docs/decisions/0005-psychosis-drives-private-ambient-effects.md`,
+which supersedes decision 0002. These hallucinations are private; the speaker's
+chat corruption is separately governed by SB-095.
 
-**SB-040.** Below a configurable status threshold, a player may receive: Speed
-III silverfish that despawn on a timer, near-black short chat lines, creeper
-fuse sounds, and fake join/leave announcements.
+**SB-040.** Superseded by SB-096 through SB-099. The status threshold is
+removed, and the former timed Speed III silverfish become momentary phantoms.
 
-**SB-041.** Every effect is visible or audible **only** to the affected player.
+**SB-096.** Killing Psychosis alone triggers ambient effects: phantom mobs,
+short private chat lines, configurable layered sounds (including the creeper
+fuse), and fake connection messages. The lowest Psychosis level triggers none.
+Status is not an eligibility check or a frequency input: a low-status player
+with no Psychosis hears no whispers, while a high-status player with high
+Psychosis can experience them.
 
-**SB-042.** The silverfish deal no damage, take no damage, target nothing, drop
-nothing, are not persistent, and are removed on timer, on quit, on world change
-and on server stop.
+**SB-097.** Effects are episodes, never a permanent state. Medium Psychosis
+produces occasional episodes, high produces them more often, and extreme
+produces frequent episodes **with silence between them**. Frequency and limits
+are configurable, but every level must leave a nonzero quiet interval between
+episodes, including any delayed sound layers. Cooldowns and session caps
+(SB-043) still bound delivery. Chat corruption follows the same gradation and
+must leave intact messages between episodes (SB-095); raising Psychosis cannot
+make either presentation constant. Unease must leave room to play and speak.
+
+**SB-098.** Fake join and leave messages name the affected player themselves:
+"X joined the game" while X is already standing there. Only X receives them;
+they are not real connection events and are never broadcast or logged as such.
+The contradiction is about the player's own presence, not an invented visitor.
+
+**SB-099.** Phantom mobs appear and vanish at once, as a momentary glimpse,
+not a moving mob that remains for a timed encounter. They are private,
+packet-only fakes: no server-side mob exists to cause collision or leak to
+bystanders. They never deal or take damage, push, target, drop loot or XP, or
+persist. Their managed lifecycle removes every fake on disappearance, quit,
+world change and server stop, so an interrupted episode leaves nothing behind.
+
+**SB-041.** Every ambient hallucination in this section is visible or audible
+**only** to the affected player. SB-095 separately governs the speaker's chat,
+whose corrupted text is shared by all readers.
+
+**SB-042.** Superseded by SB-099. Harmlessness and cleanup remain required;
+the timed silverfish encounter is replaced by an immediate glimpse.
 
 **SB-043.** Each effect has an independent cooldown and per-session cap, both
 configurable.
 
 **SB-044.** A player can disable the effects for themselves. Doing so changes no
 metric and hides nothing from other players.
+
+**SB-100.** Psychosis causes cosmetic effects; it still neither derives from
+nor alters status, as required by constitution §2.3 and SB-001/SB-004. Ambient
+effects and chat corruption cannot change status, Reputation Confidence or
+money, nor grant or remove a mechanical advantage. A kill may feed Psychosis
+and the separate status event of SB-032, but an effect never writes either
+metric. The ambient opt-out (SB-044) controls private delivery only and does not
+change the text shared under SB-095. This keeps an accessibility choice from
+changing what other players see.
 
 ## 7. Honor economy
 
@@ -322,12 +399,14 @@ another player's screen.
 scenes. The cap of SB-054 is still counted per actor-target pair, an
 administrator still sees who rated whom, and the audit trail is unaffected.
 
-**SB-085.** A history line reads as a sentence to a player, not as a log line
-to an operator. The machine timestamp is replaced by how long ago the rating
-happened, in the player's language, at the granularity that is actually useful
-(minutes within the hour, hours within the day, then days). The exact instant
-stays available on hover and in the audit trail, which is where a precise time
-belongs.
+**SB-085.** A history line carries the calendar date, not a machine instant:
+`2026-10-01`, never `2026-10-01T18:06:25.535503500Z`. It shows the signed
+delta and the written reason. It names **no actor**: a player rating is
+anonymous until paid for (SB-082), and a system-authored event has no person
+behind it to name, so a line that says "by System" only adds noise. The
+reason a penalty was applied still reads in full, because that is the part
+that explains the number. The exact instant stays in the audit trail, which
+is where a precise time belongs.
 
 **SB-086.** Giving and removing honor is reachable from a chest GUI, not only
 from `/status give` and `/status take`. The GUI is a **surface**, not a second
@@ -373,6 +452,17 @@ Deliberate deletions, so no agent restores them as "missing functionality".
       restart.
 - [ ] Status, Confidence and Psychosis are stored and displayed as three
       separate values.
+- [ ] Psychosis defaults to a configurable 72-hour rolling window; eligible
+      kills raise it immediately and recovery follows expiry, independently of
+      status and Confidence (SB-093, SB-100).
+- [ ] Status changes the tier prefix, never the message body's colour or the
+      ambient trigger (SB-094, SB-096).
+- [ ] Medium, high and extreme Psychosis produce progressively more frequent
+      episodes, with quiet intervals and intact chat between episodes even at
+      extreme; no configuration makes them constant (SB-095, SB-097).
+- [ ] All readers see the same partially corrupted message; even short messages
+      remain usable, prefixes and hover stay intact, and rater text is never
+      parsed for colour (SB-095, SB-083).
 - [ ] A duel kill changes neither status nor Psychosis; a non-duel kill raises
       Psychosis and lowers status by the configured delta, once per pair
       cooldown, bounded by the per-window cap, and never touches Confidence.
@@ -381,6 +471,11 @@ Deliberate deletions, so no agent restores them as "missing functionality".
       instead of throwing.
 - [ ] Ambient effects reach only the affected player, respect their cooldowns,
       and leave no entity behind after quit or restart.
+- [ ] Fake connection messages name only the affected player and reach only
+      that player; phantom mobs vanish immediately and have no damage,
+      collision, drops or server-side presence (SB-098, SB-099).
+- [ ] Neither ambient episodes nor chat corruption change any metric or money
+      (SB-100).
 - [ ] A player can disable ambient effects for themselves.
 - [ ] Console can run every command without an exception.
 - [ ] A name change does not detach a player from their record.

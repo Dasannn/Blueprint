@@ -65,13 +65,14 @@ in-game colour edit takes effect with no restart.
 
 ### P3 — Status, tiers, prefixes and chat
 
-Wire the domain to the server: resolve prefixes per lookup, render the chat
-gradient, the name hover, and the profile display. Coexist with other prefix
+Wire the domain to the server: resolve prefixes per lookup, render the name
+hover and the profile display. The original status-based chat gradient was
+implemented here; SB-094/SB-095 replace it in P13. Coexist with other prefix
 plugins rather than overwriting display names unconditionally.
 
-**Gate:** the nine tiers resolve correctly across the full range; a minimum
-status player's messages are near-black and still fully readable and never
-blocked.
+**Gate:** the nine tiers resolve correctly across the full range; chat remains
+usable at every status. P13 replaces the original near-black message check
+with the Psychosis corruption checks.
 
 ### P4 — Commands and permissions
 
@@ -142,6 +143,22 @@ Walk every acceptance criterion in `docs/spec.md` §14 against a running Paper
 26.3 server. Codex reviews the whole diff, not phase by phase.
 
 **Gate:** every box in §14 ticked, with evidence.
+
+### P13 — Psychosis drives effects and chat
+
+Decisions 0005 and 0006 correct the trigger implemented in P6 and the chat
+gradient implemented in P3. Extend the configurable Psychosis window to a
+72-hour default first, then rewire the existing scheduler and episode limits,
+correct the private fake messages and phantom lifetime, and add shared partial
+chat corruption. The cooldowns, session caps, managed-entity cleanup and layered
+sounds already exist; this phase reuses them.
+
+**Gate:** SB-093 through SB-100 are verified: low status alone causes no
+hallucinations, Psychosis does; episodes leave silence even at extreme; fake
+connection messages name their recipient; phantoms vanish immediately and are
+harmless; every chat reader sees the same partially corrupted, usable text.
+Neither presentation changes any metric or money. P11's acceptance walk uses
+these updated rules before release.
 
 ## Working agreement
 

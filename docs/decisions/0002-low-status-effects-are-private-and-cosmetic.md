@@ -1,8 +1,15 @@
 # 0002 — Low-status ambient effects are private, cosmetic and rate-limited
 
-- Status: accepted
+- Status: superseded by [0005 — Psychosis drives private ambient effects](0005-psychosis-drives-private-ambient-effects.md)
 - Date: 2026-09-29
 - Extends: §3 of `docs/reference/playerstatus-sistema-reputacion.md`
+
+Superseded on 2026-10-01. The effects were attached to the wrong metric.
+Decision 0005 retains their private, harmless and rate-limited boundaries but
+makes Psychosis their trigger and replaces the timed mob encounter. Decision
+0006 replaces the separate status-based chat gradient with Psychosis-driven
+partial corruption. The original reasoning below is preserved as evidence of
+the decision that was reconsidered, not as current requirements.
 
 ## Context
 

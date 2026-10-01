@@ -19,16 +19,17 @@ second place where progress is recorded.
 | P0 Build foundation | `feat/p0-build-foundation` | **done** — gate met on Paper 26.3 build 135 with LuckPerms, Vault, EssentialsX, WorldEdit and WorldGuard loaded |
 | P1 Storage and domain | `feat/p1-storage-domain` | **done** — 86 tests green; eleven review findings closed, six accepted with reasons recorded in the commit |
 | P2 Configuration | `feat/p2-configuration` | **done** — 157 tests green in both languages; thirteen review findings closed across three rounds |
-| P3 Status, tiers, chat | `feat/p3-status-chat` | **done** — 200 tests green in both languages; eighteen review findings closed across two rounds, one rejected by decision |
+| P3 Status, tiers, chat | `feat/p3-status-chat` | **done** — 200 tests green in both languages; eighteen review findings closed across two rounds, one rejected by decision; status-based chat gradient superseded by P13 |
 | P4 Commands, permissions | `feat/p4-commands-permissions` | **done** — 234 tests green in both languages; sixteen review findings closed across four rounds, plus three defects found only on a live server |
 | P5 Duels | `feat/p5-duels` | **done** — review closed, 283 tests green in both languages (`7eb93ab`); T-062 superseded by P12, T-139 carried into P12 |
-| P6 Ambient effects | `feat/p6-effects` | **done** — review closed, 276 tests green in both languages (`15fc1f0`) |
+| P6 Ambient effects | `feat/p6-effects` | **done** — review closed, 276 tests green in both languages (`15fc1f0`); trigger and episode behaviour superseded by P13, machinery retained |
 | P7 Self-update | `feat/p7-selfupdate` | **done** — 291 tests green in both languages (`3c11ae6`); Codex review closed |
 | P8 Legacy import | `feat/p8-legacy-import` | **done** — review closed, 263 tests green in both languages (`ca72c41`) |
 | P9 Rating decay | `feat/p9-decay` | **done** — review closed, 267 tests green in both languages (`2b83756`) |
 | P10 History GUI, anonymity | `feat/p10-gui` | **done** — review closed, 460 tests green in both languages (`7b9a0a0`) |
 | P11 Hardening | `integration/r1` | in progress — T-101 audited and fix round running, T-104 done (`6cfc569`), T-106 done (`d9386d0`); P12's two follow-up branches merged, 571 tests green |
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
+| P13 Psychosis effects and chat | — | todo — decisions 0005/0006 settled; rewire existing effects and add shared partial chat corruption |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -40,13 +41,17 @@ already written down wrongly.
 
 ## Decisions waiting on the product owner
 
-Neither blocks current work; both land in `config.yml` during P2.
+The remaining question does not block current work; its configuration landed
+during P2.
 
 - **Confidence decay.** Exponential half-life, `w = 2^(-age/halfLife)`, default
   30 days. The default threshold of exactly `1.0` means a single recent actor
   reads `Low` only during the rating's first second, then `Unknown`.
-- **Psychosis window.** 24 hours, thresholds medium 2, high 5, extreme 10
-  kills. On an active PvP server ten kills in a day is an ordinary afternoon.
+
+The Psychosis window is settled at a configurable **72-hour default** (SB-093,
+decision 0005); P13 replaces the implemented 24-hour default. The existing
+configurable kill thresholds (medium 2, high 5, extreme 10) are unchanged by
+this decision.
 
 ---
 
@@ -74,7 +79,7 @@ Neither blocks current work; both land in `config.yml` during P2.
 | T-011 | Tier ladder resolution over signed, strictly ordered thresholds. Nine tiers. Exactly `0` resolves to the neutral tier. | SB-010, SB-011, SB-012 | done |
 | T-012 | Derive status from an event list. No standalone authoritative integer. | SB-002 | done |
 | T-013 | Reputation Confidence from the count of distinct actors, weighted by rating age. Repeated ratings from one actor do not raise it. | SB-003 | done |
-| T-014 | Killing Psychosis over a rolling window. Never reads or writes social status. | SB-004 | done |
+| T-014 | Killing Psychosis over a rolling window. Never reads or writes social status. | SB-004 | done — window default revised by SB-093; see T-150 |
 | T-015 | Honor cost: fixed base times the progressive multiplier for the actor's ratings inside the window. | SB-050 | done |
 | T-016 | Per-pair allowance: at most three positive and three negative per actor-target pair inside the window; independent counts; the window expiring restores it. | SB-054 | done |
 | T-017 | SQLite schema and numbered migrations driven by `schema_version`. Tables per `ARCHITECTURE.md` §4. | — | done |
@@ -112,13 +117,15 @@ Neither blocks current work; both land in `config.yml` during P2.
 | id | task | spec | status |
 |---|---|---|---|
 | T-040 | Resolve the prefix per lookup from the current snapshot. No static caching at enable. | SB-013 | done |
-| T-041 | Chat gradient from `#202020` to bright white by tier. Never absolute black, never hidden, truncated, delayed or blocked. | SB-020, SB-021 | done |
-| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | — | done |
+| T-041 | Chat gradient from `#202020` to bright white by tier. Never absolute black, never hidden, truncated, delayed or blocked. | SB-020, SB-021 | done — superseded by SB-094/SB-095; see T-154 |
+| T-042 | Chat colouring reads an immutable snapshot inside `AsyncChatEvent` and touches nothing else. | — | done — async snapshot path retained for T-154, colouring superseded |
 | T-043 | Name hover: status, tier, Confidence, Psychosis, count of distinct contributors. | SB-022 | done |
 | T-044 | Coexist with other prefix plugins: never overwrite display, list or custom name unconditionally. | SB-014 | done |
 | T-045 | `/status [player]` profile output, including offline targets. | SB-005 | done |
 
-**Gate:** nine tiers resolve across the full range; minimum-status messages are near-black, readable and never blocked.
+**Original gate met:** nine tiers resolve across the full range; minimum-status
+messages were near-black and readable. The gradient check is superseded by
+P13; its replacement checks shared partial corruption and usable chat.
 
 ---
 
@@ -160,11 +167,11 @@ Parallel with P5.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-070 | Effect scheduler below a configurable status threshold, with an independent cooldown and per-session cap per effect. | SB-040, SB-043 | done |
+| T-070 | Effect scheduler below a configurable status threshold, with an independent cooldown and per-session cap per effect. | SB-040, SB-043 | done — status gate superseded; scheduler and limits reused by T-152 |
 | T-071 | Delivery to the affected player only. Nothing reaches other players, the real chat, or the server log. | SB-041 | done |
-| T-072 | Speed III silverfish: no damage dealt or taken, no targeting, no loot, no XP, not persistent, removed on timer. | SB-042 | done |
-| T-073 | Entity registry cleaned on despawn timer, quit, world change and disable. No entity survives any of them. | SB-042 | done |
-| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements — all private. | SB-040 | done |
+| T-072 | Speed III silverfish: no damage dealt or taken, no targeting, no loot, no XP, not persistent, removed on timer. | SB-042 | done — timed encounter superseded by SB-099; see T-153 |
+| T-073 | Entity registry cleaned on despawn timer, quit, world change and disable. No entity survives any of them. | SB-042 | done — cleanup machinery retained for SB-099/T-153 |
+| T-074 | Near-black short chat lines, creeper fuse sound, fake join and leave announcements — all private. | SB-040 | done — eligibility and fake-message subject superseded by SB-096/SB-098; see T-152/T-153 |
 | T-075 | `/status effects` per-player opt-out, persisted. Changes no metric and hides nothing from others. | SB-044 | done |
 
 **Gate:** effects are private; no entity leaks; opt-out works.
@@ -269,3 +276,28 @@ status half of T-062 and removes the last hardcoded sound.
 **Gate:** a non-duel kill lowers status once per pair cooldown, bounded by the
 cap, never touching Confidence; every sound can be retuned or silenced from
 `config.yml` with no restart and no recompile.
+
+---
+
+## P13 — Psychosis drives effects and chat
+
+Governed by decisions 0005 and 0006. Reopens the P3 gradient and the P6 trigger,
+not the engine itself. Tasks below are in dependency order; P11's final
+acceptance gate depends on T-156. Earlier completed gates describe the former
+behaviour and do not prove these new requirements.
+
+| id | task | spec | status |
+|---|---|---|---|
+| T-150 | Change the configurable Psychosis window default from 24 to 72 hours and apply the revised default on upgrade while retaining deliberate owner overrides. Verify immediate rises, expiry at the configured boundary and recovery without reading or writing status or Confidence. Reuse the existing window calculation and event history. | SB-093, SB-004, SB-100 | todo |
+| T-151 | After T-150, wire validated, live-editable Psychosis episode frequency and partial chat-corruption limits. Retire the ambient status threshold and status message-gradient settings. Configuration cannot permit constant episodes, overlapping sound layers without silence, or fully destroyed messages; preserve unrelated stored settings on upgrade. | SB-094, SB-095, SB-096, SB-097, SB-062 | todo |
+| T-152 | After T-151, replace the status gate with Psychosis and its medium/high/extreme gradation. Reuse the existing scheduler, per-player cooldowns and session caps, and configurable layered sounds; enforce quiet intervals through the final delayed layer. Lowest Psychosis delivers none; opt-out still controls private effects. Verify equal Psychosis behaves alike across different statuses. | SB-096, SB-097, SB-041, SB-043, SB-044, SB-090, SB-091, SB-092 | todo |
+| T-153 | After T-152, make private fake connection messages name their recipient and make phantom mobs appear and vanish immediately. Reuse the managed-entity cleanup for disappearance, quit, world change and disable; ensure packet-only fakes have no damage, collision, targets, drops or persistence. Verify no bystander receives either effect. | SB-098, SB-099, SB-041 | todo |
+| T-154 | After T-151, remove status colouring of the message body while retaining the tier prefix and name hover. Add partial Psychosis corruption to the existing async chat snapshot path: choose one result per message for all readers, preserve usable text and short messages, and leave intact messages between episodes at every level. Rater comments remain plain text and are never parsed for colour. | SB-094, SB-095, SB-097, SB-022, SB-083 | todo |
+| T-155 | After T-153 and T-154, add focused plain-data checks for window expiry, level gradation, quiet intervals including sound layers, shared message text and short-message readability. Assert neither effects nor chat corruption writes status, Confidence or money; retain duel exclusions and the independent non-duel kill penalty. | SB-093, SB-095, SB-097, SB-100, SB-031, SB-032, SB-034 | todo |
+| T-156 | After T-155, verify the updated §14 criteria on Paper with two clients, in both languages and after live reload/upgrade. Check self-named private messages, instant harmless phantoms and cleanup, opt-out, uniform usable corrupted chat, extreme-level silence and intact messages, and absence of status-driven effects. Claude runs the build; agents do not run Maven. | SB-093 through SB-100, SB-041, SB-043, SB-044, SB-083, §14 | todo |
+
+**Gate:** Psychosis drives private episodes and shared partial chat corruption;
+status retains only its tier prefix in chat. Every level leaves quiet intervals
+and usable messages. Recovery follows the configurable 72-hour default window.
+No presentation changes status, Confidence or money, and no phantom survives
+cleanup. T-156 supplies evidence for P11's revised acceptance boxes.
