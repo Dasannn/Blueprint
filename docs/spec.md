@@ -317,6 +317,12 @@ time, independent cooldown and session cap obey SB-043/SB-097, with silence
 after the toast ends. It changes no status, Confidence or money; the text lives
 in the message files.
 
+*Delivery status (owner decision, 2026-10-01):* Paper 26.3 offers no way to
+show a toast without registering or awarding a real advancement, which this
+clause forbids. The decision layer and configuration ship; delivery stays off
+and the scheduler never selects it, so it spends no cooldown, cap or quiet
+time. Revisit only if a later Paper exposes a grant-free toast.
+
 **SB-110.** From **Medium**, a boss bar bearing a hallucination line appears for
 a moment, then disappears. No other player sees it, no boss exists, and its
 displayed progress represents no real health or objective. Only this effect's
