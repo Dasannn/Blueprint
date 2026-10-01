@@ -238,7 +238,9 @@ effects:
       cooldown-ticks: 6000
       session-cap: 12
       kind: cat
-      range-blocks: 3
+      # Outside block reach: a packet-only animal is still pickable by the client,
+      # so delivery skips any viewer whose reach could touch it (SB-124).
+      range-blocks: 8
       duration-ticks: 60
   advancement-toast:
     enabled: true

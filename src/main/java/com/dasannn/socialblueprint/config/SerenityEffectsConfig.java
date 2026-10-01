@@ -54,7 +54,7 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                         choice(root, "particles.placement", "around", Set.of("around", "beneath")),
                         integer(root, "particles.count", 8, 1, Integer.MAX_VALUE), number(root, "particles.radius-blocks", 1, true), integer(root, "particles.duration-ticks", 40, 1, 100)),
                 choice(root, "apparition.kind", "cat", Set.of("cat", "fox", "wolf")),
-                number(root, "apparition.range-blocks", 3, true), integer(root, "apparition.duration-ticks", 60, 1, 100));
+                number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 60, 1, 100));
         ConfigurationSection section = root.getConfigurationSection("effects.serenity");
         if (section != null) for (String key : section.getKeys(true)) {
             if (!section.isConfigurationSection(key) && !result.leafValues().containsKey(path(key))) fail(key, "Unknown key");

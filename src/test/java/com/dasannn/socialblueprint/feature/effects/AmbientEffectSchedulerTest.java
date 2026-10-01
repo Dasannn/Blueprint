@@ -61,6 +61,40 @@ class AmbientEffectSchedulerTest {
 
     private record DispatchedRecord(Player player, AmbientEffectType type, long timestamp) {}
 
+    @Test void serenityUsesItsOwnMagnitudeAndSubjectBudgetWithoutMadnessDispatch() {
+        UUID uuid = UUID.randomUUID();
+        Player player = createMockPlayer(uuid, "Serene");
+        onlinePlayers.add(player);
+        PlayerId id = PlayerId.of(uuid);
+        psychosisRepo.saveStreakAsync(id, 50 * 3_600_000d, 0).join();
+        profileService.loadViewAsync(id, "Serene", configManager.snapshot()).join();
+        List<String> serene = new ArrayList<>();
+        var registry = new AmbientEntityRegistry();
+        var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                new FakeSilverfishService(null, registry, null)) {
+            @Override public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
+                    java.util.function.BooleanSupplier eligible) {
+                assertThat(subject).isSameAs(player);
+                assertThat(eligible.getAsBoolean()).isTrue();
+                serene.add(effect);
+                return true;
+            }
+            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+                throw new AssertionError("Serenity must never deliver madness");
+            }
+        };
+        var scheduler = new AmbientEffectScheduler(null, configManager, profileService, dispatcher, () -> onlinePlayers);
+        scheduler.tickAt(1_000_000);
+        assertThat(serene).hasSize(1);
+        scheduler.tickAt(1_000_001);
+        assertThat(serene).hasSize(1);
+        // Kill invalidation immediately makes the quick view neutral until its storage rebuild.
+        psychosisRepo.saveAsync(new PsychosisEvent(id, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, Instant.now())).join();
+        scheduler.tickAt(1_000_002);
+        assertThat(serene).hasSize(1);
+        assertThat(scheduler.getState(uuid).canStartEpisode(1_000_002)).isFalse();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         dispatchedList.clear();

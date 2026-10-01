@@ -102,10 +102,9 @@ public class AmbientEffectScheduler {
         EffectsConfigSection cfg = snapshot.config().effects();
         long intervalMillis = cfg.checkInterval().toMillis();
 
-        if (lastCheckTimestamp > 0 && now >= lastCheckTimestamp && (now - lastCheckTimestamp) < intervalMillis) {
-            return;
-        }
-        lastCheckTimestamp = now;
+        boolean madnessCheck = !(lastCheckTimestamp > 0 && now >= lastCheckTimestamp
+                && (now - lastCheckTimestamp) < intervalMillis);
+        if (madnessCheck) lastCheckTimestamp = now;
 
         for (Player player : onlinePlayersSupplier.get()) {
             if (!player.isOnline()) {
@@ -114,17 +113,35 @@ public class AmbientEffectScheduler {
             PlayerId id = PlayerId.of(player.getUniqueId());
 
             // The view contains only plain values. Its database load runs on the storage executor;
-            // a cold cache returns LOW until loaded. Player access and dispatch stay on this main thread.
+            // a cold cache returns NEUTRAL until loaded. Player access and dispatch stay on this main thread.
             PlayerSocialView view = profileService.getViewQuick(id, snapshot);
             PsychosisLevel level = view.psychosis();
-            if (!level.hasMadnessEffects()) {
-                continue;
-            }
-
             PlayerEffectState state = getOrCreateState(player.getUniqueId());
+            if (state.changeDirection(level)) {
+                victimReads.remove(player.getUniqueId());
+                dispatcher.cancelPending(player.getUniqueId());
+            }
             if (!state.canStartEpisode(now) || dispatcher.hasPending(player.getUniqueId()) || victimReads.containsKey(player.getUniqueId())) {
                 continue;
             }
+            if (level == PsychosisLevel.SERENITY) {
+                var serene = cfg.serenity();
+                List<String> effects = serene.rules().entrySet().stream()
+                        .filter(e -> SereneEpisode.allows(level, view.psychosisMagnitude(), e.getValue())
+                                && state.canFireSerene(e.getKey(), e.getValue(), now))
+                        .map(Map.Entry::getKey).toList();
+                if (!effects.isEmpty()) {
+                    String effect = effects.get(random.nextInt(effects.size()));
+                    if (dispatcher.dispatchSerene(player, effect, snapshot,
+                            () -> profileService.getViewQuick(id, snapshot).psychosis() == PsychosisLevel.SERENITY)) {
+                        long ticks = SereneEpisode.reservationTicks(effect, serene, snapshot.config().sounds());
+                        state.recordSerene(effect, now, ticks);
+                        dispatcher.reserveEpisode(player.getUniqueId(), ticks);
+                    }
+                }
+                continue;
+            }
+            if (!level.hasMadnessEffects() || !madnessCheck) continue;
             List<AmbientEffectType> eligible = new ArrayList<>();
             for (AmbientEffectType type : AmbientEffectType.values()) {
                 if (type == AmbientEffectType.ADVANCEMENT_TOAST) continue; // No grant-free Paper delivery API.
@@ -165,6 +182,7 @@ public class AmbientEffectScheduler {
                 : cfg.presentation().durationTicks(chosen, snapshot.config().sounds());
         state.recordEpisode(now, ticks * 50L + quietMillis);
         dispatcher.reserveEpisode(id, ticks + (quietMillis + 49L) / 50L);
+        dispatcher.guardDirection(id, () -> profileService.getViewQuick(PlayerId.of(id), snapshot).psychosis().hasMadnessEffects(), Math.max(1, ticks));
     }
 
     private void requestVictim(UUID id, RuntimeSnapshot snapshot, PlayerEffectState state, long now) {

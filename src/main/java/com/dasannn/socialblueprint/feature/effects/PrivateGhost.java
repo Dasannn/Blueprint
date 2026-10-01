@@ -8,14 +8,23 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.UUID;
 
-/** Unregistered NMS text display: zero-size, stationary, no skin/profile/tab identity. */
+/** Unregistered packet visuals, sharing spawn/metadata/removal and managed cleanup. */
 final class PrivateGhost {
     private final Object connection;
     private final Method send;
     private final Object spawn, metadata, remove;
     private final ActiveEntityEntry entry;
+    private final SereneEpisode.Bounds bounds;
 
     PrivateGhost(Player player, Location at, Component label, Object entityType) throws ReflectiveOperationException {
+        this(player, at, label, entityType, null);
+    }
+
+    static PrivateGhost animal(Player viewer, Location at, String kind, Object type) throws ReflectiveOperationException {
+        return new PrivateGhost(viewer, at, null, type, kind);
+    }
+
+    private PrivateGhost(Player player, Location at, Component label, Object entityType, String animal) throws ReflectiveOperationException {
         if (entityType == null) throw new IllegalStateException("Text display unavailable");
         Object handle = player.getClass().getMethod("getHandle").invoke(player);
         connection = handle.getClass().getField("connection").get(handle);
@@ -23,25 +32,42 @@ final class PrivateGhost {
         send = connection.getClass().getMethod("send", packet);
         Class<?> type = Class.forName("net.minecraft.world.entity.EntityType");
         Class<?> level = Class.forName("net.minecraft.world.level.Level");
-        Class<?> display = Class.forName("net.minecraft.world.entity.Display$TextDisplay");
+        Class<?> display = Class.forName(animal == null ? "net.minecraft.world.entity.Display$TextDisplay" : switch (animal) {
+            case "cat" -> "net.minecraft.world.entity.animal.feline.Cat";
+            case "fox" -> "net.minecraft.world.entity.animal.fox.Fox";
+            case "wolf" -> "net.minecraft.world.entity.animal.wolf.Wolf";
+            default -> throw new IllegalArgumentException(animal);
+        });
         Object entity = display.getConstructor(type, level).newInstance(entityType,
                 handle.getClass().getMethod("level").invoke(handle));
         display.getMethod("setPos", double.class, double.class, double.class).invoke(entity, at.getX(), at.getY(), at.getZ());
         display.getMethod("setUUID", UUID.class).invoke(entity, UUID.randomUUID());
         display.getMethod("setNoGravity", boolean.class).invoke(entity, true);
-        Class<?> billboard = Class.forName("net.minecraft.world.entity.Display$BillboardConstraints");
-        display.getMethod("setBillboardConstraints", billboard).invoke(entity, billboard.getField("CENTER").get(null));
-        display.getMethod("setTextOpacity", byte.class).invoke(entity, (byte) 160);
-        Object text = Class.forName("io.papermc.paper.adventure.PaperAdventure")
-                .getMethod("asVanilla", Component.class).invoke(null, label);
-        display.getMethod("setText", Class.forName("net.minecraft.network.chat.Component")).invoke(entity, text);
+        Object box = display.getMethod("getBoundingBox").invoke(entity);
+        Class<?> boxType = box.getClass();
+        bounds = new SereneEpisode.Bounds(boxType.getField("minX").getDouble(box), boxType.getField("minY").getDouble(box),
+                boxType.getField("minZ").getDouble(box), boxType.getField("maxX").getDouble(box),
+                boxType.getField("maxY").getDouble(box), boxType.getField("maxZ").getDouble(box));
+        if (animal != null) {
+            display.getMethod("setNoAi", boolean.class).invoke(entity, true);
+            display.getMethod("setSilent", boolean.class).invoke(entity, true);
+            display.getMethod("setYRot", float.class).invoke(entity, at.getYaw());
+            display.getMethod("setYHeadRot", float.class).invoke(entity, at.getYaw());
+        } else {
+            Class<?> billboard = Class.forName("net.minecraft.world.entity.Display$BillboardConstraints");
+            display.getMethod("setBillboardConstraints", billboard).invoke(entity, billboard.getField("CENTER").get(null));
+            display.getMethod("setTextOpacity", byte.class).invoke(entity, (byte) 160);
+            Object text = Class.forName("io.papermc.paper.adventure.PaperAdventure")
+                    .getMethod("asVanilla", Component.class).invoke(null, label);
+            display.getMethod("setText", Class.forName("net.minecraft.network.chat.Component")).invoke(entity, text);
+        }
         int id = (int) display.getMethod("getId").invoke(entity);
         Class<?> vector = Class.forName("net.minecraft.world.phys.Vec3");
         spawn = Class.forName("net.minecraft.network.protocol.game.ClientboundAddEntityPacket")
                 .getConstructor(int.class, UUID.class, double.class, double.class, double.class, float.class,
                         float.class, type, int.class, vector, double.class)
                 .newInstance(id, display.getMethod("getUUID").invoke(entity), at.getX(), at.getY(), at.getZ(),
-                        0F, 0F, entityType, 0, vector.getField("ZERO").get(null), 0D);
+                        at.getPitch(), at.getYaw(), entityType, 0, vector.getField("ZERO").get(null), (double) at.getYaw());
         Object data = display.getMethod("getEntityData").invoke(entity);
         Object values = data.getClass().getMethod("packAll").invoke(data);
         metadata = Class.forName("net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket")
@@ -52,6 +78,7 @@ final class PrivateGhost {
     }
 
     ActiveEntityEntry entry() { return entry; }
+    SereneEpisode.Bounds bounds() { return bounds; }
     void show() throws ReflectiveOperationException { send.invoke(connection, spawn); send.invoke(connection, metadata); }
     private void remove() {
         try { send.invoke(connection, remove); }

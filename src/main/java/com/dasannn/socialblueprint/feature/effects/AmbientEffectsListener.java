@@ -52,7 +52,15 @@ public class AmbientEffectsListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPlayerMove(org.bukkit.event.player.PlayerMoveEvent event) {
-        if (dispatcher != null) dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+        if (dispatcher != null) {
+            dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+            dispatcher.removeAnimalViewer(event.getPlayer().getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerTeleport(org.bukkit.event.player.PlayerTeleportEvent event) {
+        if (dispatcher != null) dispatcher.removeAnimalViewer(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.LOWEST)

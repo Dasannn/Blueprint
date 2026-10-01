@@ -52,6 +52,9 @@ public class AmbientEffectDispatcher {
     private final SoundPlayer soundPlayer;
     private final Map<UUID, List<SoundScheduler.TaskHandle>> pendingTasks = new ConcurrentHashMap<>();
     private final Map<UUID, Runnable> activeSoundStops = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<UUID, Runnable>> sereneViewers = new java.util.HashMap<>();
+    private final Map<UUID, Map<UUID, ActiveEntityEntry>> sereneAnimals = new java.util.HashMap<>();
+    private final Map<UUID, java.util.function.BooleanSupplier> directionGuards = new java.util.HashMap<>();
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
     private final java.util.logging.Logger logger;
     private final Random random = new Random();
@@ -137,6 +140,177 @@ public class AmbientEffectDispatcher {
             }
             case FAKE_ANNOUNCEMENT -> dispatchFakeAnnouncement(player, snapshot);
         };
+    }
+
+    public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
+                                  java.util.function.BooleanSupplier stillSerene) {
+        var config = snapshot.config().effects().serenity();
+        UUID owner = subject.getUniqueId();
+        cancelPending(owner);
+        directionGuards.put(owner, stillSerene);
+        boolean dawn = effect.equals("dawn");
+        Set<UUID> ids = sereneAudience(subject, dawn, config.observerRange());
+        List<Player> audience = subject.getWorld().getPlayers().stream()
+                .filter(p -> ids.contains(p.getUniqueId())).toList();
+        Map<UUID, Runnable> viewers = new java.util.HashMap<>();
+        for (Player viewer : audience) viewers.put(viewer.getUniqueId(), () -> {});
+        long ticks = SereneEpisode.durationTicks(effect, config, snapshot.config().sounds());
+        try {
+            if (!startSereneAudience(owner, viewers, ticks)
+                    || !watchSerene(subject, dawn, config.observerRange(), stillSerene, viewers, ticks)) {
+                cancelPending(owner);
+                return false;
+            }
+            boolean delivered = switch (effect) {
+                case "dawn" -> dispatchSky(subject, config.dawnDuration(), config.dawnTime(), true, false);
+                case "particles" -> dispatchParticles(subject, config.particles(), audience);
+                case "source-less-sounds" -> {
+                    var settings = config.sounds();
+                    SoundSlotConfig slot = snapshot.config().sounds().get(settings.slot());
+                    if (slot.isSilent()) yield false;
+                    for (Player viewer : audience) {
+                        viewers.put(viewer.getUniqueId(), () -> stopLayers(viewer, slot));
+                        playSoundSlot(viewer, owner, slot, settings.slot(), snapshot, (recipient, layer) -> {
+                            if (!stillSerene.getAsBoolean()) { cancelPending(owner); return; }
+                            pruneSereneAudience(subject, dawn, config.observerRange(), viewers);
+                            if (!viewers.containsKey(recipient.getUniqueId())) return;
+                            Location origin = subject.getLocation();
+                            double yaw = Math.toRadians(origin.getYaw());
+                            Location at = origin.clone().add(-Math.sin(yaw) * settings.forward() - Math.cos(yaw) * settings.right(),
+                                    settings.up(), Math.cos(yaw) * settings.forward() - Math.sin(yaw) * settings.right());
+                            recipient.playSound(at, layer.key(), layer.category(), layer.volume(), layer.pitch());
+                        });
+                    }
+                    yield true;
+                }
+                case "apparition" -> {
+                    double yaw = Math.toRadians(subject.getLocation().getYaw());
+                    Location at = subject.getLocation().clone().add(-Math.sin(yaw) * config.animalRange(),
+                            0, Math.cos(yaw) * config.animalRange());
+                    at.setYaw(subject.getLocation().getYaw() + 180F);
+                    boolean shown = false;
+                    PrivateGhost subjectAnimal = PrivateGhost.animal(subject, at, config.animal(),
+                            silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(config.animal())));
+                    if (!safeAnimalViewer(subject, subjectAnimal.bounds())) yield false;
+                    for (Player viewer : audience) {
+                        PrivateGhost animal = viewer.getUniqueId().equals(owner) ? subjectAnimal : PrivateGhost.animal(viewer, at, config.animal(),
+                                silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(config.animal())));
+                        if (!safeAnimalViewer(viewer, animal.bounds())) { viewers.remove(viewer.getUniqueId()); continue; }
+                        silverfishService.registry().register(animal.entry());
+                        UUID viewerId = viewer.getUniqueId();
+                        sereneAnimals.computeIfAbsent(owner, ignored -> new java.util.HashMap<>()).put(viewerId, animal.entry());
+                        viewers.put(viewerId, () -> {
+                            silverfishService.registry().cleanDespawn(animal.entry());
+                            Map<UUID, ActiveEntityEntry> animals = sereneAnimals.get(owner);
+                            if (animals != null) {
+                                animals.remove(viewerId);
+                                if (animals.isEmpty()) sereneAnimals.remove(owner);
+                            }
+                        });
+                        animal.show();
+                        if (!watchAnimal(owner, viewer, animal, viewers, ticks)) {
+                            cancelPending(owner);
+                            yield false;
+                        }
+                        shown = true;
+                    }
+                    yield shown;
+                }
+                default -> false;
+            };
+            if (!delivered) cancelPending(owner);
+            return delivered;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            cancelPending(owner);
+            if (warnedKeys.add("serenity-" + effect)) logger.warning("Serenity " + effect + " unavailable: " + failure.getMessage());
+            return false;
+        }
+    }
+
+    private Set<UUID> sereneAudience(Player subject, boolean dawn, double range) {
+        List<SereneEpisode.Candidate> candidates = new java.util.ArrayList<>();
+        for (Player viewer : subject.getWorld().getPlayers()) {
+            boolean sameWorld = viewer.getWorld().equals(subject.getWorld());
+            candidates.add(new SereneEpisode.Candidate(viewer.getUniqueId(), viewer.isOnline(), sameWorld,
+                    viewer.canSee(subject), subject.hasMetadata("vanished"),
+                    sameWorld ? viewer.getLocation().distanceSquared(subject.getLocation()) : Double.POSITIVE_INFINITY));
+        }
+        return SereneEpisode.audience(subject.getUniqueId(), dawn, candidates, range);
+    }
+
+    private boolean safeAnimalViewer(Player viewer, SereneEpisode.Bounds bounds) {
+        var reach = viewer.getAttribute(org.bukkit.attribute.Attribute.ENTITY_INTERACTION_RANGE);
+        if (reach == null) return false;
+        Location eye = viewer.getEyeLocation();
+        var body = viewer.getBoundingBox();
+        // Packet-only mobs remain pickable in vanilla. Never place one in interaction reach.
+        // Include a movement margin; movement/teleport handlers also remove the owned visual immediately.
+        return bounds.separatedFrom(new SereneEpisode.Bounds(body.getMinX(), body.getMinY(), body.getMinZ(),
+                body.getMaxX(), body.getMaxY(), body.getMaxZ()))
+                && bounds.outsideReach(eye.getX(), eye.getY(), eye.getZ(), reach.getValue() + 1);
+    }
+
+    private boolean watchAnimal(UUID owner, Player viewer, PrivateGhost animal, Map<UUID, Runnable> viewers, long remaining) {
+        return scheduleTracked(owner, () -> {
+            if (sereneViewers.get(owner) != viewers || !viewers.containsKey(viewer.getUniqueId())) return;
+            if (!safeAnimalViewer(viewer, animal.bounds())) {
+                Runnable cleanup = viewers.remove(viewer.getUniqueId());
+                if (cleanup != null) cleanup.run();
+            } else if (remaining > 1 && !watchAnimal(owner, viewer, animal, viewers, remaining - 1)) cancelPending(owner);
+        }, 1);
+    }
+
+    private void pruneSereneAudience(Player subject, boolean dawn, double range, Map<UUID, Runnable> viewers) {
+        for (UUID id : SereneEpisode.departed(Set.copyOf(viewers.keySet()), sereneAudience(subject, dawn, range))) {
+            Runnable cleanup = viewers.remove(id);
+            if (cleanup != null) cleanup.run();
+        }
+    }
+
+    private boolean watchSerene(Player subject, boolean dawn, double range,
+                                java.util.function.BooleanSupplier stillSerene, Map<UUID, Runnable> viewers, long remaining) {
+        return scheduleTracked(subject.getUniqueId(), () -> {
+            if (sereneViewers.get(subject.getUniqueId()) != viewers) return;
+            if (!subject.isOnline() || !stillSerene.getAsBoolean()) {
+                cancelPending(subject.getUniqueId());
+                return;
+            }
+            pruneSereneAudience(subject, dawn, range, viewers);
+            if (remaining > 1 && !watchSerene(subject, dawn, range, stillSerene, viewers, remaining - 1))
+                cancelPending(subject.getUniqueId());
+        }, 1);
+    }
+
+    private void endSereneAudience(UUID owner, Map<UUID, Runnable> viewers) {
+        if (sereneViewers.remove(owner, viewers)) {
+            viewers.values().forEach(Runnable::run);
+            viewers.clear();
+        }
+    }
+
+    boolean startSereneAudience(UUID owner, Map<UUID, Runnable> viewers, long ticks) {
+        sereneViewers.put(owner, viewers);
+        if (scheduleTracked(owner, () -> endSereneAudience(owner, viewers), ticks)) return true;
+        endSereneAudience(owner, viewers);
+        return false;
+    }
+
+    void removeSereneViewer(UUID id) {
+        for (Map<UUID, Runnable> viewers : sereneViewers.values()) {
+            Runnable cleanup = viewers.remove(id);
+            if (cleanup != null) cleanup.run();
+        }
+    }
+
+    void removeAnimalViewer(UUID id) {
+        for (UUID owner : Set.copyOf(sereneAnimals.keySet())) {
+            Map<UUID, ActiveEntityEntry> animals = sereneAnimals.get(owner);
+            if (animals != null && animals.containsKey(id)) {
+                Map<UUID, Runnable> viewers = sereneViewers.get(owner);
+                Runnable cleanup = viewers == null ? null : viewers.remove(id);
+                if (cleanup != null) cleanup.run();
+            }
+        }
     }
 
     ActivePresentationEntry startPresentation(UUID playerId, AmbientEffectType type, long ticks, Runnable restore) {
@@ -239,12 +413,16 @@ public class AmbientEffectDispatcher {
     }
 
     private boolean dispatchSky(Player player, PresentationConfig.Sky config) {
+        boolean night = config.mode().equals("night");
+        return dispatchSky(player, config.durationTicks(), 18000L, night, !night);
+    }
+
+    private boolean dispatchSky(Player player, int duration, long time, boolean changesTime, boolean changesWeather) {
         org.bukkit.WeatherType previousWeather = player.getPlayerWeather();
         UUID worldId = player.getWorld().getUID();
-        boolean night = config.mode().equals("night");
         SkyPresentation sky = new SkyPresentation(player.getPlayerTimeOffset(), player.isPlayerTimeRelative(),
-                previousWeather == null ? null : previousWeather.name(), 18000L, false, "DOWNFALL", night, !night);
-        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.SKY, config.durationTicks(), () -> {
+                previousWeather == null ? null : previousWeather.name(), time, false, "DOWNFALL", changesTime, changesWeather);
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.SKY, duration, () -> {
             if (sky.ownsTime(player.getPlayerTimeOffset(), player.isPlayerTimeRelative())) {
                 if (sky.resetTime(player.getWorld().getUID().equals(worldId))) player.resetPlayerTime();
                 else player.setPlayerTime(sky.previousTimeOffset(), sky.previousTimeRelative());
@@ -257,8 +435,8 @@ public class AmbientEffectDispatcher {
         });
         if (entry == null) return false;
         try {
-            if (night) player.setPlayerTime(18000L, false);
-            else player.setPlayerWeather(org.bukkit.WeatherType.DOWNFALL);
+            if (changesTime) player.setPlayerTime(time, false);
+            if (changesWeather) player.setPlayerWeather(org.bukkit.WeatherType.DOWNFALL);
             return true;
         } catch (RuntimeException failure) {
             silverfishService.registry().cleanPresentation(entry);
@@ -267,6 +445,10 @@ public class AmbientEffectDispatcher {
     }
 
     private boolean dispatchParticles(Player player, PresentationConfig.Particles config) {
+        return dispatchParticles(player, config, List.of(player));
+    }
+
+    private boolean dispatchParticles(Player player, PresentationConfig.Particles config, List<Player> audience) {
         org.bukkit.Particle particle = org.bukkit.Particle.valueOf(config.type().toUpperCase(java.util.Locale.ROOT));
         ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.PARTICLES, config.totalTicks(), () -> {});
         if (entry == null) return false;
@@ -274,7 +456,8 @@ public class AmbientEffectDispatcher {
             Location origin = player.getLocation();
             for (int i = 0; i < config.count(); i++) {
                 ParticlePoint point = ParticlePoint.at(config, i);
-                player.spawnParticle(particle, origin.clone().add(point.x(), point.y(), point.z()), 1, 0, 0, 0, 0);
+                for (Player viewer : audience)
+                    viewer.spawnParticle(particle, origin.clone().add(point.x(), point.y(), point.z()), 1, 0, 0, 0, 0);
             }
             return true;
         } catch (RuntimeException failure) {
@@ -443,10 +626,14 @@ public class AmbientEffectDispatcher {
     }
 
     private void playSoundSlot(Player player, SoundSlotConfig slot, String slotName, RuntimeSnapshot snapshot, SoundPlayer playback) {
+        if (player == null) return;
+        playSoundSlot(player, player.getUniqueId(), slot, slotName, snapshot, playback);
+    }
+
+    private void playSoundSlot(Player player, UUID owner, SoundSlotConfig slot, String slotName, RuntimeSnapshot snapshot, SoundPlayer playback) {
         if (player == null || slot == null || slot.isSilent()) {
             return;
         }
-        UUID playerId = player.getUniqueId();
         for (SoundLayerConfig layer : slot.layers()) {
             if (layer.isSilent()) {
                 continue;
@@ -454,7 +641,7 @@ public class AmbientEffectDispatcher {
             if (layer.delay() <= 0L) {
                 playLayerSafely(player, layer, slotName, snapshot, playback);
             } else {
-                scheduleLayer(player, playerId, layer, slotName, snapshot, playback);
+                scheduleLayer(player, owner, layer, slotName, snapshot, playback);
             }
         }
     }
@@ -491,11 +678,22 @@ public class AmbientEffectDispatcher {
         scheduleTracked(playerId, () -> {}, ticks);
     }
 
+    // Main-thread guard, including delayed layers after a direction changes between scheduler checks.
+    boolean guardDirection(UUID owner, java.util.function.BooleanSupplier eligible, long remaining) {
+        directionGuards.put(owner, eligible);
+        return scheduleTracked(owner, () -> {
+            if (!eligible.getAsBoolean()) cancelPending(owner);
+            else if (remaining > 1 && hasPending(owner) && !guardDirection(owner, eligible, remaining - 1)) cancelPending(owner);
+        }, 1);
+    }
+
     private boolean scheduleTracked(UUID playerId, Runnable action, long delayTicks) {
         AtomicReference<SoundScheduler.TaskHandle> handleRef = new AtomicReference<>();
         SoundScheduler.TaskHandle handle = scheduler.schedule(() -> {
             try {
-                action.run();
+                var guard = directionGuards.get(playerId);
+                if (guard != null && !guard.getAsBoolean()) cancelPending(playerId);
+                else action.run();
             } finally {
                 removePendingTask(playerId, handleRef.get());
             }
@@ -528,6 +726,10 @@ public class AmbientEffectDispatcher {
         if (playerId == null) {
             return;
         }
+        directionGuards.remove(playerId);
+        removeSereneViewer(playerId);
+        Map<UUID, Runnable> viewers = sereneViewers.remove(playerId);
+        if (viewers != null) viewers.values().forEach(Runnable::run);
         silverfishService.registry().cleanForPlayer(playerId);
         Runnable stop = activeSoundStops.remove(playerId);
         if (stop != null) stop.run();
@@ -560,6 +762,7 @@ public class AmbientEffectDispatcher {
             handles.remove(handle);
             if (handles.isEmpty()) {
                 pendingTasks.remove(playerId, handles);
+                directionGuards.remove(playerId);
             }
         }
     }
