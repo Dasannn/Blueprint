@@ -21,12 +21,18 @@ confidence:
   high: 'Alta'
 
 psychosis:
+  neutral:
+    name: 'Neutral'
+  serenity:
+    name: 'Serenidad'
+    detail: '{name}: {value} / {ceiling}'
   low: 'Baja'
   medium: 'Media'
   high: 'Alta'
   extreme: 'Extrema'
 
 commands:
+  psychosis-usage: '&eUso: &f/status psychosis [jugador]'
   no-permission: '&cNo tienes permiso para ejecutar este comando.'
   player-only: '&cEste comando solo puede ser ejecutado por jugadores.'
   invalid-integer: '&cNúmero no válido: &f{value}'
@@ -123,8 +129,33 @@ duel:
   reconnected: '&e{player}&a ¡se reconectó al duelo!'
 
 effects:
-  opt-out-enabled: '&7Efectos ambientales desactivados para ti.'
-  opt-out-disabled: '&7Efectos ambientales activados para ti.'
+  sign:
+    lines:
+      - '&8Sigo aquí.'
+      - '&7Lo recuerdas.'
+  victim-ghost:
+    label: '&7Fantasma de {victim}'
+  fake-connection:
+    join: '&e{player} se ha unido a la partida'
+    leave: '&e{player} ha salido de la partida'
+  private-chat:
+    lines:
+      - '&#202020...'
+      - '&#202020¿Escuchaste eso?'
+      - '&#202020Mira detrás de ti.'
+    custom-lines: []
+  advancement-toast:
+    lines:
+      - '&8Algo te recuerda.'
+  boss-bar:
+    lines:
+      - '&5El silencio te observa.'
+  false-death:
+    line: '&e{player} murió'
+  screen-flash:
+    lines:
+      - '&8Detrás de ti.'
+      - '&8¿Oíste eso?'
   fake-join: '&e{player} se ha unido a la partida'
   fake-leave: '&e{player} ha salido de la partida'
   whisper-1: '&#202020...'

@@ -61,6 +61,7 @@ public class ProfileService {
     private final PlayerLookup playerLookup;
     private final Logger logger;
     private final Clock clock;
+    private final SerenityService serenity;
 
     private final Map<PlayerId, CachedView> viewCache = Collections.synchronizedMap(
             new LinkedHashMap<>(128, 0.75f, true) {
@@ -71,15 +72,8 @@ public class ProfileService {
             }
     );
 
-    public enum OptOutState {
-        UNKNOWN,
-        OPTED_IN,
-        OPTED_OUT
-    }
-
     private final ConcurrentMap<PlayerId, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
     private final ConcurrentMap<PlayerId, Integer> playerGenerations = new ConcurrentHashMap<>();
-    private final ConcurrentMap<PlayerId, OptOutState> optOutCache = new ConcurrentHashMap<>();
     private final Set<PlayerId> evictedPlayers = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<PlayerId, Long> lastQuitEpochs = new ConcurrentHashMap<>();
     private final AtomicLong quitEpoch = new AtomicLong();
@@ -105,10 +99,13 @@ public class ProfileService {
         this.playerLookup = playerLookup;
         this.logger = logger != null ? logger : Logger.getLogger(ProfileService.class.getName());
         this.clock = clock != null ? clock : Clock.systemUTC();
+        this.serenity = new SerenityService(storageEngine, psychosisRepository, configManager, this.clock,
+                () -> java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime()), this.logger);
 
         // Connect repository writes directly to view cache invalidation
         this.reputationRepository.addInvalidationListener(this::invalidate);
         this.psychosisRepository.addInvalidationListener(this::invalidate);
+        this.psychosisRepository.addKillListener(event -> invalidate(event.killer()));
 
         // Connect configuration updates to view and status cache invalidation and TTL refresh (Finding 7)
         this.configManager.addSnapshotListener(snapshot -> {
@@ -128,6 +125,18 @@ public class ProfileService {
             Logger logger
     ) {
         this(storageEngine, reputationRepository, psychosisRepository, profileRepository, statusCache, configManager, playerLookup, logger, Clock.systemUTC());
+    }
+
+    /** Cache-only chat read: no executor submission, JDBC or platform lookup. */
+    public PlayerSocialView getViewCached(PlayerId id, RuntimeSnapshot snapshot) {
+        if (id != null) {
+            synchronized (loadLock) {
+                CachedView cached = viewCache.get(id);
+                if (cached != null && cached.generation() == playerGenerations.getOrDefault(id, 0)
+                        && clock.instant().isBefore(cached.expiresAt())) return withSerenity(cached.view(), snapshot);
+            }
+        }
+        return PlayerSocialView.neutral(id != null ? id : PlayerId.CONSOLE, "", snapshot.config().tiers().ladder());
     }
 
     /**
@@ -150,8 +159,8 @@ public class ProfileService {
         if (cached != null) {
             Instant now = clock.instant();
             int currentGen = playerGenerations.getOrDefault(id, 0);
-            if (cached.generation() == currentGen && !now.isAfter(cached.expiresAt())) {
-                return cached.view();
+            if (cached.generation() == currentGen && now.isBefore(cached.expiresAt())) {
+                return withSerenity(cached.view(), snapshot);
             }
             // Expired on read or generation moved: invalidate and queue background rebuild (Finding 2)
             synchronized (loadLock) {
@@ -231,7 +240,7 @@ public class ProfileService {
         int expectedGen = initialGen;
         while (true) {
             synchronized (loadLock) {
-                if (evictedPlayers.contains(id) || lastQuitEpochs.getOrDefault(id, 0L) > requestEpoch) {
+                if (lastQuitEpochs.getOrDefault(id, 0L) > requestEpoch) {
                     Optional<PlayerProfile> profile = profileRepository.findById(id);
                     String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
                     return PlayerSocialView.neutral(id, name, snapshot.config().tiers().ladder());
@@ -253,16 +262,17 @@ public class ProfileService {
             Instant windowStart = now.minus(cfg.psychosis().window());
             List<PsychosisEvent> kills = psychosisRepository.findKillsByKillerSince(id, windowStart);
             PsychosisCalculator psychCalc = new PsychosisCalculator(cfg.psychosis().toDomain());
-            PsychosisLevel psych = psychCalc.calculate(id, kills, now);
+            double activeMillis = serenity.creditMillis(id, psychosisRepository.loadStreak(id).activeMillis());
+            PsychosisLevel psych = psychCalc.calculate(id, kills, now, activeMillis);
 
             Optional<PlayerProfile> profile = profileRepository.findById(id);
             String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
-            optOutCache.put(id, profile.map(PlayerProfile::effectsOptOut).orElse(false)
-                    ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
 
             TierLadder ladder = cfg.tiers().ladder();
             Tier tier = ladder.resolve(status.value());
-            PlayerSocialView view = new PlayerSocialView(id, name, status.value(), tier, conf, psych, contributors);
+            double magnitude = psych == PsychosisLevel.SERENITY ? cfg.psychosis().serenity().magnitude(activeMillis)
+                    : psychCalc.countQualifyingKills(id, kills, now);
+            PlayerSocialView view = new PlayerSocialView(id, name, status.value(), tier, conf, psych, contributors, magnitude);
 
             synchronized (loadLock) {
                 if (evictedPlayers.contains(id) || lastQuitEpochs.getOrDefault(id, 0L) > requestEpoch) {
@@ -277,6 +287,11 @@ public class ProfileService {
                 }
 
                 Instant expiresAt = now.plus(cfg.decay().cacheTtl());
+                for (PsychosisEvent kill : kills) {
+                    Instant expiry = kill.createdAt().plus(cfg.psychosis().window());
+                    if (kill.context() == com.dasannn.socialblueprint.domain.CombatContext.OPEN
+                            && expiry.isAfter(now) && expiry.isBefore(expiresAt)) expiresAt = expiry;
+                }
                 viewCache.put(id, new CachedView(view, expiresAt, currentGen));
                 statusCache.put(id, status, cfg.decay().toDomain());
                 return view;
@@ -407,6 +422,7 @@ public class ProfileService {
     public CompletableFuture<Void> warmUp(PlayerId id, String name, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(id, "PlayerId must not be null");
         Objects.requireNonNull(snapshot, "RuntimeSnapshot must not be null");
+        serenity.join(id);
 
         int gen;
         long requestEpoch;
@@ -422,7 +438,6 @@ public class ProfileService {
                     .map(p -> p.withName(name, now))
                     .orElseGet(() -> PlayerProfile.create(id, name, now));
             profileRepository.save(profile);
-            optOutCache.put(id, profile.effectsOptOut() ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
             loadViewInternal(id, name, snapshot, gen, requestEpoch);
         }).exceptionally(error -> {
             logger.log(Level.WARNING, "Failed to warm up profile for player " + id + " (" + name + ")", error);
@@ -455,8 +470,8 @@ public class ProfileService {
     }
 
     public void evict(PlayerId id) {
+        if (id != null) serenity.leave(id);
         if (id != null) {
-            optOutCache.remove(id);
             synchronized (loadLock) {
                 evictedPlayers.add(id);
                 viewCache.remove(id);
@@ -464,44 +479,6 @@ public class ProfileService {
                 lastQuitEpochs.put(id, quitEpoch.incrementAndGet());
             }
         }
-    }
-
-    public OptOutState getEffectsOptOutState(PlayerId id) {
-        if (id == null) return OptOutState.UNKNOWN;
-        return optOutCache.getOrDefault(id, OptOutState.UNKNOWN);
-    }
-
-    public boolean isEffectsOptedOut(PlayerId id) {
-        return getEffectsOptOutState(id) == OptOutState.OPTED_OUT;
-    }
-
-    public void setEffectsOptOutCache(PlayerId id, boolean optOut) {
-        if (id == null) return;
-        optOutCache.put(id, optOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
-    }
-
-    public void setEffectsOptOutState(PlayerId id, OptOutState state) {
-        if (id == null) return;
-        if (state == null || state == OptOutState.UNKNOWN) {
-            optOutCache.remove(id);
-        } else {
-            optOutCache.put(id, state);
-        }
-    }
-
-    public CompletableFuture<Boolean> toggleEffectsOptOutAsync(PlayerId id, String playerName) {
-        Objects.requireNonNull(id, "PlayerId must not be null");
-        return storageEngine.supplyAsync(() -> {
-            Instant now = Instant.now();
-            Optional<PlayerProfile> existing = profileRepository.findById(id);
-            boolean newOptOut = existing.map(p -> !p.effectsOptOut()).orElse(true);
-            PlayerProfile updated = existing
-                    .map(p -> p.withEffectsOptOut(newOptOut, now))
-                    .orElseGet(() -> new PlayerProfile(id, playerName != null ? playerName : id.toString(), newOptOut, now, now));
-            profileRepository.save(updated);
-            optOutCache.put(id, newOptOut ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
-            return newOptOut;
-        });
     }
 
     public boolean isCached(PlayerId id) {
@@ -512,7 +489,7 @@ public class ProfileService {
         }
         if (cached == null) return false;
         int currentGen = playerGenerations.getOrDefault(id, 0);
-        return cached.generation() == currentGen && !clock.instant().isAfter(cached.expiresAt());
+        return cached.generation() == currentGen && clock.instant().isBefore(cached.expiresAt());
     }
 
     public StatusCache statusCache() {
@@ -529,5 +506,29 @@ public class ProfileService {
 
     public ReputationRepository reputationRepository() {
         return reputationRepository;
+    }
+
+    /** SB-108: one executor task, existing synchronous read paths run inline on that executor. */
+    public CompletableFuture<Optional<com.dasannn.socialblueprint.feature.effects.VictimGhost>>
+            findVictimGhostAsync(PlayerId killer, RuntimeSnapshot snapshot) {
+        return storageEngine.supplyAsync(() -> {
+            Instant now = clock.instant();
+            Instant since = now.minus(snapshot.config().psychosis().window());
+            List<PsychosisEvent> rows = psychosisRepository.findKillsByKillerSince(killer, since);
+            return com.dasannn.socialblueprint.feature.effects.VictimGhost.select(killer, rows, since, now,
+                    victim -> profileRepository.findById(victim).map(PlayerProfile::lastKnownName));
+        });
+    }
+
+    public SerenityService serenity() { return serenity; }
+
+    private PlayerSocialView withSerenity(PlayerSocialView view, RuntimeSnapshot snapshot) {
+        if (view.psychosis() != PsychosisLevel.NEUTRAL && view.psychosis() != PsychosisLevel.SERENITY) return view;
+        java.util.OptionalDouble credit = serenity.onlineCredit(view.playerId());
+        if (credit.isEmpty()) return view;
+        double millis = snapshot.config().psychosis().serenity().clamp(credit.getAsDouble());
+        return new PlayerSocialView(view.playerId(), view.name(), view.status(), view.tier(), view.confidence(),
+                millis > 0 ? PsychosisLevel.SERENITY : PsychosisLevel.NEUTRAL, view.contributors(),
+                snapshot.config().psychosis().serenity().magnitude(millis));
     }
 }

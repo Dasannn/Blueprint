@@ -30,8 +30,9 @@ public final class PsychosisCalculator {
 
     public PsychosisLevel calculate(PlayerId player, Collection<PsychosisEvent> events, Instant now) {
         int kills = countQualifyingKills(player, events, now);
+        if (kills == 0) return PsychosisLevel.NEUTRAL;
         if (kills < config.mediumThreshold()) {
-            return PsychosisLevel.LOW; // Default lowest level (SB-005)
+            return PsychosisLevel.LOW; // Lowest madness band, with at least one eligible kill.
         } else if (kills < config.highThreshold()) {
             return PsychosisLevel.MEDIUM;
         } else if (kills < config.extremeThreshold()) {
@@ -39,6 +40,11 @@ public final class PsychosisCalculator {
         } else {
             return PsychosisLevel.EXTREME;
         }
+    }
+
+    public PsychosisLevel calculate(PlayerId player, Collection<PsychosisEvent> events, Instant now, double activeMillis) {
+        PsychosisLevel madness = calculate(player, events, now);
+        return madness == PsychosisLevel.NEUTRAL && activeMillis > 0 ? PsychosisLevel.SERENITY : madness;
     }
 
     /**

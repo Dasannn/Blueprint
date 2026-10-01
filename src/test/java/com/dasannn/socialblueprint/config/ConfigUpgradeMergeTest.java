@@ -2,6 +2,7 @@ package com.dasannn.socialblueprint.config;
 
 import com.dasannn.socialblueprint.command.StatusConfigCommand;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,49 @@ class ConfigUpgradeMergeTest {
             public void close() {}
         });
         messageRegistry = new MessageRegistry(tempDir, "es", testLogger);
+    }
+
+    @Test
+    void upgradeRetiresObsoleteEffectsKeysAndPreservesOwnerValues() throws Exception {
+        String bundled;
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
+            bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        String old = bundled.replace("  window: 72h", "  window: 48h")
+                .replace("effects:\n", "effects:\n  threshold: -99\n")
+                .replace("  silverfish:\n", "  silverfish:\n    duration-ticks: 999\n")
+                .replace("  fake-announcement:\n", "  fake-announcement:\n    fake-names: [OldVisitor]\n")
+                .replace("permissions:\n", "permissions:\n  effects: sb.effects\n");
+        Files.writeString(configFile.toPath(), old, StandardCharsets.UTF_8);
+        for (String language : List.of("en", "es")) {
+            Files.writeString(new File(tempDir, "messages_" + language + ".yml").toPath(),
+                    "effects:\n  opt-out-enabled: old-enabled\n  opt-out-disabled: old-disabled\n", StandardCharsets.UTF_8);
+        }
+        ConfigManager manager = new ConfigManager(configFile, messageRegistry, Runnable::run, testLogger);
+        manager.initialize();
+        String updated = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
+        // The obsolete key is effects.silverfish.duration-ticks. A bare
+        // "duration-ticks:" now matches the sky, particle and flash keys the
+        // presentation effects legitimately ship, so assert the parsed key is
+        // gone rather than that the text never appears.
+        assertThat(updated).doesNotContain("threshold: -99", "fake-names:", "effects: sb.effects");
+        YamlConfiguration merged = YamlConfiguration.loadConfiguration(configFile);
+        assertThat(merged.contains("effects.silverfish.duration-ticks")).isFalse();
+        assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(48));
+        assertThat(manager.isEditableKey("effects.threshold")).isFalse();
+        assertThat(manager.isEditableKey("effects.silverfish.duration-ticks")).isFalse();
+        assertThat(manager.isEditableKey("effects.fake-announcement.fake-names")).isFalse();
+        assertThat(manager.isEditableKey("effects.opt-out-enabled")).isFalse();
+        manager.set("psychosis.window", "96h");
+        assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(96));
+        manager.set("effects.quiet-interval.medium", "6m");
+        assertThat(manager.config().effects().mediumQuietInterval()).isEqualTo(java.time.Duration.ofMinutes(6));
+        manager.reload();
+        assertThat(manager.config().effects().mediumQuietInterval()).isEqualTo(java.time.Duration.ofMinutes(6));
+        for (String language : List.of("en", "es")) {
+            assertThat(Files.readString(new File(tempDir, "messages_" + language + ".yml").toPath()))
+                    .doesNotContain("opt-out-enabled:", "opt-out-disabled:");
+        }
     }
 
     @Test

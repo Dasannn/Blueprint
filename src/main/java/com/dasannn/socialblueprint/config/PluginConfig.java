@@ -69,6 +69,9 @@ public record PluginConfig(
         Objects.requireNonNull(decay, "decay must not be null");
         Objects.requireNonNull(killPenalty, "killPenalty must not be null");
         Objects.requireNonNull(sounds, "sounds must not be null");
+        effects.serenity().validateCeiling(psychosis.serenity().ceiling());
+        if (effects.presentation().rules().get(com.dasannn.socialblueprint.feature.effects.AmbientEffectType.SOURCE_LESS_SOUNDS).enabled())
+            effects.presentation().validateSounds(sounds);
         Objects.requireNonNull(history, "history must not be null");
     }
 
@@ -120,6 +123,9 @@ public record PluginConfig(
                 ? SoundsConfigSection.load(root)
                 : SoundsConfigSection.defaults();
         HistoryConfig history = HistoryConfig.load(root);
+        if (root.contains("effects.source-less-sounds")) effects.presentation().validateSounds(sounds);
+        if (root.contains("effects.hurt-flash")) effects.presentation().validateHurtSounds(sounds);
+        if (root.contains("effects.serenity")) effects.serenity().validateSounds(sounds);
 
         return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
                 duel, effects, update, legacyImport, decay, killPenalty, sounds, history);

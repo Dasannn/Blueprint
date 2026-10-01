@@ -50,7 +50,7 @@ import java.util.logging.Logger;
 import static org.assertj.core.api.Assertions.assertThat;
 import com.dasannn.socialblueprint.domain.HonorKind;
 
-class EffectsOptOutCommandTest {
+class EffectsRemovedCommandTest {
 
     @TempDir
     File tempDir;
@@ -63,7 +63,6 @@ class EffectsOptOutCommandTest {
     private PsychosisRepository psychosisRepo;
     private ProfileService profileService;
     private StatusCommandExecutor commandExecutor;
-    private final List<UUID> cleanedPlayerUuids = new ArrayList<>();
 
     public record RenderCall(String key, Map<String, String> placeholders, boolean withPrefix) {}
 
@@ -131,7 +130,7 @@ class EffectsOptOutCommandTest {
         copyResource("messages_en.yml", new File(tempDir, "messages_en.yml"));
         copyResource("messages_es.yml", new File(tempDir, "messages_es.yml"));
 
-        Logger logger = Logger.getLogger("EffectsOptOutCommandTest-" + System.nanoTime());
+        Logger logger = Logger.getLogger("EffectsRemovedCommandTest-" + System.nanoTime());
         messageRegistry = new RecordingMessageRegistry(tempDir, "en", logger);
         configManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
         configManager.initialize();
@@ -157,8 +156,6 @@ class EffectsOptOutCommandTest {
                 logger
         );
 
-        cleanedPlayerUuids.clear();
-
         commandExecutor = new StatusCommandExecutor(
                 configManager,
                 messageRegistry,
@@ -168,7 +165,6 @@ class EffectsOptOutCommandTest {
                 null,
                 Runnable::run,
                 Collections::emptyList,
-                cleanedPlayerUuids::add,
                 null
         );
     }
@@ -265,143 +261,26 @@ class EffectsOptOutCommandTest {
     }
 
     @Test
-    @DisplayName("DoD 3 / T-075 / SB-044: /status effects toggles opt-out on and off, persisting to repository")
-    void toggleEffectsPersistsAcrossCalls() throws Exception {
-        UUID uuid = UUID.randomUUID();
-        TestPlayer player = mockPlayer("Alice", uuid, "socialblueprint.effects");
-        Command cmd = mockCommand();
-
-        // 1. Initial state: not opted out
-        assertThat(profileService.isEffectsOptedOut(PlayerId.of(uuid))).isFalse();
-
-        // 2. Run /status effects -> toggles to ON (opted out)
-        messageRegistry.clearCalls();
-        boolean executed = commandExecutor.onCommand(player, cmd, "status", new String[]{"effects"});
-        assertThat(executed).isTrue();
-        commandExecutor.lastExecution().join();
-
-        assertThat(profileService.isEffectsOptedOut(PlayerId.of(uuid))).isTrue();
-        assertThat(messageRegistry.hasCall("effects.opt-out-enabled")).isTrue();
-        assertThat(cleanedPlayerUuids).contains(uuid);
-
-        // Verify persisted in SQLite
-        Optional<PlayerProfile> profile = profileRepo.findById(PlayerId.of(uuid));
-        assertThat(profile).isPresent();
-        assertThat(profile.get().effectsOptOut()).isTrue();
-
-        // 3. Run /status effects again -> toggles back to OFF (opt-in)
-        messageRegistry.clearCalls();
-        executed = commandExecutor.onCommand(player, cmd, "status", new String[]{"effects"});
-        assertThat(executed).isTrue();
-        commandExecutor.lastExecution().join();
-
-        assertThat(profileService.isEffectsOptedOut(PlayerId.of(uuid))).isFalse();
-        assertThat(messageRegistry.hasCall("effects.opt-out-disabled")).isTrue();
-
-        Optional<PlayerProfile> profileAfter = profileRepo.findById(PlayerId.of(uuid));
-        assertThat(profileAfter).isPresent();
-        assertThat(profileAfter.get().effectsOptOut()).isFalse();
+    void retiredEffectsCommandIsRefusedForPlayersAndConsoleInBothLanguages() {
+        for (String language : List.of("en", "es")) {
+            configManager.set("language", language);
+            for (CommandSender sender : List.of(mockPlayer("Alice", UUID.randomUUID(), "socialblueprint.*"), mockConsole())) {
+                messageRegistry.clearCalls();
+                assertThat(commandExecutor.onCommand(sender, mockCommand(), "status", new String[]{"effects"})).isTrue();
+                assertThat(messageRegistry.hasCall("commands.unknown-subcommand")).isTrue();
+                assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+                    assertThat(call.key()).isEqualTo("commands.unknown-subcommand");
+                    assertThat(call.placeholders()).containsEntry("command", "effects");
+                });
+            }
+        }
     }
 
     @Test
-    @DisplayName("DoD 3 / T-075 / SB-044: Opt-out moves NO metric (status, confidence, psychosis unchanged)")
-    void optOutMovesNoMetric() throws Exception {
-        UUID targetUuid = UUID.randomUUID();
-        PlayerId targetId = PlayerId.of(targetUuid);
-        Instant now = Instant.now();
-
-        // Give player existing status and psychosis
-        reputationRepo.saveAsync(new ReputationEvent(
-                PlayerId.of(UUID.randomUUID()), targetId,
-                -15, HonorKind.ADMIN_TAKE, 0.0, "Rep reason", now
-        )).join();
-
-        // Load initial social view
-        PlayerSocialView viewBefore = profileService.loadViewAsync(targetId, "Alice", configManager.snapshot().config().tiers().ladder()).join();
-        int statusBefore = viewBefore.status();
-        ConfidenceLevel confBefore = viewBefore.confidence();
-        PsychosisLevel psychBefore = viewBefore.psychosis();
-
-        // Execute /status effects toggle
-        TestPlayer player = mockPlayer("Alice", targetUuid, "socialblueprint.effects");
-        commandExecutor.onCommand(player, mockCommand(), "status", new String[]{"effects"});
-        commandExecutor.lastExecution().join();
-
-        // Load social view after toggle
-        PlayerSocialView viewAfter = profileService.loadViewAsync(targetId, "Alice", configManager.snapshot().config().tiers().ladder()).join();
-
-        // Assert that ALL metrics are strictly identical
-        assertThat(viewAfter.status()).isEqualTo(statusBefore);
-        assertThat(viewAfter.confidence()).isEqualTo(confBefore);
-        assertThat(viewAfter.psychosis()).isEqualTo(psychBefore);
-        assertThat(viewAfter.contributors()).isEqualTo(viewBefore.contributors());
-    }
-
-    @Test
-    @DisplayName("T-075: /status effects cleans active ambient entities immediately upon opt-out")
-    void optOutCleansActiveEntitiesImmediately() {
-        UUID uuid = UUID.randomUUID();
-        TestPlayer player = mockPlayer("Bob", uuid, "socialblueprint.effects");
-
-        commandExecutor.onCommand(player, mockCommand(), "status", new String[]{"effects"});
-        commandExecutor.lastExecution().join();
-
-        // Cleaner callback should have been called with Bob's UUID
-        assertThat(cleanedPlayerUuids).contains(uuid);
-    }
-
-    @Test
-    @DisplayName("T-075: Console cannot run /status effects and receives commands.player-only key")
-    void consoleCannotRunStatusEffects() {
-        CommandSender console = mockConsole();
-        messageRegistry.clearCalls();
-
-        boolean executed = commandExecutor.onCommand(console, mockCommand(), "status", new String[]{"effects"});
-        assertThat(executed).isTrue();
-
-        assertThat(messageRegistry.hasCall("commands.player-only")).isTrue();
-    }
-
-    @Test
-    @DisplayName("T-075: Player without permission is denied with commands.no-permission key")
-    void playerWithoutPermissionIsDenied() {
-        UUID uuid = UUID.randomUUID();
-        TestPlayer player = mockPlayer("NoPerm", uuid); // No permissions
-        messageRegistry.clearCalls();
-
-        boolean executed = commandExecutor.onCommand(player, mockCommand(), "status", new String[]{"effects"});
-        assertThat(executed).isTrue();
-
-        assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();
-    }
-
-    @Test
-    @DisplayName("T-075: Tab completion offers 'effects' for player with permission")
-    void tabCompletionOffersEffects() {
-        UUID uuid = UUID.randomUUID();
-        TestPlayer playerWithPerm = mockPlayer("PermPlayer", uuid, "socialblueprint.effects");
-        TestPlayer playerWithoutPerm = mockPlayer("NoPermPlayer", UUID.randomUUID());
-
-        List<String> suggestionsWithPerm = commandExecutor.onTabComplete(playerWithPerm, mockCommand(), "status", new String[]{"eff"});
-        assertThat(suggestionsWithPerm).contains("effects");
-
-        List<String> suggestionsWithoutPerm = commandExecutor.onTabComplete(playerWithoutPerm, mockCommand(), "status", new String[]{"eff"});
-        assertThat(suggestionsWithoutPerm).doesNotContain("effects");
-    }
-
-    @Test
-    @DisplayName("DoD 1 / T-075: /status effects runs cleanly when language is Spanish (es)")
-    void statusEffectsWorksInSpanish() {
-        configManager.set("language", "es");
-        UUID uuid = UUID.randomUUID();
-        TestPlayer player = mockPlayer("Carlos", uuid, "socialblueprint.effects");
-
-        messageRegistry.clearCalls();
-        boolean executed = commandExecutor.onCommand(player, mockCommand(), "status", new String[]{"effects"});
-        assertThat(executed).isTrue();
-        commandExecutor.lastExecution().join();
-
-        assertThat(profileService.isEffectsOptedOut(PlayerId.of(uuid))).isTrue();
-        assertThat(messageRegistry.hasCall("effects.opt-out-enabled")).isTrue();
+    void tabCompletionNeverOffersEffectsEvenWithWildcardPermission() {
+        TestPlayer player = mockPlayer("Alice", UUID.randomUUID(), "socialblueprint.*");
+        assertThat(commandExecutor.onTabComplete(player, mockCommand(), "status", new String[]{"eff"})).doesNotContain("effects");
+        assertThat(commandExecutor.onTabComplete(player, mockCommand(), "status", new String[]{""})).doesNotContain("effects");
+        assertThat(commandExecutor.onTabComplete(mockConsole(), mockCommand(), "status", new String[]{"eff"})).doesNotContain("effects");
     }
 }

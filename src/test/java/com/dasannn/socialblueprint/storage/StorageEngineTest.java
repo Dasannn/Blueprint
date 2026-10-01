@@ -53,14 +53,14 @@ class StorageEngineTest {
 
         // 2. Run migrations
         int newVersion = storage.runMigrations(runner);
-        assertThat(newVersion).isEqualTo(4);
+        assertThat(newVersion).isEqualTo(5);
 
         // 3. Verify schema_version table contains exactly 1 row with version 4
         storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT version, applied_at FROM schema_version")) {
                 assertThat(rs.next()).isTrue();
-                assertThat(rs.getInt("version")).isEqualTo(4);
+                assertThat(rs.getInt("version")).isEqualTo(5);
                 assertThat(rs.getString("applied_at")).isNotBlank();
                 assertThat(rs.next()).isFalse(); // Exactly single row per ARCHITECTURE.md §4
             }
@@ -83,6 +83,7 @@ class StorageEngineTest {
                 "player_profile",
                 "reputation_event",
                 "psychosis_event",
+                "psychosis_streak",
                 "kill_penalty_claim",
                 "honor_allowance",
                 "duel",
@@ -95,7 +96,7 @@ class StorageEngineTest {
 
         // 5. Rerunning migration is idempotent
         int secondRunVersion = storage.runMigrations(runner);
-        assertThat(secondRunVersion).isEqualTo(4);
+        assertThat(secondRunVersion).isEqualTo(5);
     }
 
     @Test
@@ -203,7 +204,7 @@ class StorageEngineTest {
     @Test
     @DisplayName("Finding 9: Failed migration rolls back both DDL changes and schema_version entry")
     void failedMigrationRollsBackTableAndVersion() {
-        // Run migration 1, 2, 3, and 4
+        // Run migrations 1 through 5
         storage.runMigrations();
         int versionBefore = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
@@ -212,12 +213,12 @@ class StorageEngineTest {
                 return rs.getInt(1);
             }
         });
-        assertThat(versionBefore).isEqualTo(4);
+        assertThat(versionBefore).isEqualTo(5);
 
-        // Define a failing migration 5 that creates a table and then throws
+        // Define a failing migration 6 that creates a table and then throws
         Migration failingMigration = new Migration() {
             @Override
-            public int version() { return 5; }
+            public int version() { return 6; }
             @Override
             public String description() { return "Failing migration test"; }
             @Override
@@ -225,7 +226,7 @@ class StorageEngineTest {
                 try (Statement stmt = conn.createStatement()) {
                     stmt.execute("CREATE TABLE rolled_back_table (id INTEGER PRIMARY KEY);");
                 }
-                throw new SQLException("Simulated failure during migration 5");
+                throw new SQLException("Simulated failure during migration 6");
             }
         };
 
@@ -234,12 +235,13 @@ class StorageEngineTest {
                 new Migration_2_RaterReveal(),
                 new Migration_3_KillPenaltyClaim(),
                 new Migration_4_PendingCompensation(),
+                new Migration_5_Serenity(),
                 failingMigration
         ));
 
         assertThatThrownBy(() -> storage.runMigrations(runner))
                 .isInstanceOf(StorageException.class)
-                .hasMessageContaining("Failed applying migration 5");
+                .hasMessageContaining("Failed applying migration 6");
 
         // Verify rolled_back_table was rolled back and does not exist
         boolean tableExists = storage.execute(conn -> {
@@ -251,7 +253,7 @@ class StorageEngineTest {
         });
         assertThat(tableExists).isFalse();
 
-        // Verify schema_version remains 4
+        // Verify schema_version remains 5
         int versionAfter = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT version FROM schema_version")) {
@@ -259,11 +261,11 @@ class StorageEngineTest {
                 return rs.getInt(1);
             }
         });
-        assertThat(versionAfter).isEqualTo(4);
+        assertThat(versionAfter).isEqualTo(5);
     }
 
     @Test
-    @DisplayName("T-103 Finding 1: Database stamped at version 2 upgrades through migration chain to version 4")
+    @DisplayName("T-103 Finding 1: Database stamped at version 2 upgrades through migration chain to version 5")
     void upgradingFromVersion2CreatesKillPenaltyClaim() {
         MigrationRunner v2Runner = new MigrationRunner(List.of(
                 new Migration_1_InitialSchema(),
@@ -290,8 +292,8 @@ class StorageEngineTest {
         assertThat(tableExistsBefore).isFalse();
 
         MigrationRunner defaultRunner = MigrationRunner.withDefaultMigrations();
-        int v4 = storage.runMigrations(defaultRunner);
-        assertThat(v4).isEqualTo(4);
+        int currentVersion = storage.runMigrations(defaultRunner);
+        assertThat(currentVersion).isEqualTo(5);
 
         boolean tableExistsAfter = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
@@ -425,7 +427,7 @@ class StorageEngineTest {
 
             // 3. Run default migration chain (should apply migrations 2, 3, 4...)
             int finalVersion = storage.runMigrations(MigrationRunner.withDefaultMigrations());
-            assertThat(finalVersion).isEqualTo(4);
+            assertThat(finalVersion).isEqualTo(5);
 
             // 4. Assert that every table and column present in the fresh schema is present in the upgraded database.
             // If any object is appended to migration 1 without a corresponding migration in the chain, this assertion fails!
@@ -486,7 +488,7 @@ class StorageEngineTest {
                 assertThat(rs.next()).isFalse();
             }
         });
-        assertThat(storage.runMigrations()).isEqualTo(4);
+        assertThat(storage.runMigrations()).isEqualTo(5);
     }
 
     private static Set<String> extractIndexNames(StorageEngine engine) {

@@ -31,7 +31,6 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.UUID;
 import com.dasannn.socialblueprint.domain.PlayerId;
 
 /**
@@ -60,7 +59,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final StatusHistoryCommand historyCommand;
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
-    private final Consumer<UUID> optOutCleaner;
     private final com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService;
 
     private volatile CompletableFuture<?> lastExecution = CompletableFuture.completedFuture(null);
@@ -74,12 +72,11 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier,
-            Consumer<UUID> optOutCleaner,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService,
             com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
     ) {
         this(configManager, messageRegistry, profileService, honorService, duelService, auditRepository,
-                mainThreadRunner, onlinePlayersSupplier, optOutCleaner, updateService, statusGuiService, null);
+                mainThreadRunner, onlinePlayersSupplier, updateService, statusGuiService, null);
     }
 
     public StatusCommandExecutor(
@@ -91,7 +88,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier,
-            Consumer<UUID> optOutCleaner,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService,
             com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService,
             com.dasannn.socialblueprint.feature.legacy.LegacyImportService legacyImportService
@@ -121,7 +117,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 )
                 : null;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
-        this.optOutCleaner = optOutCleaner;
         this.statusGuiService = statusGuiService;
     }
 
@@ -134,10 +129,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier,
-            Consumer<UUID> optOutCleaner,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
-        this(configManager, messageRegistry, profileService, honorService, duelService, auditRepository, mainThreadRunner, onlinePlayersSupplier, optOutCleaner, updateService, null);
+        this(configManager, messageRegistry, profileService, honorService, duelService, auditRepository, mainThreadRunner, onlinePlayersSupplier, updateService, null);
     }
 
     public StatusCommandExecutor(
@@ -150,7 +144,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             Supplier<Collection<? extends Player>> onlinePlayersSupplier,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
-        this(configManager, messageRegistry, profileService, honorService, null, auditRepository, mainThreadRunner, onlinePlayersSupplier, null, updateService);
+        this(configManager, messageRegistry, profileService, honorService, null, auditRepository, mainThreadRunner, onlinePlayersSupplier, updateService);
     }
 
     public StatusCommandExecutor(
@@ -164,7 +158,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
         this(configManager, messageRegistry, profileService, honorService, null, auditRepository,
-                mainThreadRunner, onlinePlayersSupplier, null, null, null, legacyImportService);
+                mainThreadRunner, onlinePlayersSupplier, null, null, legacyImportService);
     }
 
     public StatusCommandExecutor(
@@ -227,7 +221,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 Bukkit::getOnlinePlayers,
                 null,
                 null,
-                null,
                 legacyImportService
         );
     }
@@ -255,7 +248,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     }
                 },
                 Bukkit::getOnlinePlayers,
-                null,
                 null
         );
     }
@@ -267,13 +259,12 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             HonorService honorService,
             com.dasannn.socialblueprint.feature.duel.DuelService duelService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Consumer<UUID> optOutCleaner,
             Plugin plugin,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService,
             com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
     ) {
         this(configManager, messageRegistry, profileService, honorService, duelService, auditRepository,
-                optOutCleaner, null, plugin, updateService, statusGuiService);
+                null, plugin, updateService, statusGuiService);
     }
 
     public StatusCommandExecutor(
@@ -283,7 +274,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             HonorService honorService,
             com.dasannn.socialblueprint.feature.duel.DuelService duelService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Consumer<UUID> optOutCleaner,
             com.dasannn.socialblueprint.feature.legacy.LegacyImportService legacyImportService,
             Plugin plugin,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService,
@@ -304,7 +294,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     }
                 },
                 Bukkit::getOnlinePlayers,
-                optOutCleaner,
                 updateService,
                 statusGuiService,
                 legacyImportService
@@ -318,7 +307,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             HonorService honorService,
             com.dasannn.socialblueprint.feature.duel.DuelService duelService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Consumer<UUID> optOutCleaner,
             Plugin plugin,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
@@ -337,7 +325,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     }
                 },
                 Bukkit::getOnlinePlayers,
-                optOutCleaner,
                 updateService,
                 null
         );
@@ -350,7 +337,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             HonorService honorService,
             com.dasannn.socialblueprint.feature.duel.DuelService duelService,
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Consumer<UUID> optOutCleaner,
             Plugin plugin
     ) {
         this(
@@ -368,7 +354,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     }
                 },
                 Bukkit::getOnlinePlayers,
-                optOutCleaner,
                 null
         );
     }
@@ -453,6 +438,25 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
         String sub = args[0].toLowerCase(Locale.ROOT);
         String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
+
+        if ("psychosis".equals(sub)) {
+            if (subArgs.length > 1) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.psychosis-usage"));
+                return true;
+            }
+            if (subArgs.length == 0 && !(sender instanceof Player)) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.player-only"));
+                return true;
+            }
+            String target = subArgs.length == 0 ? ((Player) sender).getName() : subArgs[0];
+            String permission = subArgs.length == 0 ? "show" : "show-others";
+            if (!PermissionChecker.hasPermission(sender, permission, snapshot)) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = executeShowPsychosis(sender, target, snapshot);
+            return true;
+        }
 
         // 2. Subcommand: /status config ...
         if ("config".equals(sub)) {
@@ -540,17 +544,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // 6e. Subcommand: /status effects (SB-044, T-075)
+        // The retired subcommand is reserved, rather than interpreted as a player name.
         if ("effects".equals(sub)) {
-            if (!(sender instanceof Player player)) {
-                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.player-only"));
-                return true;
-            }
-            if (!PermissionChecker.hasPermission(player, "effects", snapshot)) {
-                player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
-                return true;
-            }
-            this.lastExecution = handleToggleEffects(player, snapshot);
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.unknown-subcommand", Map.of("command", sub)));
             return true;
         }
 
@@ -683,32 +679,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         return statusGuiService;
     }
 
-    private CompletableFuture<Void> handleToggleEffects(Player player, RuntimeSnapshot snapshot) {
-        if (profileService == null) {
-            return CompletableFuture.completedFuture(null);
-        }
-        PlayerId id = PlayerId.of(player.getUniqueId());
-        return profileService.toggleEffectsOptOutAsync(id, player.getName())
-                .thenAccept(newOptOut -> mainThreadRunner.accept(() -> {
-                    if (newOptOut && optOutCleaner != null) {
-                        optOutCleaner.accept(player.getUniqueId());
-                    }
-                    if (newOptOut) {
-                        player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "effects.opt-out-enabled"));
-                    } else {
-                        player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "effects.opt-out-disabled"));
-                    }
-                }))
-                .exceptionally(ex -> {
-                    Logger.getLogger(StatusCommandExecutor.class.getName())
-                            .log(java.util.logging.Level.SEVERE, "Failed to toggle effects opt-out", ex);
-                    mainThreadRunner.accept(() -> {
-                        player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
-                    });
-                    return null;
-                });
-    }
-
     public CompletableFuture<Void> executeShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
         // completedFuture first, so a resolve that throws synchronously -- a
         // closed storage engine does -- becomes a failed future and reaches the
@@ -746,8 +716,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         String confKey = "confidence." + view.confidence().name().toLowerCase(Locale.ROOT);
         String localizedConfidence = messageRegistry.getRaw(snapshot, confKey);
 
-        String psychKey = "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT);
-        String localizedPsychosis = messageRegistry.getRaw(snapshot, psychKey);
+        String localizedPsychosis = messageRegistry.psychosisLabel(snapshot, view);
 
         Component prefixComp = (prefix != null && !prefix.isEmpty())
                 ? ColorParser.parse(prefix)
@@ -766,6 +735,20 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 Map.of("psychosis", localizedPsychosis)));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-contributors",
                 Map.of("contributors", String.valueOf(view.contributors()))));
+    }
+
+    public CompletableFuture<Void> executeShowPsychosis(CommandSender sender, String target, RuntimeSnapshot snapshot) {
+        return CompletableFuture.completedFuture(null)
+                .thenCompose(ignored -> profileService.resolvePlayerAsync(target, snapshot))
+                .thenAccept(view -> mainThreadRunner.accept(() -> {
+                    if (view.isEmpty()) sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found", Map.of("player", target)));
+                    else sender.sendMessage(messageRegistry.render(snapshot, "status.profile-psychosis",
+                            Map.of("psychosis", messageRegistry.psychosisLabel(snapshot, view.get()))));
+                })).exceptionally(error -> {
+                    Logger.getLogger(StatusCommandExecutor.class.getName()).log(java.util.logging.Level.WARNING, "Could not read Psychosis", error);
+                    mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.read-failed")));
+                    return null;
+                });
     }
 
     @Override
@@ -787,6 +770,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             if (PermissionChecker.hasPermission(sender, "version", snapshot) && "version".startsWith(current)) {
                 suggestions.add("version");
             }
+            if (PermissionChecker.hasPermission(sender, "show", snapshot) && "psychosis".startsWith(current)) suggestions.add("psychosis");
 
             if (PermissionChecker.hasPermission(sender, "admin-update", snapshot) && "update".startsWith(current)) {
                 suggestions.add("update");
@@ -817,9 +801,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     if ("accept".startsWith(current)) suggestions.add("accept");
                     if ("deny".startsWith(current)) suggestions.add("deny");
                     if ("leave".startsWith(current)) suggestions.add("leave");
-                }
-                if (PermissionChecker.hasPermission(sender, "effects", snapshot)) {
-                    if ("effects".startsWith(current)) suggestions.add("effects");
                 }
             }
 

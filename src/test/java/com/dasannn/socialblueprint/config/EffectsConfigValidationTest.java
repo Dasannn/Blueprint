@@ -8,6 +8,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import com.dasannn.socialblueprint.domain.PsychosisConfig;
+import com.dasannn.socialblueprint.domain.PsychosisLevel;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -21,6 +23,55 @@ class EffectsConfigValidationTest {
     }
 
     @Test
+    void windowDefaultsTo72HoursAndAcceptsConfiguredWindow() {
+        YamlConfiguration yaml = loadValidYaml();
+        assertThat(PluginConfig.load(yaml).psychosis().window()).isEqualTo(Duration.ofHours(72));
+        assertThat(PsychosisConfig.defaults().window()).isEqualTo(Duration.ofHours(72));
+        yaml.set("psychosis.window", "48h");
+        assertThat(PluginConfig.load(yaml).psychosis().window()).isEqualTo(Duration.ofHours(48));
+    }
+
+    @Test
+    void zeroConfigurationCannotRemoveQuietOrGradation() {
+        YamlConfiguration yaml = loadValidYaml();
+        for (String level : java.util.List.of("medium", "high", "extreme")) {
+            yaml.set("effects.quiet-interval." + level, "0s");
+        }
+        for (String effect : java.util.List.of("silverfish", "whisper", "creeper", "fake-announcement")) {
+            yaml.set("effects." + effect + ".cooldown", "0s");
+        }
+        EffectsConfigSection cfg = PluginConfig.load(yaml).effects();
+        // The requirement is that configuration cannot remove the quiet, and
+        // that calmer levels stay quieter. Pinning an exact number here would
+        // fail whenever a floor rises for a good reason, which says nothing
+        // about the guarantee.
+        assertThat(cfg.quietInterval(PsychosisLevel.MEDIUM))
+                .isGreaterThanOrEqualTo(Duration.ofSeconds(90));
+        assertThat(cfg.quietInterval(PsychosisLevel.HIGH))
+                .isGreaterThanOrEqualTo(Duration.ofSeconds(60));
+        assertThat(cfg.quietInterval(PsychosisLevel.EXTREME))
+                .isGreaterThanOrEqualTo(Duration.ofSeconds(30));
+        assertThat(cfg.quietInterval(PsychosisLevel.MEDIUM))
+                .isGreaterThan(cfg.quietInterval(PsychosisLevel.HIGH));
+        assertThat(cfg.quietInterval(PsychosisLevel.HIGH))
+                .isGreaterThan(cfg.quietInterval(PsychosisLevel.EXTREME));
+    }
+
+    @Test
+    void invalidEpisodeBoundAndNonDecreasingCadenceAreRejected() {
+        for (int bound : java.util.List.of(0, -1, 201)) {
+            YamlConfiguration yaml = loadValidYaml();
+            yaml.set("effects.max-episode-ticks", bound);
+            assertThatThrownBy(() -> PluginConfig.load(yaml)).isInstanceOf(ConfigValidationException.class)
+                    .hasMessageContaining("effects.max-episode-ticks");
+        }
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("effects.quiet-interval.high", "10m");
+        assertThatThrownBy(() -> PluginConfig.load(yaml)).isInstanceOf(ConfigValidationException.class)
+                .hasMessageContaining("effects.quiet-interval");
+    }
+
+    @Test
     @DisplayName("T-070 / SB-043: Missing effects section loads clean defaults")
     void missingEffectsSectionUsesDefaults() {
         YamlConfiguration yaml = loadValidYaml();
@@ -28,7 +79,6 @@ class EffectsConfigValidationTest {
 
         PluginConfig config = PluginConfig.load(yaml);
         assertThat(config.effects()).isNotNull();
-        assertThat(config.effects().threshold()).isEqualTo(-10);
         assertThat(config.effects().checkInterval()).isEqualTo(Duration.ofSeconds(30));
         assertThat(config.effects().silverfish().sessionCap()).isEqualTo(3);
         assertThat(config.effects().whisper().sessionCap()).isEqualTo(5);
@@ -70,23 +120,6 @@ class EffectsConfigValidationTest {
                 .isInstanceOf(ConfigValidationException.class)
                 .hasMessageContaining("effects.whisper.session-cap")
                 .matches(e -> "effects.whisper.session-cap".equals(((ConfigValidationException) e).key()));
-    }
-
-    @Test
-    @DisplayName("T-072: Zero or negative duration-ticks on silverfish fails validation naming offending key")
-    void zeroOrNegativeDurationTicksFails() {
-        YamlConfiguration yaml = loadValidYaml();
-        yaml.set("effects.silverfish.duration-ticks", 0);
-
-        assertThatThrownBy(() -> PluginConfig.load(yaml))
-                .isInstanceOf(ConfigValidationException.class)
-                .hasMessageContaining("effects.silverfish.duration-ticks")
-                .matches(e -> "effects.silverfish.duration-ticks".equals(((ConfigValidationException) e).key()));
-
-        yaml.set("effects.silverfish.duration-ticks", -10);
-        assertThatThrownBy(() -> PluginConfig.load(yaml))
-                .isInstanceOf(ConfigValidationException.class)
-                .hasMessageContaining("effects.silverfish.duration-ticks");
     }
 
     @Test

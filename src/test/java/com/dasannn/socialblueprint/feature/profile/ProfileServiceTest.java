@@ -40,6 +40,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ProfileServiceTest {
 
+    @Test
+    void offlineProfileStillDisplaysPersistedSerenityAfterQuit() throws Exception {
+        PlayerId id = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        psychosisRepo.saveStreakAsync(id, 25 * 3_600_000d, 0).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        profileService.warmUp(id, "Peaceful", snapshot).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        profileService.evict(id);
+        PlayerSocialView view = profileService.loadViewAsync(id, "Peaceful", snapshot).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(view.psychosis()).isEqualTo(PsychosisLevel.SERENITY);
+        assertThat(view.psychosisMagnitude()).isEqualTo(43.75);
+        assertThat(view.status()).isZero();
+        assertThat(view.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);
+        assertThat(profileService.isCached(id)).isFalse();
+    }
+
     @TempDir
     File tempDir;
 
@@ -152,7 +167,7 @@ class ProfileServiceTest {
         assertThat(view.status()).isZero();
         assertThat(view.tier()).isEqualTo(Tier.PARTICULAR);
         assertThat(view.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);
-        assertThat(view.psychosis()).isEqualTo(PsychosisLevel.LOW);
+        assertThat(view.psychosis()).isEqualTo(PsychosisLevel.NEUTRAL);
         assertThat(view.contributors()).isZero();
     }
 
@@ -169,7 +184,7 @@ class ProfileServiceTest {
         assertThat(view.status()).isZero();
         assertThat(view.tier()).isEqualTo(Tier.PARTICULAR);
         assertThat(view.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);
-        assertThat(view.psychosis()).isEqualTo(PsychosisLevel.LOW);
+        assertThat(view.psychosis()).isEqualTo(PsychosisLevel.NEUTRAL);
         assertThat(view.contributors()).isZero();
     }
 
@@ -252,7 +267,7 @@ class ProfileServiceTest {
             assertThat(view.playerId()).isEqualTo(id);
             assertThat(view.status()).isZero();
             assertThat(view.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);
-            assertThat(view.psychosis()).isEqualTo(PsychosisLevel.LOW);
+            assertThat(view.psychosis()).isEqualTo(PsychosisLevel.NEUTRAL);
         }
     }
 
@@ -337,7 +352,7 @@ class ProfileServiceTest {
 
         // 1. Initial load
         PlayerSocialView view1 = profileService.loadViewAsync(killer, "Killer", snapshot).get();
-        assertThat(view1.psychosis()).isEqualTo(PsychosisLevel.LOW);
+        assertThat(view1.psychosis()).isEqualTo(PsychosisLevel.NEUTRAL);
         assertThat(profileService.isCached(killer)).isTrue();
 
         // 2. Save psychosis kill event

@@ -40,7 +40,8 @@ public final class MigrationRunner {
                 new Migration_1_InitialSchema(),
                 new Migration_2_RaterReveal(),
                 new Migration_3_KillPenaltyClaim(),
-                new Migration_4_PendingCompensation()
+                new Migration_4_PendingCompensation(),
+                new Migration_5_Serenity()
         ));
     }
 

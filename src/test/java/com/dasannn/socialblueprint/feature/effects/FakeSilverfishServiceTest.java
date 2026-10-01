@@ -99,6 +99,32 @@ class FakeSilverfishServiceTest {
     }
 
     @Test
+    void phantomIsRegisteredBeforeSpawnAndRemovedInTheSameCall() {
+        List<String> packets = new ArrayList<>();
+        ActiveEntityEntry entry = new ActiveEntityEntry(mockPlayer.getUniqueId(), 555, null,
+                mockWorld.getUID(), null, () -> packets.add("remove"));
+        service.sendGlimpse(entry, () -> {
+            assertThat(registry.hasActiveEntities(mockPlayer.getUniqueId())).isTrue();
+            packets.add("spawn");
+        });
+        assertThat(packets).containsExactly("spawn", "remove");
+        assertThat(registry.getActiveCount()).isZero();
+        assertThat(worldSpawnCount.get()).isZero();
+    }
+
+    @Test
+    void interruptedGlimpseStillRemovesTheFake() {
+        AtomicBoolean removed = new AtomicBoolean();
+        ActiveEntityEntry entry = new ActiveEntityEntry(mockPlayer.getUniqueId(), 555, null,
+                mockWorld.getUID(), null, () -> removed.set(true));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.sendGlimpse(entry, () -> {
+            throw new IllegalStateException("send failed");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(removed.get()).isTrue();
+        assertThat(registry.getActiveCount()).isZero();
+    }
+
+    @Test
     void entityResolutionUsesSilverfishKeyAndNoNamedNmsField() throws Exception {
         List<NamespacedKey> attemptedKeys = new ArrayList<>();
         service = new FakeSilverfishService(null, registry, logger) {
@@ -109,7 +135,7 @@ class FakeSilverfishServiceTest {
             }
         };
 
-        assertThat(service.spawnSilverfish(mockPlayer, mockLocation, 40)).isNull();
+        assertThat(service.spawnSilverfish(mockPlayer, mockLocation)).isNull();
         assertThat(attemptedKeys).containsExactly(NamespacedKey.minecraft("silverfish"));
 
         String source = Files.readString(Path.of("src/main/java/com/dasannn/socialblueprint/feature/effects/FakeSilverfishService.java"));
@@ -141,8 +167,8 @@ class FakeSilverfishServiceTest {
             }
         };
 
-        assertThat(service.spawnSilverfish(mockPlayer, mockLocation, 40)).isNull();
-        assertThat(service.spawnSilverfish(mockPlayer, mockLocation, 40)).isNull();
+        assertThat(service.spawnSilverfish(mockPlayer, mockLocation)).isNull();
+        assertThat(service.spawnSilverfish(mockPlayer, mockLocation)).isNull();
         assertThat(attempts.get()).isEqualTo(1);
         assertThat(logRecords).hasSize(1);
         assertThat(logRecords.get(0).getLevel()).isEqualTo(Level.WARNING);
@@ -155,7 +181,7 @@ class FakeSilverfishServiceTest {
     @Test
     @DisplayName("Finding 1: When packet path fails, returns null, NEVER spawns real entity, and never calls World#spawn")
     void packetFailureReturnsNullAndNeverSpawnsRealEntity() {
-        ActiveEntityEntry entry = service.spawnSilverfish(mockPlayer, mockLocation, 40);
+        ActiveEntityEntry entry = service.spawnSilverfish(mockPlayer, mockLocation);
 
         // Must return null — never an entity
         assertThat(entry).isNull();
@@ -169,7 +195,7 @@ class FakeSilverfishServiceTest {
     @DisplayName("Finding 1: When packet path fails, logs one warning naming reason, once per server run")
     void packetFailureLogsWarningOncePerServerRun() {
         // First spawn attempt
-        ActiveEntityEntry entry1 = service.spawnSilverfish(mockPlayer, mockLocation, 40);
+        ActiveEntityEntry entry1 = service.spawnSilverfish(mockPlayer, mockLocation);
         assertThat(entry1).isNull();
 
         long warningCount = logRecords.stream()
@@ -179,7 +205,7 @@ class FakeSilverfishServiceTest {
         assertThat(logRecords.get(0).getMessage()).contains("Packet-only fake silverfish unavailable");
 
         // Second spawn attempt on the same server run
-        ActiveEntityEntry entry2 = service.spawnSilverfish(mockPlayer, mockLocation, 40);
+        ActiveEntityEntry entry2 = service.spawnSilverfish(mockPlayer, mockLocation);
         assertThat(entry2).isNull();
 
         long warningCountAfterSecond = logRecords.stream()
@@ -218,10 +244,10 @@ class FakeSilverfishServiceTest {
     }
 
     @Test
-    @DisplayName("Finding 3: Movement packet reflection failure degrades gracefully without error or real entity")
-    void movementPacketDegradationIsGraceful() {
+    @DisplayName("A glimpse without NMS packets skips safely without a real entity")
+    void missingPacketSupportSkipsGlimpse() {
         // Calling spawn in environment without NMS classes returns null safely without throwing
-        ActiveEntityEntry entry = service.spawnSilverfish(mockPlayer, mockLocation, 40);
+        ActiveEntityEntry entry = service.spawnSilverfish(mockPlayer, mockLocation);
         assertThat(entry).isNull();
         assertThat(worldSpawnCount.get()).isEqualTo(0);
     }

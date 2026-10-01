@@ -262,7 +262,12 @@ class ConfigManagerTest {
 
         // Explicit exclusion list with reasons per T-100 Preflight Finding 6
         Map<String, String> explicitExclusions = Map.of(
-                // No keys excluded currently: all keys are editable
+                // A layered slot is a list of layers, each with its own key,
+                // volume, pitch, category and delay. /status config edits a
+                // scalar leaf, and a list has no scalar to address, so the
+                // whole slot is edited in the file. Excluded deliberately,
+                // not overlooked.
+                "sounds.source-less", "layered sound slot: a list of layers, not a scalar leaf"
         );
 
         List<String> uneditableLeaves = new ArrayList<>();

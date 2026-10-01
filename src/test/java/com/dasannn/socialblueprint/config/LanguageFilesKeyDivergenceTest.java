@@ -52,6 +52,8 @@ class LanguageFilesKeyDivergenceTest {
 
         // Assert that every shipped key in Spanish has a non-blank value (finding 10)
         for (Map.Entry<String, String> entry : esMap.entrySet()) {
+            // An empty list is a deliberate "nothing" (SB-115 custom lines), not a missing translation.
+            if (esYaml.isList(entry.getKey()) && esYaml.getList(entry.getKey()).isEmpty()) continue;
             assertThat(entry.getValue())
                     .withFailMessage("Key '%s' in messages_es.yml has a blank value", entry.getKey())
                     .isNotBlank();
@@ -59,6 +61,8 @@ class LanguageFilesKeyDivergenceTest {
 
         // Assert that every shipped key in English has a non-blank value (finding 10)
         for (Map.Entry<String, String> entry : enMap.entrySet()) {
+            // An empty list is a deliberate "nothing" (SB-115 custom lines), not a missing translation.
+            if (enYaml.isList(entry.getKey()) && enYaml.getList(entry.getKey()).isEmpty()) continue;
             assertThat(entry.getValue())
                     .withFailMessage("Key '%s' in messages_en.yml has a blank value", entry.getKey())
                     .isNotBlank();

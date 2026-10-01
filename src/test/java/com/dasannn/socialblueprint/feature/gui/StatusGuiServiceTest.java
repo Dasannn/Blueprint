@@ -340,7 +340,6 @@ public class StatusGuiServiceTest {
                 mainThreadQueue::add,
                 List::of,
                 null,
-                null,
                 guiService
         );
 

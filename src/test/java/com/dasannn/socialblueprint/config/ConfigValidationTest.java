@@ -85,7 +85,7 @@ class ConfigValidationTest {
         assertThat(config.decay().cacheTtl()).isEqualTo(Duration.ofSeconds(60));
 
         // Verify Psychosis settings
-        assertThat(config.psychosis().window()).isEqualTo(Duration.ofHours(24));
+        assertThat(config.psychosis().window()).isEqualTo(Duration.ofHours(72));
         assertThat(config.psychosis().mediumThreshold()).isEqualTo(2);
         assertThat(config.psychosis().highThreshold()).isEqualTo(5);
         assertThat(config.psychosis().extremeThreshold()).isEqualTo(10);
@@ -99,11 +99,9 @@ class ConfigValidationTest {
         assertThat(config.honor().maxPerTarget()).isEqualTo(3);
 
         // Verify Effects settings (SB-040, SB-043)
-        assertThat(config.effects().threshold()).isEqualTo(-10);
         assertThat(config.effects().checkInterval()).isEqualTo(Duration.ofSeconds(30));
         assertThat(config.effects().silverfish().cooldown()).isEqualTo(Duration.ofMinutes(10));
         assertThat(config.effects().silverfish().sessionCap()).isEqualTo(3);
-        assertThat(config.effects().silverfish().durationTicks()).isEqualTo(40);
         assertThat(config.effects().whisper().cooldown()).isEqualTo(Duration.ofMinutes(5));
         assertThat(config.effects().whisper().sessionCap()).isEqualTo(5);
         assertThat(config.effects().creeper().cooldown()).isEqualTo(Duration.ofMinutes(8));
@@ -113,7 +111,6 @@ class ConfigValidationTest {
         assertThat(config.history().revealCost()).isEqualTo(100.0);
         assertThat(config.effects().fakeAnnouncement().cooldown()).isEqualTo(Duration.ofMinutes(15));
         assertThat(config.effects().fakeAnnouncement().sessionCap()).isEqualTo(2);
-        assertThat(config.effects().fakeAnnouncement().fakeNames()).containsExactly("Herobrine");
         // Verify Update settings (T-084, SB-075, SB-076)
         assertThat(config.update().checkOnStartup()).isTrue();
         assertThat(config.update().autoDownload()).isFalse();

@@ -52,6 +52,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class StatusCommandTest {
 
+    @Test
+    void psychosisDetailUsesExistingProfilePermissionsAndMessageLine() {
+        Player player = mockPlayer("Peaceful", "socialblueprint.show");
+        commandExecutor.onCommand(player, null, "status", new String[]{"psychosis"});
+        commandExecutor.lastExecution().join();
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-psychosis");
+            assertThat(call.placeholders()).containsKey("psychosis");
+        });
+        assertThat(getMessages(player)).hasSize(1);
+        messageRegistry.clearCalls();
+        Player denied = mockPlayer("Denied");
+        commandExecutor.onCommand(denied, null, "status", new String[]{"psychosis"});
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> assertThat(call.key()).isEqualTo("commands.no-permission"));
+    }
+
     @TempDir
     File tempDir;
 
@@ -288,7 +304,7 @@ class StatusCommandTest {
         // Line 4: Confidence
         assertThat(messages.get(3)).contains("&7Confidence: &fUnknown");
         // Line 5: Psychosis
-        assertThat(messages.get(4)).contains("&7Psychosis: &fLow");
+        assertThat(messages.get(4)).contains("&7Psychosis: &fNeutral");
         // Line 6: Contributors
         assertThat(messages.get(5)).contains("&7Contributors: &f0");
     }
@@ -315,7 +331,7 @@ class StatusCommandTest {
         // Line 4: Confidence
         assertThat(messages.get(3)).contains("&7Confianza: &fDesconocida");
         // Line 5: Psychosis
-        assertThat(messages.get(4)).contains("&7Psicosis: &fBaja");
+        assertThat(messages.get(4)).contains("&7Psicosis: &fNeutral");
         // Line 6: Contributors
         assertThat(messages.get(5)).contains("&7Colaboradores: &f0");
     }
@@ -409,7 +425,7 @@ class StatusCommandTest {
         assertThat(messages).hasSize(6);
         assertThat(messages.get(2)).contains("&7Status Score: &f0");
         assertThat(messages.get(3)).contains("&7Confidence: &fUnknown");
-        assertThat(messages.get(4)).contains("&7Psychosis: &fLow");
+        assertThat(messages.get(4)).contains("&7Psychosis: &fNeutral");
         assertThat(messages.get(5)).contains("&7Contributors: &f0");
     }
 

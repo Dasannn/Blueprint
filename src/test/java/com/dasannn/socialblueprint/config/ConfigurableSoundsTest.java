@@ -49,6 +49,7 @@ class ConfigurableSoundsTest {
 
     private static class MockPlayerState {
         final List<PlayedSound> playedSounds = new ArrayList<>();
+        final List<String> stoppedSounds = new ArrayList<>();
         boolean throwOnPlay = false;
         boolean online = true;
         final Player proxy;
@@ -63,6 +64,10 @@ class ConfigurableSoundsTest {
                 if ("getLocation".equals(mName)) return loc;
                 if ("getWorld".equals(mName)) return world;
                 if ("isOnline".equals(mName)) return online;
+                if ("stopSound".equals(mName)) {
+                    stoppedSounds.add(String.valueOf(args[0]));
+                    return null;
+                }
                 if ("playSound".equals(mName)) {
                     if (throwOnPlay) {
                         throw new RuntimeException("Simulated sound failure");
@@ -105,6 +110,12 @@ class ConfigurableSoundsTest {
         );
     }
 
+    private SoundsConfigSection preservePresentationSlots(SoundsConfigSection sounds) {
+        Map<String, SoundSlotConfig> slots = new java.util.HashMap<>(configManager.snapshot().config().sounds().slots());
+        slots.putAll(sounds.slots());
+        return new SoundsConfigSection(slots);
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         copyResource("messages_en.yml", new File(tempDir, "messages_en.yml"));
@@ -120,12 +131,11 @@ class ConfigurableSoundsTest {
         configManager.initialize();
 
         effectsConfig = new EffectsConfigSection(
-                -10,
                 Duration.ofSeconds(30),
-                new SingleEffectConfig(Duration.ofSeconds(60), 2, 40, List.of()),
-                new SingleEffectConfig(Duration.ofSeconds(30), 3, 0, List.of()),
-                new SingleEffectConfig(Duration.ofSeconds(120), 1, 0, List.of()),
-                new SingleEffectConfig(Duration.ofSeconds(300), 1, 0, List.of("Ghost"))
+                new SingleEffectConfig(Duration.ofSeconds(60), 2),
+                new SingleEffectConfig(Duration.ofSeconds(30), 3),
+                new SingleEffectConfig(Duration.ofSeconds(120), 1),
+                new SingleEffectConfig(Duration.ofSeconds(300), 1)
         );
     }
 
@@ -285,7 +295,7 @@ class ConfigurableSoundsTest {
         // 2. Dynamic reload: update sounds section with a new sound key and volume
         SoundSlotConfig updatedSlot = new SoundSlotConfig("custom.creeper.warning", 0.4f, 0.8f, SoundCategory.AMBIENT);
         SoundsConfigSection updatedSounds = new SoundsConfigSection(Map.of("creeper-fuse", updatedSlot));
-        PluginConfig updatedConfig = snap1.config().withSounds(updatedSounds);
+        PluginConfig updatedConfig = snap1.config().withSounds(preservePresentationSlots(updatedSounds));
         RuntimeSnapshot snap2 = new RuntimeSnapshot(updatedConfig, snap1.messages());
         configManager.snapshotReference().set(snap2);
 
@@ -376,6 +386,55 @@ class ConfigurableSoundsTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void ambientEpisodeBoundsAllLayersStopsPlaybackAndKeepsQuietAtEveryLevel() {
+        World world = createMockWorld(new AtomicBoolean());
+        for (com.dasannn.socialblueprint.domain.PsychosisLevel level : List.of(
+                com.dasannn.socialblueprint.domain.PsychosisLevel.MEDIUM,
+                com.dasannn.socialblueprint.domain.PsychosisLevel.HIGH,
+                com.dasannn.socialblueprint.domain.PsychosisLevel.EXTREME)) {
+            MockPlayerState player = new MockPlayerState(world);
+            TestSoundScheduler scheduler = new TestSoundScheduler();
+            List<SoundLayerConfig> played = new ArrayList<>();
+            SoundLayerConfig first = new SoundLayerConfig("entity.creeper.primed", 1, 1, SoundCategory.MASTER, 0);
+            SoundLayerConfig last = new SoundLayerConfig("block.note_block.pling", 1, 1, SoundCategory.MASTER, 199);
+            SoundLayerConfig outside = new SoundLayerConfig("block.note_block.chime", 1, 1, SoundCategory.MASTER, Long.MAX_VALUE);
+            SoundsConfigSection sounds = new SoundsConfigSection(Map.of("creeper-fuse", new SoundSlotConfig(List.of(first, last, outside))));
+            RuntimeSnapshot snap = new RuntimeSnapshot(configManager.config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
+            AmbientEffectDispatcher dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                    new FakeSilverfishService(null, new AmbientEntityRegistry(), null), scheduler,
+                    (p, layer) -> played.add(layer));
+            dispatcher.dispatch(player.proxy, AmbientEffectType.CREEPER_SOUND, effectsConfig, snap);
+            long quietTicks = snap.config().effects().quietInterval(level).toMillis() / 50L;
+            assertThat(quietTicks).isPositive();
+            dispatcher.reserveEpisode(player.proxy.getUniqueId(), 200L + quietTicks);
+            assertThat(scheduler.tasks).extracting(TestSoundScheduler.ScheduledTask::delay)
+                    .containsExactly(199L, 200L, 200L + quietTicks);
+            assertThat(played).containsExactly(first);
+            scheduler.tasks.get(0).task().run();
+            assertThat(played).containsExactly(first, last);
+            scheduler.tasks.get(1).task().run();
+            assertThat(player.stoppedSounds).containsExactly(first.key(), last.key());
+            assertThat(dispatcher.hasPending(player.proxy.getUniqueId())).isTrue();
+            scheduler.tasks.get(2).task().run();
+            assertThat(dispatcher.hasPending(player.proxy.getUniqueId())).isFalse();
+        }
+    }
+
+    @Test
+    void interruptedEpisodeCancelsLayersAndStopsSoundImmediately() {
+        MockPlayerState player = new MockPlayerState(createMockWorld(new AtomicBoolean()));
+        TestSoundScheduler scheduler = new TestSoundScheduler();
+        AmbientEffectDispatcher dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                new FakeSilverfishService(null, new AmbientEntityRegistry(), null), scheduler, (p, layer) -> {});
+        RuntimeSnapshot snap = configManager.snapshot();
+        dispatcher.dispatch(player.proxy, AmbientEffectType.CREEPER_SOUND, effectsConfig, snap);
+        dispatcher.cancelPending(player.proxy.getUniqueId());
+        assertThat(player.stoppedSounds).contains(snap.config().sounds().get("creeper-fuse").key());
+        assertThat(scheduler.tasks).allSatisfy(task -> assertThat(task.cancelled().get()).isTrue());
+        assertThat(dispatcher.hasPending(player.proxy.getUniqueId())).isFalse();
+    }
+
     static class TestSoundScheduler implements AmbientEffectDispatcher.SoundScheduler {
         record ScheduledTask(long delay, Runnable task, AtomicBoolean cancelled) implements TaskHandle {
             @Override
@@ -419,7 +478,7 @@ class ConfigurableSoundsTest {
                 category: HOSTILE
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -437,7 +496,7 @@ class ConfigurableSoundsTest {
         assertThat(decided).containsExactly(
                 new SoundLayerConfig("entity.creeper.primed", 1.0f, 0.5f, SoundCategory.HOSTILE, 0L)
         );
-        assertThat(scheduler.tasks).isEmpty();
+        assertThat(scheduler.tasks).extracting(TestSoundScheduler.ScheduledTask::delay).containsExactly(200L);
         assertThat(worldSoundCalled.get()).isFalse();
     }
 
@@ -461,7 +520,7 @@ class ConfigurableSoundsTest {
                   delay: 0t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -501,7 +560,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -559,7 +618,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -607,7 +666,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -658,7 +717,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -818,7 +877,7 @@ class ConfigurableSoundsTest {
                 new SoundLayerConfig("custom.horn.b", 0.6f, 1.5f, SoundCategory.AMBIENT, 0L)
         ));
         SoundsConfigSection updatedSounds = new SoundsConfigSection(Map.of("creeper-fuse", updatedSlot));
-        PluginConfig updatedConfig = snap1.config().withSounds(updatedSounds);
+        PluginConfig updatedConfig = snap1.config().withSounds(preservePresentationSlots(updatedSounds));
         RuntimeSnapshot snap2 = new RuntimeSnapshot(updatedConfig, snap1.messages());
         configManager.snapshotReference().set(snap2);
 

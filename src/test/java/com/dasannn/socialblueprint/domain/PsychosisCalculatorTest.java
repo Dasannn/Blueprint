@@ -18,10 +18,21 @@ class PsychosisCalculatorTest {
     private final Instant baseTime = Instant.parse("2026-09-29T12:00:00Z");
 
     @Test
+    void defaultWindowRetainsKillsFor72HoursInsteadOf24() {
+        PsychosisCalculator defaultCalculator = new PsychosisCalculator(PsychosisConfig.defaults());
+        PlayerId killer = PlayerId.of(UUID.randomUUID());
+        List<PsychosisEvent> events = List.of(
+                new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime),
+                new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
+        assertThat(defaultCalculator.calculate(killer, events, baseTime.plus(Duration.ofHours(48)))).isEqualTo(PsychosisLevel.MEDIUM);
+        assertThat(defaultCalculator.calculate(killer, events, baseTime.plus(Duration.ofHours(72)))).isEqualTo(PsychosisLevel.NEUTRAL);
+    }
+
+    @Test
     @DisplayName("T-014, SB-005: Player with no kills resolves to lowest level LOW")
     void noKillsResolvesToLow() {
         PlayerId killer = PlayerId.of(UUID.randomUUID());
-        assertThat(calculator.calculate(killer, List.of(), baseTime)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(calculator.calculate(killer, List.of(), baseTime)).isEqualTo(PsychosisLevel.NEUTRAL);
     }
 
     @Test
@@ -37,7 +48,7 @@ class PsychosisCalculatorTest {
 
         // Even with 20 duel kills, qualifying kills is 0 and Psychosis remains LOW
         assertThat(calculator.countQualifyingKills(killer, duelKills, baseTime)).isZero();
-        assertThat(calculator.calculate(killer, duelKills, baseTime)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(calculator.calculate(killer, duelKills, baseTime)).isEqualTo(PsychosisLevel.NEUTRAL);
     }
 
     @Test
@@ -88,7 +99,7 @@ class PsychosisCalculatorTest {
         // Fast forward 25 hours (window has expired for all 12 kills)
         Instant after25Hours = baseTime.plus(Duration.ofHours(25));
         assertThat(calculator.countQualifyingKills(killer, events, after25Hours)).isZero();
-        assertThat(calculator.calculate(killer, events, after25Hours)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(calculator.calculate(killer, events, after25Hours)).isEqualTo(PsychosisLevel.NEUTRAL);
     }
 
     @Test
@@ -104,7 +115,7 @@ class PsychosisCalculatorTest {
         // Window is 24 hours. At exactly 24 hours after baseTime: now - window == baseTime -> excluded
         Instant exactOneWindow = baseTime.plus(Duration.ofHours(24));
         assertThat(calculator.countQualifyingKills(killer, events, exactOneWindow)).isZero();
-        assertThat(calculator.calculate(killer, events, exactOneWindow)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(calculator.calculate(killer, events, exactOneWindow)).isEqualTo(PsychosisLevel.NEUTRAL);
 
         // At 1 nanosecond before 24 hours: inside window -> included
         Instant justBefore = exactOneWindow.minusNanos(1);

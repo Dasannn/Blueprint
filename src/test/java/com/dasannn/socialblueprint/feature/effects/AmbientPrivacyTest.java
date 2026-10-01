@@ -74,6 +74,12 @@ class AmbientPrivacyTest {
         }
 
         @Override
+        public Component render(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            renderedCalls.add(new RenderCall(key, Map.copyOf(placeholders), false));
+            return super.render(snapshot, key, placeholders);
+        }
+
+        @Override
         public Component render(String key) {
             renderedCalls.add(new RenderCall(key, Collections.emptyMap(), false));
             return super.render(key);
@@ -161,13 +167,12 @@ class AmbientPrivacyTest {
         Logger logger = Logger.getLogger("AmbientPrivacyTest-" + System.nanoTime());
         messageRegistry = new RecordingMessageRegistry(tempDir, "en", logger);
 
-        SingleEffectConfig silverfish = new SingleEffectConfig(Duration.ofSeconds(60), 2, 40, List.of());
-        SingleEffectConfig whisper = new SingleEffectConfig(Duration.ofSeconds(30), 3, 0, List.of());
-        SingleEffectConfig creeper = new SingleEffectConfig(Duration.ofSeconds(120), 1, 0, List.of());
-        SingleEffectConfig fakeAnnounce = new SingleEffectConfig(Duration.ofSeconds(300), 1, 0, List.of("GhostPlayer"));
+        SingleEffectConfig silverfish = new SingleEffectConfig(Duration.ofSeconds(60), 2);
+        SingleEffectConfig whisper = new SingleEffectConfig(Duration.ofSeconds(30), 3);
+        SingleEffectConfig creeper = new SingleEffectConfig(Duration.ofSeconds(120), 1);
+        SingleEffectConfig fakeAnnounce = new SingleEffectConfig(Duration.ofSeconds(300), 1);
 
         effectsConfig = new EffectsConfigSection(
-                -10,
                 Duration.ofSeconds(30),
                 silverfish,
                 whisper,
@@ -309,18 +314,11 @@ class AmbientPrivacyTest {
         messageRegistry.clearCalls();
         dispatcher.dispatch(targetPlayer.proxy, AmbientEffectType.FAKE_ANNOUNCEMENT, effectsConfig, snapshot);
 
-        // Affected player receives the fake join or leave message, rendered from
-        // the dispatch snapshot with the configured fake name substituted in.
         assertThat(targetPlayer.receivedMessages).hasSize(1);
-        String announcement = ColorParser.serialize(targetPlayer.receivedMessages.get(0));
-        java.util.List<String> expectedAnnouncements = java.util.stream.Stream.of("effects.fake-join", "effects.fake-leave")
-                .map(key -> snapshot.messages().resolveRaw(key, new java.util.HashSet<>(), null))
-                .map(raw -> ColorParser.serialize(
-                        ColorParser.renderTemplate(raw, java.util.Map.of("player", "GhostPlayer"))))
-                .toList();
-        assertThat(announcement).isIn(expectedAnnouncements);
-        // The substitution itself, so a template that lost its placeholder fails here
-        assertThat(announcement).contains("GhostPlayer");
+        assertThat(messageRegistry.renderedCalls).singleElement().satisfies(call -> {
+            assertThat(call.key()).isIn("effects.fake-connection.join", "effects.fake-connection.leave");
+            assertThat(call.placeholders()).containsExactlyEntriesOf(Map.of("player", targetPlayer.name));
+        });
 
         // Observing player receives NOTHING
         assertThat(observingPlayer.receivedMessages).isEmpty();

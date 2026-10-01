@@ -100,8 +100,18 @@ decay:
 # If these thresholds are too aggressive for an active PvP server, raise them below.
 # ==============================================================================
 psychosis:
-  # Rolling evaluation window for counting PvP kills (default: 24 hours).
-  window: 24h
+  serenity:
+    ceiling: 100
+    active-hours-to-ceiling: 100
+    idle-timeout-seconds: 300
+  # Percentages; every other message and at least 75% of words/letters stay intact.
+  chat:
+    medium-rate: 10
+    high-rate: 25
+    extreme-rate: 40
+    extent: 20
+  # Rolling evaluation window for counting PvP kills (default: 72 hours).
+  window: 72h
 
   # Kill count threshold to reach 'Medium' psychosis (default: 2 kills).
   # Represents an occasional player-killer within the window.
@@ -155,7 +165,6 @@ permissions:
   admin-adjust: "socialblueprint.admin.adjust"
   admin-config: "socialblueprint.admin.config"
   duel: "socialblueprint.duel"
-  effects: "socialblueprint.effects"
   version: "socialblueprint.version"
   admin-update: "socialblueprint.admin.update"
   admin-import: "socialblueprint.admin.import"
@@ -184,23 +193,182 @@ duel:
 
 
 # ==============================================================================
-# Low-Status Ambient Effects (SB-040, SB-043, Decision 0002)
+# Psychosis Ambient Effects (SB-043, SB-096 to SB-101)
 #
-# Private, cosmetic, rate-limited effects delivered only to players below the threshold.
+# Private, cosmetic episodes triggered by Medium, High and Extreme Psychosis.
 # ==============================================================================
 effects:
+  # Serenity episode settings.
+  serenity:
+    episodes:
+      interval-ticks: 6000
+      quiet-ticks: 200
+    observer-range-blocks: 16
+    dawn:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      time-ticks: 23000
+      duration-ticks: 60
+    source-less-sounds:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      sound-slot: serenity-clean
+      offset:
+        forward-blocks: 0
+        right-blocks: 0
+        up-blocks: 0
+      playback-ticks: 60
+    particles:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      type: end_rod
+      placement: around
+      count: 8
+      radius-blocks: 1
+      duration-ticks: 40
+    apparition:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      kind: cat
+      # Outside block reach: a packet-only animal is still pickable by the client,
+      # so delivery skips any viewer whose reach could touch it (SB-124).
+      range-blocks: 8
+      duration-ticks: 60
+  advancement-toast:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    icon: minecraft:paper
+    duration-ticks: 60
+  boss-bar:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    colour: purple
+    style: progress
+    progress: 0.5
+    duration-ticks: 60
+  false-death:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    range-blocks: 16
+  fake-connection:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 18000
+    session-cap: 2
+  private-chat:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 6000
+    session-cap: 5
+    max-visible-length: 160
+  block-change:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    block-data: minecraft:andesite
+    range-blocks: 6
+    duration-ticks: 40
+  sign:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    block-data: minecraft:oak_sign[rotation=0,waterlogged=false]
+    range-blocks: 6
+    duration-ticks: 40
+  hurt-flash:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    sound-slot: hurt
+    playback-ticks: 20
+  victim-ghost:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    range-blocks: 6
+    duration-ticks: 40
+  episodes:
+    medium:
+      interval-ticks: 6000
+    high:
+      interval-ticks: 2400
+    extreme:
+      interval-ticks: 600
+    quiet-ticks: 20
+  sky:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    mode: night
+    duration-ticks: 60
+  particles:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    # Supported native types: smoke and end_rod; episode includes their finite client tail.
+    type: smoke
+    placement: around
+    count: 8
+    radius-blocks: 1
+    duration-ticks: 40
+  screen-flash:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    channel: title
+    fade-in-ticks: 5
+    duration-ticks: 30
+    fade-out-ticks: 5
+  source-less-sounds:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    sound-slot: source-less
+    offset:
+      forward-blocks: -2
+      right-blocks: 0
+      up-blocks: 0
+    playback-ticks: 20
+  # Silence after a complete episode. Must decrease Medium > High > Extreme.
+  # Minimums: 3/2/1 seconds and 3/2/1 scheduler checks respectively, even with zero cooldowns.
+  quiet-interval:
+    medium: 5m
+    high: 2m
+    extreme: 30s
+  # Complete sound episode bound, including delayed layers; range 1 to 200 ticks.
+  # Layers at or beyond this bound are skipped; playback is stopped at the bound.
+  max-episode-ticks: 200
   # Session caps reset on player relog and on server restart.
-  # Status threshold below which ambient effects can fire (default: -10).
-  threshold: -10
 
-  # How often the effect scheduler checks online low-status players (default: 30s).
+  # How often the effect scheduler checks online players with Psychosis (default: 30s).
   check-interval: 30s
 
-  # Silverfish ambient effect (SB-040, SB-042)
+  # Immediate packet-only silverfish glimpse; High and Extreme only (SB-099)
   silverfish:
     cooldown: 10m
     session-cap: 3
-    duration-ticks: 40
 
   # Near-black whispered chat lines (SB-040)
   whisper:
@@ -216,8 +384,6 @@ effects:
   fake-announcement:
     cooldown: 15m
     session-cap: 2
-    fake-names:
-      - "Herobrine"
 
 # ==============================================================================
 # Updates from GitHub (SB-070 to SB-076, T-080 to T-085)
@@ -270,6 +436,38 @@ kill-penalty:
 # Configurable Sounds (SB-090, SB-091, T-135 to T-137)
 # ==============================================================================
 sounds:
+  hurt:
+    key: minecraft:entity.player.hurt
+    volume: 0.7
+    pitch: 1.0
+    category: PLAYERS
+  serenity-clean:
+    - key: minecraft:entity.parrot.ambient
+      volume: 0.3
+      pitch: 1.2
+      category: AMBIENT
+      delay: 0
+    - key: minecraft:block.bell.resonate
+      volume: 0.2
+      pitch: 1.0
+      category: AMBIENT
+      delay: 10
+    - key: minecraft:block.water.ambient
+      volume: 0.3
+      pitch: 1.0
+      category: AMBIENT
+      delay: 20
+  source-less:
+    - key: minecraft:block.stone.step
+      volume: 0.7
+      pitch: 1.0
+      category: AMBIENT
+      delay: 0
+    - key: minecraft:block.stone.step
+      volume: 0.7
+      pitch: 1.0
+      category: AMBIENT
+      delay: 10
   # key: the Minecraft sound key. Empty key = silence.
   creeper-fuse:
     key: "entity.creeper.primed"

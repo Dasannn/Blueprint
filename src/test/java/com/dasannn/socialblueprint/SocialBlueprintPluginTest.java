@@ -345,6 +345,11 @@ class SocialBlueprintPluginTest {
     }
 
     private static Object defaultValue(Class<?> returnType) {
+        // A real server never hands back a null collection, so a fake that does
+        // fails code that is correct: enable walks the players already online,
+        // which is what a reload has.
+        if (java.util.Collection.class.isAssignableFrom(returnType)) return java.util.List.of();
+        if (returnType == java.util.Map.class) return java.util.Map.of();
         if (returnType == boolean.class) return false;
         if (returnType == int.class) return 0;
         if (returnType == long.class) return 0L;

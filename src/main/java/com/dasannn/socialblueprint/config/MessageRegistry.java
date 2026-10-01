@@ -177,6 +177,18 @@ public class MessageRegistry {
         return tierName(snapshot(), tier);
     }
 
+    /** Direction and magnitude of the same Psychosis metric, reused by every display. */
+    public String psychosisLabel(RuntimeSnapshot snapshot, com.dasannn.socialblueprint.domain.PlayerSocialView view) {
+        return switch (view.psychosis()) {
+            case NEUTRAL -> getRaw(snapshot, "psychosis.neutral.name");
+            case SERENITY -> getRaw(snapshot, "psychosis.serenity.detail")
+                    .replace("{name}", getRaw(snapshot, "psychosis.serenity.name"))
+                    .replace("{value}", String.format(Locale.ROOT, "%.2f", view.psychosisMagnitude()))
+                    .replace("{ceiling}", String.format(Locale.ROOT, "%.2f", snapshot.config().psychosis().serenity().ceiling()));
+            default -> getRaw(snapshot, "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT));
+        };
+    }
+
     /**
      * Test seam hook called between prefix rendering and body rendering in {@link #renderWithPrefix}.
      */
@@ -230,6 +242,9 @@ public class MessageRegistry {
             try {
                 YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
                 return flattenKeys(yaml);
+            } catch (ConfigValidationException e) {
+                if (logger != null) logger.warning(e.getMessage());
+                throw e;
             } catch (Exception e) {
                 if (logger != null) {
                     logger.warning("[SocialBlueprint] Failed to load messages_" + lang + ".yml from disk: " + e.getMessage());
@@ -305,6 +320,18 @@ public class MessageRegistry {
             String path = prefix.isEmpty() ? key : prefix + "." + key;
             if (section.isConfigurationSection(key)) {
                 flattenRecursive(section.getConfigurationSection(key), path, map);
+            } else if (CatalogueLines.LISTS.contains(path)) {
+                map.put(path, String.join("\n", CatalogueLines.validateList(path, section.get(key), 160)));
+            } else if (CatalogueLines.TEMPLATES.contains(path)) {
+                String line = section.getString(key, "");
+                CatalogueLines.validateLine(path, -1, line, Map.of(), 160, false);
+                map.put(path, line);
+            } else if (path.equals(ScreenLines.KEY)) {
+                map.put(path, String.join("\n", ScreenLines.validate(section.get(key))));
+            } else if (path.equals("effects.sign.lines")) {
+                map.put(path, String.join("\n", ScreenLines.validate(section.get(key), path, 4, 80)));
+            } else if (path.equals("effects.victim-ghost.label")) {
+                map.put(path, ScreenLines.validateGhostLabel(section.getString(key, "")));
             } else {
                 map.put(path, section.getString(key, ""));
             }
