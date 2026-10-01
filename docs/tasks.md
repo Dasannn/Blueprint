@@ -239,6 +239,8 @@ codes renders as literal text.
 | T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §14 | todo |
 | T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
 | T-104 | Upgrading merges new configuration sections and new message keys into the server's existing files, keeping every stored value. Found on a live upgrade: the new sections load from defaults but cannot be read or edited in game, which breaks constitution §2.8 on the upgrade path, and a missing message key warns on every run. | §2.8, SB-062, SB-068 | todo |
+| T-105 | `/status history <player>` from the console answers **nothing at all** — not the history, not a refusal. Silence is never an acceptable answer; either print the text history as `/status <player>` does, or refuse and say why. | SB-065 | todo |
+| T-106 | `/status admin` usage omits `import`, added in P8, so the only discoverable way to find the command is the source. Every subcommand appears in its usage line. | SB-065 | todo |
 
 **Gate:** every box in §14 ticked with evidence.
 
