@@ -909,6 +909,75 @@ class LegacyImportTest {
         assertThat(reputationRepo.findByTarget(PlayerId.of(uuidValidNeg))).hasSize(1);
     }
 
+    @Test
+    @DisplayName("Finding 4: Legacy import does disk resolution on ioExecutor and player lookups on main thread")
+    void finding4_legacyImportUsesIoExecutorAndHopsToMainThreadForParsing() throws Exception {
+        String yaml = """
+            playerList:
+              PlayerOne:
+                name: 'PlayerOne'
+                reputation: 50
+            """;
+        File legacyFile = new File(tempDir, "finding4.yml");
+        Files.writeString(legacyFile.toPath(), yaml, StandardCharsets.UTF_8);
+
+        AtomicReference<Thread> ioThread = new AtomicReference<>();
+        AtomicReference<Thread> mainThread = new AtomicReference<>();
+        java.util.concurrent.CountDownLatch hopLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService testIo = java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "TestIoThread"));
+        java.util.concurrent.ExecutorService testMain = java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "TestMainServerThread"));
+
+        Thread callerThread = Thread.currentThread();
+
+        LegacyImportService serviceWithThreadTracking = new LegacyImportService(
+                storage,
+                reputationRepo,
+                profileRepo,
+                auditRepo,
+                messageRegistry,
+                nameOrUuid -> {
+                    // Record lookup thread and trip latch
+                    mainThread.set(Thread.currentThread());
+                    hopLatch.countDown();
+                    return Optional.of(new PlayerLookup.KnownPlayer(
+                            PlayerId.of(UUID.fromString("00000000-0000-0000-0000-000000000001")),
+                            "PlayerOne",
+                            true
+                    ));
+                },
+                tempDir,
+                r -> testMain.submit(r),
+                () -> consoleSender,
+                Logger.getLogger("test"),
+                r -> testIo.submit(() -> {
+                    ioThread.set(Thread.currentThread());
+                    r.run();
+                })
+        );
+
+        RuntimeSnapshot trustedSnapshot = new RuntimeSnapshot(
+                configManager.config().withLegacyImport(new LegacyImportConfig(true)),
+                configManager.snapshot().messages()
+        );
+
+        try {
+            Player admin = mockPlayer("AdminUser", new ArrayList<>(), "socialblueprint.admin");
+            CompletableFuture<Void> importFuture = serviceWithThreadTracking.importLegacyAsync(admin, legacyFile.getAbsolutePath(), trustedSnapshot);
+
+            assertThat(hopLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            importFuture.join();
+
+            assertThat(ioThread.get()).isNotNull();
+            assertThat(ioThread.get()).isNotEqualTo(callerThread);
+            assertThat(mainThread.get()).isNotNull();
+            assertThat(mainThread.get().getName()).isEqualTo("TestMainServerThread");
+            assertThat(mainThread.get()).isNotEqualTo(ioThread.get());
+        } finally {
+            testIo.shutdownNow();
+            testMain.shutdownNow();
+        }
+    }
+
     // Helper methods for dynamic proxies
     private Player mockPlayer(String name, List<String> messageCollector, String... permissions) {
         Set<String> perms = new HashSet<>(List.of(permissions));

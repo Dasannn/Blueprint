@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -59,6 +60,7 @@ public class LegacyImportService {
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<ConsoleCommandSender> consoleSenderSupplier;
     private final Logger logger;
+    private final Executor ioExecutor;
 
     private final AtomicBoolean isImporting = new AtomicBoolean(false);
 
@@ -72,7 +74,8 @@ public class LegacyImportService {
             File dataFolder,
             Consumer<Runnable> mainThreadRunner,
             Supplier<ConsoleCommandSender> consoleSenderSupplier,
-            Logger logger
+            Logger logger,
+            Executor ioExecutor
     ) {
         this.storageEngine = Objects.requireNonNull(storageEngine, "storageEngine must not be null");
         this.reputationRepository = Objects.requireNonNull(reputationRepository, "reputationRepository must not be null");
@@ -84,6 +87,23 @@ public class LegacyImportService {
         this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
         this.consoleSenderSupplier = consoleSenderSupplier != null ? consoleSenderSupplier : () -> null;
         this.logger = logger != null ? logger : Logger.getLogger(LegacyImportService.class.getName());
+        this.ioExecutor = ioExecutor != null ? ioExecutor : Runnable::run;
+    }
+
+    public LegacyImportService(
+            StorageEngine storageEngine,
+            ReputationRepository reputationRepository,
+            ProfileRepository profileRepository,
+            AuditRepository auditRepository,
+            MessageRegistry messageRegistry,
+            PlayerLookup playerLookup,
+            File dataFolder,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<ConsoleCommandSender> consoleSenderSupplier,
+            Logger logger
+    ) {
+        this(storageEngine, reputationRepository, profileRepository, auditRepository,
+                messageRegistry, playerLookup, dataFolder, mainThreadRunner, consoleSenderSupplier, logger, null);
     }
 
     public boolean isImporting() {
@@ -102,48 +122,54 @@ public class LegacyImportService {
             return CompletableFuture.completedFuture(null);
         }
 
+        PlayerId actorId = (sender instanceof Player p)
+                ? PlayerId.of(p.getUniqueId())
+                : PlayerId.CONSOLE;
+
         CompletableFuture<Void> future = new CompletableFuture<>();
 
-        try {
-            File targetFile = resolveTargetFile(filePath);
-            String fileDisplay = targetFile.getPath();
-            deliverMessage(sender, snapshot, "commands.admin.import.started", Map.of("file", fileDisplay));
-
-            if (!targetFile.exists() || !targetFile.isFile()) {
-                deliverMessage(sender, snapshot, "commands.admin.import.file-not-found", Map.of("file", fileDisplay));
-                isImporting.set(false);
-                future.complete(null);
-                return future;
-            }
-
-            YamlConfiguration yaml = new YamlConfiguration();
+        ioExecutor.execute(() -> {
             try {
-                yaml.load(targetFile);
-            } catch (InvalidConfigurationException e) {
-                deliverMessage(sender, snapshot, "commands.admin.import.invalid-yaml", Map.of("file", fileDisplay));
+                File targetFile = resolveTargetFile(filePath);
+                String fileDisplay = targetFile.getPath();
+                mainThreadRunner.accept(() -> deliverMessage(sender, snapshot, "commands.admin.import.started", Map.of("file", fileDisplay)));
+
+                if (!targetFile.exists() || !targetFile.isFile()) {
+                    mainThreadRunner.accept(() -> deliverMessage(sender, snapshot, "commands.admin.import.file-not-found", Map.of("file", fileDisplay)));
+                    isImporting.set(false);
+                    future.complete(null);
+                    return;
+                }
+
+                YamlConfiguration yaml = new YamlConfiguration();
+                try {
+                    yaml.load(targetFile);
+                } catch (InvalidConfigurationException e) {
+                    mainThreadRunner.accept(() -> deliverMessage(sender, snapshot, "commands.admin.import.invalid-yaml", Map.of("file", fileDisplay)));
+                    isImporting.set(false);
+                    future.complete(null);
+                    return;
+                } catch (IOException e) {
+                    mainThreadRunner.accept(() -> deliverMessage(sender, snapshot, "commands.admin.import.io-error",
+                            Map.of("error", e.getMessage() != null ? e.getMessage() : "IO error")));
+                    isImporting.set(false);
+                    future.complete(null);
+                    return;
+                }
+
+                // Hop back to main thread where Bukkit lookups in parseEntriesOnCallingThread are legal
+                mainThreadRunner.accept(() -> {
+                    processYamlAsync(yaml, targetFile.getName(), fileDisplay, actorId, sender, snapshot, future);
+                });
+            } catch (Throwable t) {
                 isImporting.set(false);
+                String errMsg = t.getMessage() != null ? t.getMessage() : t.toString();
+                mainThreadRunner.accept(() -> deliverMessage(sender, snapshot, "commands.admin.import.io-error", Map.of("error", errMsg)));
                 future.complete(null);
-                return future;
-            } catch (IOException e) {
-                deliverMessage(sender, snapshot, "commands.admin.import.io-error",
-                        Map.of("error", e.getMessage() != null ? e.getMessage() : "IO error"));
-                isImporting.set(false);
-                future.complete(null);
-                return future;
             }
+        });
 
-            PlayerId actorId = (sender instanceof Player p)
-                    ? PlayerId.of(p.getUniqueId())
-                    : PlayerId.CONSOLE;
-
-            return processYamlAsync(yaml, targetFile.getName(), fileDisplay, actorId, sender, snapshot, future);
-        } catch (Throwable t) {
-            isImporting.set(false);
-            String errMsg = t.getMessage() != null ? t.getMessage() : t.toString();
-            deliverMessage(sender, snapshot, "commands.admin.import.io-error", Map.of("error", errMsg));
-            future.complete(null);
-            return future;
-        }
+        return future;
     }
 
     /**

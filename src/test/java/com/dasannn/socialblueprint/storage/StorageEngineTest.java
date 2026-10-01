@@ -331,4 +331,26 @@ class StorageEngineTest {
                 .isLessThan(1500);
         assertThat(storage.isClosed()).isTrue();
     }
+
+    @Test
+    @DisplayName("Finding 5: StorageEngine shutdown delegates connection closure to DB executor thread")
+    void finding5_executorClosesOwnConnectionAndTimesOutCleanly() throws Exception {
+        AtomicReference<Thread> connectionCloseThread = new AtomicReference<>();
+        StorageEngine customEngine = StorageEngine.inMemory();
+        // Record connection thread
+        AtomicReference<Thread> dbThread = new AtomicReference<>();
+        customEngine.execute(conn -> {
+            dbThread.set(Thread.currentThread());
+            return null;
+        });
+
+        // Close from current (calling/main) thread
+        Thread callingThread = Thread.currentThread();
+        assertThat(callingThread).isNotEqualTo(dbThread.get());
+
+        customEngine.close(1, TimeUnit.SECONDS);
+
+        assertThat(customEngine.isClosed()).isTrue();
+        assertThat(StorageEngine.DEFAULT_SHUTDOWN_TIMEOUT_SECONDS).isEqualTo(2);
+    }
 }

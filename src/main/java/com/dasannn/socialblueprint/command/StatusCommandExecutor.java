@@ -659,10 +659,11 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
     private void handleShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
         if (sender instanceof Player player && statusGuiService != null) {
+            String playerName = player.getName();
             this.lastExecution = statusGuiService.openGuiAsync(player, targetInput, snapshot)
                     .exceptionally(ex -> {
                         Logger.getLogger(StatusCommandExecutor.class.getName())
-                                .log(java.util.logging.Level.SEVERE, "Failed to open status GUI for " + player.getName(), ex);
+                                .log(java.util.logging.Level.SEVERE, "Failed to open status GUI for " + playerName, ex);
                         return null;
                     });
         } else {
@@ -689,7 +690,15 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                     } else {
                         player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "effects.opt-out-disabled"));
                     }
-                }));
+                }))
+                .exceptionally(ex -> {
+                    Logger.getLogger(StatusCommandExecutor.class.getName())
+                            .log(java.util.logging.Level.SEVERE, "Failed to toggle effects opt-out", ex);
+                    mainThreadRunner.accept(() -> {
+                        player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed"));
+                    });
+                    return null;
+                });
     }
 
     public CompletableFuture<Void> executeShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {

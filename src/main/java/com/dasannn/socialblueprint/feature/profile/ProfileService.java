@@ -35,6 +35,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -403,7 +404,7 @@ public class ProfileService {
     /**
      * Warms up a player's profile in cache and updates their last known name on join.
      */
-    public void warmUp(PlayerId id, String name, RuntimeSnapshot snapshot) {
+    public CompletableFuture<Void> warmUp(PlayerId id, String name, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(id, "PlayerId must not be null");
         Objects.requireNonNull(snapshot, "RuntimeSnapshot must not be null");
 
@@ -414,7 +415,7 @@ public class ProfileService {
             gen = playerGenerations.getOrDefault(id, 0);
             requestEpoch = quitEpoch.get();
         }
-        storageEngine.submitAsync(() -> {
+        return storageEngine.submitAsync(() -> {
             Instant now = Instant.now();
             Optional<PlayerProfile> existing = profileRepository.findById(id);
             PlayerProfile profile = existing
@@ -423,11 +424,14 @@ public class ProfileService {
             profileRepository.save(profile);
             optOutCache.put(id, profile.effectsOptOut() ? OptOutState.OPTED_OUT : OptOutState.OPTED_IN);
             loadViewInternal(id, name, snapshot, gen, requestEpoch);
+        }).exceptionally(error -> {
+            logger.log(Level.WARNING, "Failed to warm up profile for player " + id + " (" + name + ")", error);
+            return null;
         });
     }
 
-    public void warmUp(PlayerId id, String name, TierLadder ladder) {
-        warmUp(id, name, configManager.snapshot());
+    public CompletableFuture<Void> warmUp(PlayerId id, String name, TierLadder ladder) {
+        return warmUp(id, name, configManager.snapshot());
     }
 
     public void invalidate(PlayerId id) {

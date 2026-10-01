@@ -156,17 +156,25 @@ public class StatusConfigCommand {
 
         // Reload command: /status config reload
         if (args.length == 1 && "reload".equalsIgnoreCase(sub)) {
-            try {
-                RuntimeSnapshot reloadedSnapshot = configManager.reload();
-                sender.sendMessage(messageRegistry.renderWithPrefix(reloadedSnapshot, "commands.config.reload-success"));
-            } catch (ConfigValidationException e) {
-                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
-                        Map.of("key", e.key(), "error", e.getMessage())));
-            } catch (Exception e) {
-                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
-                        Map.of("key", "reload", "error", e.getMessage() != null ? e.getMessage() : "")));
-            }
-            return CompletableFuture.completedFuture(null);
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            configManager.reloadAsync().whenComplete((reloadedSnapshot, ex) -> {
+                mainThreadRunner.accept(() -> {
+                    if (ex != null) {
+                        Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                        if (cause instanceof ConfigValidationException cve) {
+                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
+                                    Map.of("key", cve.key(), "error", cve.getMessage())));
+                        } else {
+                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.set-failed",
+                                    Map.of("key", "reload", "error", cause.getMessage() != null ? cause.getMessage() : "")));
+                        }
+                    } else {
+                        sender.sendMessage(messageRegistry.renderWithPrefix(reloadedSnapshot, "commands.config.reload-success"));
+                    }
+                    future.complete(null);
+                });
+            });
+            return future;
         }
 
         String key;
@@ -220,6 +228,9 @@ public class StatusConfigCommand {
         final String finalOldValue = oldValue;
         final String finalKey = key;
         final String finalRawValue = rawValue;
+        final com.dasannn.socialblueprint.domain.PlayerId actor = (sender instanceof org.bukkit.entity.Player p)
+                ? com.dasannn.socialblueprint.domain.PlayerId.of(p.getUniqueId())
+                : com.dasannn.socialblueprint.domain.PlayerId.CONSOLE;
 
         CompletableFuture<Void> future = new CompletableFuture<>();
 
@@ -243,10 +254,6 @@ public class StatusConfigCommand {
             String newValue = configManager.get(updatedSnapshot, finalKey);
 
             if (auditRepository != null) {
-                com.dasannn.socialblueprint.domain.PlayerId actor = (sender instanceof org.bukkit.entity.Player p)
-                        ? com.dasannn.socialblueprint.domain.PlayerId.of(p.getUniqueId())
-                        : com.dasannn.socialblueprint.domain.PlayerId.CONSOLE;
-
                 auditRepository.saveAsync(com.dasannn.socialblueprint.domain.AuditEvent.forConfigKey(
                         actor, "config_set", finalKey, finalOldValue, newValue, java.time.Instant.now()
                 )).whenComplete((audit, auditEx) -> {

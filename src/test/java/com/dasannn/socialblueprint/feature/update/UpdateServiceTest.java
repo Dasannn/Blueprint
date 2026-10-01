@@ -1052,5 +1052,25 @@ class UpdateServiceTest {
         assertThat(logRecords).anyMatch(r -> r.getLevel() == Level.WARNING
                 && r.getMessage().contains("not a valid plugin JAR"));
     }
+
+    @Test
+    @DisplayName("Finding 9: UpdateService uses plain pre-captured values and executes without off-thread suppliers")
+    void finding9_updateServiceUsesPlainValuesWithoutOffThreadSuppliers() throws Exception {
+        UpdateService plainService = new UpdateService(
+                configManager,
+                messageRegistry,
+                asyncExecutor,
+                mainThreadQueue::add,
+                updateFolder,
+                "1.0",
+                currentJarFile,
+                httpClient,
+                testLogger
+        );
+
+        // Version check works properly with plain values passed during construction
+        VersionCheckResult result = plainService.checkForUpdateAsync().join();
+        assertThat(result).isNotNull();
+    }
 }
 

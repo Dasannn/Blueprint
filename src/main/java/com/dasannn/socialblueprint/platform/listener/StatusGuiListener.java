@@ -48,9 +48,10 @@ public class StatusGuiListener implements Listener {
             }
 
             if (event.getWhoClicked() instanceof Player viewer) {
+                String viewerName = viewer.getName();
                 guiService.handleClick(viewer, holder, event.getRawSlot())
                         .exceptionally(ex -> {
-                            logger.log(Level.SEVERE, "Failed handling GUI click for player " + viewer.getName(), ex);
+                            logger.log(Level.SEVERE, "Failed handling GUI click for player " + viewerName, ex);
                             return null;
                         });
             }

@@ -22,6 +22,9 @@ import org.bukkit.event.Listener;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Async chat listener and renderer per T-040, T-041, T-042, T-043, and T-044.
@@ -38,9 +41,11 @@ public class AsyncChatListener implements Listener {
     private final ConfigManager configManager;
     private final MessageRegistry messageRegistry;
     private final com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService;
+    private final Consumer<Runnable> mainThreadRunner;
+    private final Function<UUID, Player> playerResolver;
 
     public AsyncChatListener(ProfileService profileService, ConfigManager configManager, MessageRegistry messageRegistry) {
-        this(profileService, configManager, messageRegistry, null);
+        this(profileService, configManager, messageRegistry, null, null, null);
     }
 
     public AsyncChatListener(
@@ -49,20 +54,57 @@ public class AsyncChatListener implements Listener {
             MessageRegistry messageRegistry,
             com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
     ) {
+        this(profileService, configManager, messageRegistry, statusGuiService, null, null);
+    }
+
+    public AsyncChatListener(
+            ProfileService profileService,
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService,
+            Consumer<Runnable> mainThreadRunner
+    ) {
+        this(profileService, configManager, messageRegistry, statusGuiService, mainThreadRunner, null);
+    }
+
+    public AsyncChatListener(
+            ProfileService profileService,
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService,
+            Consumer<Runnable> mainThreadRunner,
+            Function<UUID, Player> playerResolver
+    ) {
         this.profileService = Objects.requireNonNull(profileService, "ProfileService must not be null");
         this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "MessageRegistry must not be null");
         this.statusGuiService = statusGuiService;
+        this.mainThreadRunner = mainThreadRunner != null ? mainThreadRunner : Runnable::run;
+        this.playerResolver = playerResolver != null ? playerResolver : (uuid -> {
+            try {
+                return org.bukkit.Bukkit.getPlayer(uuid);
+            } catch (Throwable t) {
+                return null;
+            }
+        });
     }
 
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
         try {
-            // Hook GUI pending written reason prompt before normal chat formatting (Finding 3)
-            if (statusGuiService != null && statusGuiService.hasPendingReason(event.getPlayer().getUniqueId())) {
+            // Hook GUI pending written reason prompt before normal chat formatting (Finding 3 / Finding 6)
+            UUID playerUuid = event.getPlayer().getUniqueId();
+            if (statusGuiService != null && statusGuiService.hasPendingReason(playerUuid)) {
                 event.setCancelled(true);
                 String rawReason = extractPlainText(event.message());
-                statusGuiService.consumePendingReason(event.getPlayer(), rawReason);
+                mainThreadRunner.accept(() -> {
+                    Player player = playerResolver.apply(playerUuid);
+                    if (player != null && player.isOnline()) {
+                        statusGuiService.consumePendingReason(player, rawReason);
+                    } else {
+                        statusGuiService.cancelPendingReason(playerUuid);
+                    }
+                });
                 return;
             }
             // Read one immutable snapshot per event (T-040, T-042)

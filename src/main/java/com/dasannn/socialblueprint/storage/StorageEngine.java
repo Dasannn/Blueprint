@@ -28,7 +28,7 @@ import java.util.logging.Logger;
  */
 public final class StorageEngine implements Closeable {
 
-    public static final long DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5;
+    public static final long DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 2;
     private static final Logger LOGGER = Logger.getLogger(StorageEngine.class.getName());
 
     @FunctionalInterface
@@ -272,6 +272,15 @@ public final class StorageEngine implements Closeable {
                     executor.shutdown();
                 }
             } else {
+                executor.execute(() -> {
+                    try {
+                        if (connection != null && !connection.isClosed()) {
+                            connection.close();
+                        }
+                    } catch (SQLException e) {
+                        LOGGER.log(Level.WARNING, "Failed to close SQLite connection during shutdown", e);
+                    }
+                });
                 executor.shutdown();
                 boolean terminated = false;
                 try {
@@ -282,14 +291,7 @@ public final class StorageEngine implements Closeable {
                 if (!terminated) {
                     List<Runnable> dropped = executor.shutdownNow();
                     LOGGER.warning("StorageEngine shutdown timed out after " + timeout + " " + unit
-                            + ". Dropped " + dropped.size() + " queued database tasks.");
-                }
-                try {
-                    if (connection != null && !connection.isClosed()) {
-                        connection.close();
-                    }
-                } catch (SQLException e) {
-                    LOGGER.log(Level.WARNING, "Failed to close SQLite connection during shutdown", e);
+                            + ". Abandoned " + dropped.size() + " tasks.");
                 }
             }
         }

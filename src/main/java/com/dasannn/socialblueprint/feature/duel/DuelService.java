@@ -18,6 +18,8 @@ import net.kyori.adventure.text.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Collection;
@@ -80,6 +82,8 @@ public class DuelService {
         record ChallengeCancelled(DuelChallenge challenge) implements LeaveResult {}
         record NotInDuel() implements LeaveResult {}
     }
+
+    private static final Logger LOGGER = Logger.getLogger(DuelService.class.getName());
 
     private final DuelRepository duelRepository;
     private final AuditRepository auditRepository;
@@ -255,7 +259,10 @@ public class DuelService {
                     DuelState.ACTIVE,
                     session.createdAt(),
                     session.toParticipantList()
-            ));
+            )).exceptionally(error -> {
+                LOGGER.log(Level.WARNING, "Failed to persist active duel record for duel " + session.id(), error);
+                return null;
+            });
 
             // Notify all participants of duel start
             Set<PlayerId> all = session.allParticipants();
@@ -540,7 +547,10 @@ public class DuelService {
                     "ACTIVE",
                     "FORFEIT_COMBAT_LOG",
                     quitTime
-            ));
+            )).exceptionally(error -> {
+                LOGGER.log(Level.WARNING, "Failed to persist duel combat-log audit event for player " + player, error);
+                return null;
+            });
 
             // Social consequence: configurable action (broadcast or notify)
             String action = snapshot.config().duel() != null
@@ -659,7 +669,11 @@ public class DuelService {
                 handle.cancel();
             }
         }
-        duelRepository.updateStateAsync(session.id(), state, Instant.now());
+        duelRepository.updateStateAsync(session.id(), state, Instant.now())
+                .exceptionally(error -> {
+                    LOGGER.log(Level.WARNING, "Failed to update duel state to " + state + " for duel " + session.id(), error);
+                    return null;
+                });
     }
 
     public void shutdown() {
@@ -678,7 +692,11 @@ public class DuelService {
         // End and persist all in-flight active duels as cancelled
         Instant now = Instant.now();
         for (ActiveDuelSession session : activeDuels.values()) {
-            duelRepository.updateStateAsync(session.id(), DuelState.CANCELLED, now);
+            duelRepository.updateStateAsync(session.id(), DuelState.CANCELLED, now)
+                    .exceptionally(error -> {
+                        LOGGER.log(Level.WARNING, "Failed to cancel duel state on shutdown for duel " + session.id(), error);
+                        return null;
+                    });
         }
 
         pendingChallenges.clear();

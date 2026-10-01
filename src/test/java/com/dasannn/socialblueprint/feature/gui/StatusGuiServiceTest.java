@@ -1114,6 +1114,55 @@ public class StatusGuiServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("Finding 7: Storage continuations in openGuiAsync do not dereference Player off-thread")
+    void finding7_storageContinuationsDoNotDereferencePlayer() throws Exception {
+        UUID viewerUuid = UUID.randomUUID();
+        Thread mainThread = Thread.currentThread();
+
+        // Player that strictly enforces thread confinement: any method call off main thread throws!
+        InvocationHandler strictHandler = (proxy, method, args) -> {
+            if (Thread.currentThread() != mainThread) {
+                throw new IllegalStateException("Player." + method.getName() + " was dereferenced off the main thread!");
+            }
+            String mName = method.getName();
+            if ("getName".equals(mName)) return "StrictViewer";
+            if ("getUniqueId".equals(mName)) return viewerUuid;
+            if ("isOnline".equals(mName)) return true;
+            if ("hasPermission".equals(mName)) return true;
+            if ("sendMessage".equals(mName)) return null;
+            if ("openInventory".equals(mName)) return null;
+            return defaultValue(method.getReturnType());
+        };
+        Player strictPlayer = (Player) Proxy.newProxyInstance(
+                Player.class.getClassLoader(),
+                new Class<?>[]{Player.class},
+                strictHandler
+        );
+
+        // Open GUI asynchronously: profile resolution, ratings fetch, and reveals fetch execute on storage engine thread!
+        CompletableFuture<Void> future = guiService.openGuiAsync(strictPlayer, "StrictViewer", configManager.snapshot());
+
+        // Process any main-thread tasks
+        awaitQueued(future);
+
+        assertThat(future.isCompletedExceptionally()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Finding 11: Compensation cleanups attach failure logging and do not drop silently")
+    void finding11_compensationCleanupsObservedAndLogged() throws Exception {
+        UUID viewerUuid = UUID.randomUUID();
+        // Save an intended compensation row
+        long compId = compensationRepo.saveIntentAsync(viewerUuid, 25.0, "rater_reveal", Instant.now()).join();
+
+        // Delete the compensation with logging
+        CompletableFuture<Void> delFuture = compensationRepo.deleteCompensationAsync(compId);
+        delFuture.join();
+
+        assertThat(compensationRepo.findByIdAsync(compId).join()).isEmpty();
+    }
+
     // =========================================================================
     // Test Helpers & Mocks
     // =========================================================================

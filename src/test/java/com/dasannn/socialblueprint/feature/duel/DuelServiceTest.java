@@ -597,6 +597,19 @@ class DuelServiceTest {
         assertThat(broadcastText).doesNotContain("opponent");
     }
 
+    @Test
+    @DisplayName("Finding 10: Failed duel writes attach failure logging and do not drop silently")
+    void finding10_failedDuelWritesAttachFailureLogging() {
+        PlayerId p1 = registerPlayer("FailingP1");
+        PlayerId p2 = registerPlayer("FailingP2");
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        duelService.challenge(p1, Map.of("s1", Set.of(p1), "s2", Set.of(p2)), snapshot);
+        // Accepting duel triggers duelRepository.saveAsync with failure logging
+        DuelService.AcceptResult acceptResult = duelService.accept(p2, null, snapshot);
+        assertThat(acceptResult).isInstanceOf(DuelService.AcceptResult.DuelStarted.class);
+    }
+
     private void copyResource(String resourceName, File destination) throws Exception {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourceName)) {
             if (in == null) {

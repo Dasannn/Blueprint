@@ -44,6 +44,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -253,8 +254,9 @@ public class StatusGuiService {
         }
 
         // Track latest open request ID per viewer (Finding 4)
+        UUID viewerUuid = viewer.getUniqueId();
         long requestId = openRequestCounter.incrementAndGet();
-        latestOpenRequests.put(viewer.getUniqueId(), requestId);
+        latestOpenRequests.put(viewerUuid, requestId);
 
         // Asynchronous load on storage executor (T-122)
         return profileService.resolvePlayerAsync(targetQuery, snapshot)
@@ -264,7 +266,7 @@ public class StatusGuiService {
                             if (!viewer.isOnline()) {
                                 return;
                             }
-                            Long latest = latestOpenRequests.get(viewer.getUniqueId());
+                            Long latest = latestOpenRequests.get(viewerUuid);
                             if (latest == null || latest != requestId) {
                                 return; // Superseded by newer request (Finding 4)
                             }
@@ -278,7 +280,7 @@ public class StatusGuiService {
                     PlayerId targetId = view.playerId();
 
                     CompletableFuture<List<ReputationEvent>> ratingsFuture = reputationRepository.findByTargetAsync(targetId);
-                    CompletableFuture<Set<Long>> revealsFuture = raterRevealRepository.findRevealedEventsByViewerAsync(viewer.getUniqueId());
+                    CompletableFuture<Set<Long>> revealsFuture = raterRevealRepository.findRevealedEventsByViewerAsync(viewerUuid);
 
                     return CompletableFuture.allOf(ratingsFuture, revealsFuture)
                             .thenAccept(v -> {
@@ -858,7 +860,8 @@ public class StatusGuiService {
             return;
         }
 
-        String pendingKey = viewer.getUniqueId() + ":" + eventId;
+        UUID viewerUuid = viewer.getUniqueId();
+        String pendingKey = viewerUuid + ":" + eventId;
         if (!pendingReveals.add(pendingKey)) {
             return; // In-flight click dropped (Finding 2)
         }
@@ -868,7 +871,7 @@ public class StatusGuiService {
         Instant now = clock.instant();
 
         if (exactCost <= 0.0 || economy == null) {
-            raterRevealRepository.saveRevealAsync(viewer.getUniqueId(), eventId, raterUuid, 0.0, now)
+            raterRevealRepository.saveRevealAsync(viewerUuid, eventId, raterUuid, 0.0, now)
                     .thenAccept(inserted -> mainThreadRunner.accept(() -> {
                         pendingReveals.remove(pendingKey);
                         if (!viewer.isOnline()) {
@@ -901,7 +904,7 @@ public class StatusGuiService {
         // Vault money path with compensation intent (Finding 2)
         CompletableFuture<Long> intentFuture;
         if (compensationRepository != null) {
-            intentFuture = compensationRepository.saveIntentAsync(viewer.getUniqueId(), exactCost, "rater_reveal", now);
+            intentFuture = compensationRepository.saveIntentAsync(viewerUuid, exactCost, "rater_reveal", now);
         } else {
             intentFuture = CompletableFuture.completedFuture(null);
         }
@@ -909,17 +912,13 @@ public class StatusGuiService {
         intentFuture.thenAccept(compId -> mainThreadRunner.accept(() -> {
             if (!viewer.isOnline()) {
                 pendingReveals.remove(pendingKey);
-                if (compId != null && compensationRepository != null) {
-                    compensationRepository.deleteCompensationAsync(compId);
-                }
+                deleteCompensationWithLogging(compId, "viewer offline before charge");
                 return;
             }
 
             if (!economy.has(viewer, exactCost)) {
                 pendingReveals.remove(pendingKey);
-                if (compId != null && compensationRepository != null) {
-                    compensationRepository.deleteCompensationAsync(compId);
-                }
+                deleteCompensationWithLogging(compId, "insufficient funds");
                 viewer.sendMessage(messageRegistry.renderWithPrefix(holder.snapshot(), "gui.reveal.insufficient-funds",
                         Map.of("cost", HonorService.formatCost(exactCost))));
                 return;
@@ -928,9 +927,7 @@ public class StatusGuiService {
             EconomyResponse resp = economy.withdrawPlayer(viewer, exactCost);
             if (resp == null || !resp.transactionSuccess()) {
                 pendingReveals.remove(pendingKey);
-                if (compId != null && compensationRepository != null) {
-                    compensationRepository.deleteCompensationAsync(compId);
-                }
+                deleteCompensationWithLogging(compId, "withdraw failed");
                 viewer.sendMessage(messageRegistry.renderWithPrefix(holder.snapshot(), "gui.reveal.insufficient-funds",
                         Map.of("cost", HonorService.formatCost(exactCost))));
                 return;
@@ -941,12 +938,10 @@ public class StatusGuiService {
                     ? compensationRepository.markChargedAsync(compId)
                     : CompletableFuture.completedFuture(true);
 
-            markChargedFuture.thenCompose(ok -> raterRevealRepository.saveRevealAsync(viewer.getUniqueId(), eventId, raterUuid, exactCost, now))
+            markChargedFuture.thenCompose(ok -> raterRevealRepository.saveRevealAsync(viewerUuid, eventId, raterUuid, exactCost, now))
                     .thenAccept(inserted -> {
                         if (inserted) {
-                            if (compId != null && compensationRepository != null) {
-                                compensationRepository.deleteCompensationAsync(compId);
-                            }
+                            deleteCompensationWithLogging(compId, "reveal success");
                             mainThreadRunner.accept(() -> {
                                 pendingReveals.remove(pendingKey);
                                 // Check viewer online & still in this holder (Finding 6)
@@ -994,6 +989,18 @@ public class StatusGuiService {
         });
     }
 
+    private void deleteCompensationWithLogging(Long compId, String context) {
+        if (compId != null && compensationRepository != null) {
+            compensationRepository.deleteCompensationAsync(compId)
+                    .exceptionally(ex -> {
+                        if (logger != null) {
+                            logger.log(Level.WARNING, "[SocialBlueprint] Failed to delete compensation " + compId + " during " + context, ex);
+                        }
+                        return null;
+                    });
+        }
+    }
+
     private void refundCompensation(Player player, double amount, Long compId) {
         if (amount <= 0.0 || economy == null) {
             return;
@@ -1003,29 +1010,55 @@ public class StatusGuiService {
             return;
         }
 
-        compensationRepository.claimForRefundAsync(compId).thenAccept(claimed -> {
-            if (!claimed) {
-                return;
-            }
-            mainThreadRunner.accept(() -> {
-                try {
-                    EconomyResponse refundResp = economy.depositPlayer(player, amount);
-                    if (refundResp != null && refundResp.transactionSuccess()
-                            && Math.abs(refundResp.amount - amount) < 0.0001) {
-                        compensationRepository.markRefundedAsync(compId)
-                                .thenCompose(v -> compensationRepository.deleteCompensationAsync(compId));
-                    } else {
-                        compensationRepository.revertToChargedAsync(compId);
-                    }
-                } catch (Exception ex) {
+        UUID playerUuid = player.getUniqueId();
+        compensationRepository.claimForRefundAsync(compId)
+                .exceptionally(ex -> {
                     if (logger != null) {
-                        logger.severe("[SocialBlueprint] Exception during refund deposit for player "
-                                + player.getUniqueId() + ", amount=" + amount + ": " + ex.getMessage());
+                        logger.log(Level.WARNING, "[SocialBlueprint] Failed to claim compensation " + compId + " for refund", ex);
                     }
-                    compensationRepository.markUncertainAsync(compId);
-                }
-            });
-        });
+                    return false;
+                })
+                .thenAccept(claimed -> {
+                    if (!claimed) {
+                        return;
+                    }
+                    mainThreadRunner.accept(() -> {
+                        try {
+                            EconomyResponse refundResp = economy.depositPlayer(player, amount);
+                            if (refundResp != null && refundResp.transactionSuccess()
+                                    && Math.abs(refundResp.amount - amount) < 0.0001) {
+                                compensationRepository.markRefundedAsync(compId)
+                                        .thenCompose(v -> compensationRepository.deleteCompensationAsync(compId))
+                                        .exceptionally(ex -> {
+                                            if (logger != null) {
+                                                logger.log(Level.WARNING, "[SocialBlueprint] Failed to mark/delete refunded compensation " + compId, ex);
+                                            }
+                                            return null;
+                                        });
+                            } else {
+                                compensationRepository.revertToChargedAsync(compId)
+                                        .exceptionally(ex -> {
+                                            if (logger != null) {
+                                                logger.log(Level.WARNING, "[SocialBlueprint] Failed to revert compensation " + compId + " to CHARGED", ex);
+                                            }
+                                            return false;
+                                        });
+                            }
+                        } catch (Exception ex) {
+                            if (logger != null) {
+                                logger.severe("[SocialBlueprint] Exception during refund deposit for player "
+                                        + playerUuid + ", amount=" + amount + ": " + ex.getMessage());
+                            }
+                            compensationRepository.markUncertainAsync(compId)
+                                    .exceptionally(markEx -> {
+                                        if (logger != null) {
+                                            logger.log(Level.WARNING, "[SocialBlueprint] Failed to mark compensation " + compId + " as UNCERTAIN", markEx);
+                                        }
+                                        return false;
+                                    });
+                        }
+                    });
+                });
     }
 
     private void applyRevealSuccess(Player viewer, StatusGuiHolder holder, long eventId, UUID raterUuid, double exactCost) {

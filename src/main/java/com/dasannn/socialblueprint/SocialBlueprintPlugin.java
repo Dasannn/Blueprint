@@ -36,6 +36,7 @@ import com.dasannn.socialblueprint.storage.CompensationRepository;
 import java.io.File;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.logging.Level;
 
 public final class SocialBlueprintPlugin extends JavaPlugin {
 
@@ -221,7 +222,11 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     }
                 }
         );
-        this.honorService.reconcileCompensationsAsync();
+        this.honorService.reconcileCompensationsAsync()
+                .exceptionally(error -> {
+                    getLogger().log(Level.WARNING, "Initial compensation reconciliation failed", error);
+                    return null;
+                });
 
         this.statusGuiService = new com.dasannn.socialblueprint.feature.gui.StatusGuiService(
                 messageRegistry,
@@ -285,7 +290,18 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         );
 
         getServer().getPluginManager().registerEvents(
-                new AsyncChatListener(profileService, configManager, messageRegistry, statusGuiService),
+                new AsyncChatListener(
+                        profileService,
+                        configManager,
+                        messageRegistry,
+                        statusGuiService,
+                        runnable -> {
+                            if (isEnabled()) {
+                                getServer().getScheduler().runTask(this, runnable);
+                            }
+                        },
+                        uuid -> getServer().getPlayer(uuid)
+                ),
                 this
         );
         getServer().getPluginManager().registerEvents(
@@ -325,6 +341,10 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this
         );
 
+        File updateFolder = getServer().getUpdateFolderFile();
+        String currentVersion = getDescription().getVersion();
+        File pluginJar = getFile();
+
         this.updateService = new com.dasannn.socialblueprint.feature.update.UpdateService(
                 configManager,
                 messageRegistry,
@@ -334,9 +354,9 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                         getServer().getScheduler().runTask(this, runnable);
                     }
                 },
-                () -> getServer().getUpdateFolderFile(),
-                () -> getDescription().getVersion(),
-                this::getFile,
+                updateFolder,
+                currentVersion,
+                pluginJar,
                 java.net.http.HttpClient.newBuilder()
                         .connectTimeout(java.time.Duration.ofSeconds(10))
                         .build(),
@@ -357,7 +377,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     }
                 },
                 () -> getServer().getConsoleSender(),
-                getLogger()
+                getLogger(),
+                this.configManager.ioExecutor()
         );
 
         PluginCommand statusCmd = getCommand("status");

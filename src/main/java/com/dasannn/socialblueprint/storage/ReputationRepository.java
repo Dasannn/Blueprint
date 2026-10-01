@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.NonPlayerTarget;
 import com.dasannn.socialblueprint.domain.PlayerProfile;
@@ -32,6 +34,8 @@ import com.dasannn.socialblueprint.domain.PsychosisEvent;
  * Writes invalidate the target in {@link StatusCache}.
  */
 public final class ReputationRepository {
+
+    private static final Logger LOGGER = Logger.getLogger(ReputationRepository.class.getName());
 
     private final StorageEngine engine;
     private final StatusCache statusCache;
@@ -189,7 +193,11 @@ public final class ReputationRepository {
                 }
                 conn.commit();
                 if (compensationId != null && compensationRepository != null) {
-                    compensationRepository.deleteCompensationAsync(compensationId);
+                    compensationRepository.deleteCompensationAsync(compensationId)
+                            .exceptionally(error -> {
+                                LOGGER.log(Level.WARNING, "Failed to delete compensation row " + compensationId + " after reputation commit", error);
+                                return null;
+                            });
                 }
                 return saved;
             } catch (Exception ex) {

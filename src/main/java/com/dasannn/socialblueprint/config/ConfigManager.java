@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.config;
 
 import com.dasannn.socialblueprint.domain.Tier;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
@@ -12,8 +13,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -85,6 +89,10 @@ public class ConfigManager {
         reload();
     }
 
+    public CompletableFuture<RuntimeSnapshot> reloadAsync() {
+        return CompletableFuture.supplyAsync(this::reload, ioExecutor);
+    }
+
     /**
      * Reloads configuration from disk atomically (T-034).
      * Validates through {@link PluginConfig#load(org.bukkit.configuration.ConfigurationSection)}
@@ -99,7 +107,8 @@ public class ConfigManager {
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
             PluginConfig newConfig = PluginConfig.load(yaml);
             MessagesSnapshot newMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
-            RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages);
+            Map<String, String> leafValues = extractLeafValues(yaml);
+            RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages, leafValues);
             snapshotRef.set(newSnapshot);
             notifySnapshotListeners(newSnapshot);
             return newSnapshot;
@@ -170,11 +179,15 @@ public class ConfigManager {
         // 2. Check if it's a config.yml leaf
         String resolved = resolveConfigPath(path);
         if (isSupportedConfigLeaf(resolved)) {
-            YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
-            if (yaml.contains(resolved)) {
-                Object val = yaml.get(resolved);
-                return val != null ? val.toString() : "";
+            String val = snapshot.getLeaf(resolved);
+            if (val != null) {
+                return val;
             }
+            val = getLeafFromConfig(snapshot.config(), resolved);
+            if (val != null) {
+                return val;
+            }
+            return "";
         }
 
         throw new ConfigValidationException(path, "Unknown or uneditable configuration key: " + path);
@@ -215,7 +228,8 @@ public class ConfigManager {
                         ? current.messages()
                         : MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
 
-                RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, messages);
+                Map<String, String> leafValues = extractLeafValues(yaml);
+                RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, messages, leafValues);
                 snapshotRef.set(newSnapshot);
                 notifySnapshotListeners(newSnapshot);
                 return newSnapshot;
@@ -245,7 +259,7 @@ public class ConfigManager {
 
                 // Reload messages and publish updated snapshot
                 MessagesSnapshot updatedMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, activeLang, logger);
-                RuntimeSnapshot newSnapshot = new RuntimeSnapshot(current.config(), updatedMessages);
+                RuntimeSnapshot newSnapshot = new RuntimeSnapshot(current.config(), updatedMessages, current.leafValues());
                 snapshotRef.set(newSnapshot);
                 notifySnapshotListeners(newSnapshot);
                 return newSnapshot;
@@ -514,4 +528,142 @@ public class ConfigManager {
         return Collections.unmodifiableSet(set);
     }
 
+    static Map<String, String> extractLeafValues(ConfigurationSection root) {
+        if (root == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> leaves = new HashMap<>();
+        for (String leaf : SUPPORTED_CONFIG_LEAVES) {
+            if (root.contains(leaf)) {
+                Object val = root.get(leaf);
+                if (val != null) {
+                    leaves.put(leaf, val.toString());
+                }
+            }
+        }
+        return Collections.unmodifiableMap(leaves);
+    }
+
+    static String getLeafFromConfig(PluginConfig config, String path) {
+        if (config == null || path == null) return null;
+        if ("language".equals(path)) return config.language();
+        if ("chat-prefix".equals(path)) return config.chatPrefix();
+
+        if (path.startsWith("tiers.")) {
+            String[] parts = path.split("\\.");
+            if (parts.length == 3 && config.tiers() != null) {
+                for (Tier tier : Tier.values()) {
+                    if (tier.configKey().equalsIgnoreCase(parts[1])) {
+                        TierConfig tc = config.tiers().get(tier);
+                        if (tc != null) {
+                            if ("prefix".equals(parts[2])) return tc.prefix();
+                            if ("threshold".equals(parts[2])) return String.valueOf(tc.threshold());
+                        }
+                    }
+                }
+            }
+        }
+
+        if ("confidence.half-life".equals(path) && config.confidence() != null) return formatDuration(config.confidence().halfLife());
+        if ("confidence.low-threshold".equals(path) && config.confidence() != null) return String.valueOf(config.confidence().lowThreshold());
+        if ("confidence.established-threshold".equals(path) && config.confidence() != null) return String.valueOf(config.confidence().establishedThreshold());
+        if ("confidence.high-threshold".equals(path) && config.confidence() != null) return String.valueOf(config.confidence().highThreshold());
+
+        if ("decay.enabled".equals(path) && config.decay() != null) return String.valueOf(config.decay().enabled());
+        if ("decay.half-life".equals(path) && config.decay() != null) return formatDuration(config.decay().halfLife());
+        if ("decay.floor".equals(path) && config.decay() != null) return String.valueOf(config.decay().floor());
+        if ("decay.cache-ttl".equals(path) && config.decay() != null) return formatDuration(config.decay().cacheTtl());
+
+        if ("psychosis.window".equals(path) && config.psychosis() != null) return formatDuration(config.psychosis().window());
+        if ("psychosis.medium-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().mediumThreshold());
+        if ("psychosis.high-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().highThreshold());
+        if ("psychosis.extreme-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().extremeThreshold());
+
+        if ("honor.cost".equals(path) && config.honor() != null) return String.valueOf(config.honor().cost());
+        if ("honor.multiplier-window".equals(path) && config.honor() != null) return formatDuration(config.honor().multiplierWindow());
+        if ("honor.cap-window".equals(path) && config.honor() != null) return formatDuration(config.honor().capWindow());
+        if ("honor.cooldown-per-pair".equals(path) && config.honor() != null) return formatDuration(config.honor().cooldownPerPair());
+        if ("honor.max-per-target".equals(path) && config.honor() != null) return String.valueOf(config.honor().maxPerTarget());
+
+        if (config.permissions() != null && path.startsWith("permissions.")) {
+            // One lookup, not an accessor per action: the record holds a map and
+            // twelve hand-written getters would silently fall behind it.
+            String action = path.substring("permissions.".length());
+            if (PermissionsConfig.REQUIRED_ACTIONS.contains(action)
+                    || config.permissions().nodes().containsKey(action)) {
+                return config.permissions().node(action);
+            }
+        }
+
+        if (config.duel() != null) {
+            if ("duel.challenge-timeout".equals(path)) return formatDuration(config.duel().challengeTimeout());
+            if ("duel.disconnect.combat-log-window".equals(path)) return formatDuration(config.duel().disconnect().combatLogWindow());
+            if ("duel.disconnect.reconnect-grace-period".equals(path)) return formatDuration(config.duel().disconnect().reconnectGracePeriod());
+            if ("duel.disconnect.action".equals(path)) return config.duel().disconnect().action();
+        }
+
+        if (config.effects() != null) {
+            if ("effects.threshold".equals(path)) return String.valueOf(config.effects().threshold());
+            if ("effects.check-interval".equals(path)) return formatDuration(config.effects().checkInterval());
+            if ("effects.silverfish.cooldown".equals(path)) return formatDuration(config.effects().silverfish().cooldown());
+            if ("effects.silverfish.session-cap".equals(path)) return String.valueOf(config.effects().silverfish().sessionCap());
+            if ("effects.silverfish.duration-ticks".equals(path)) return String.valueOf(config.effects().silverfish().durationTicks());
+            if ("effects.whisper.cooldown".equals(path)) return formatDuration(config.effects().whisper().cooldown());
+            if ("effects.whisper.session-cap".equals(path)) return String.valueOf(config.effects().whisper().sessionCap());
+            if ("effects.creeper.cooldown".equals(path)) return formatDuration(config.effects().creeper().cooldown());
+            if ("effects.creeper.session-cap".equals(path)) return String.valueOf(config.effects().creeper().sessionCap());
+            if ("effects.fake-announcement.cooldown".equals(path)) return formatDuration(config.effects().fakeAnnouncement().cooldown());
+            if ("effects.fake-announcement.session-cap".equals(path)) return String.valueOf(config.effects().fakeAnnouncement().sessionCap());
+            if ("effects.fake-announcement.fake-names".equals(path)) return config.effects().fakeAnnouncement().fakeNames().toString();
+        }
+
+        if (config.legacyImport() != null && "legacy-import.trust-name-lookup".equals(path)) {
+            return String.valueOf(config.legacyImport().trustNameLookup());
+        }
+
+        if (config.update() != null) {
+            if ("update.check-on-startup".equals(path)) return String.valueOf(config.update().checkOnStartup());
+            if ("update.auto-download".equals(path)) return String.valueOf(config.update().autoDownload());
+            if ("update.repository".equals(path)) return config.update().repository();
+            if ("update.channel".equals(path)) return config.update().channel();
+            if ("update.api-url".equals(path)) return config.update().apiUrl();
+            if ("update.max-download-bytes".equals(path)) return String.valueOf(config.update().maxDownloadBytes());
+        }
+
+        if (config.killPenalty() != null) {
+            if ("kill-penalty.delta".equals(path)) return String.valueOf(config.killPenalty().delta());
+            if ("kill-penalty.pair-cooldown".equals(path)) return formatDuration(config.killPenalty().pairCooldown());
+            if ("kill-penalty.cap-window".equals(path)) return formatDuration(config.killPenalty().capWindow());
+            if ("kill-penalty.max-loss".equals(path)) return String.valueOf(config.killPenalty().maxLoss());
+            if ("kill-penalty.exempt-worlds".equals(path)) return config.killPenalty().exemptWorlds().toString();
+        }
+
+        if (config.history() != null && "history.reveal-cost".equals(path)) {
+            return String.valueOf(config.history().revealCost());
+        }
+
+        if (path.startsWith("sounds.")) {
+            String[] parts = path.split("\\.");
+            if (parts.length == 3 && config.sounds() != null) {
+                SoundSlotConfig slot = config.sounds().get(parts[1]);
+                if (slot != null) {
+                    if ("key".equals(parts[2])) return slot.key();
+                    if ("volume".equals(parts[2])) return String.valueOf(slot.volume());
+                    if ("pitch".equals(parts[2])) return String.valueOf(slot.pitch());
+                    if ("category".equals(parts[2])) return slot.category().name().toLowerCase(Locale.ROOT);
+                    if ("delay".equals(parts[2])) return String.valueOf(slot.layers().isEmpty() ? 0L : slot.layers().getFirst().delay());
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String formatDuration(java.time.Duration d) {
+        if (d == null) return "0s";
+        long seconds = d.getSeconds();
+        if (seconds % 86400 == 0 && seconds > 0) return (seconds / 86400) + "d";
+        if (seconds % 3600 == 0 && seconds > 0) return (seconds / 3600) + "h";
+        if (seconds % 60 == 0 && seconds > 0) return (seconds / 60) + "m";
+        return seconds + "s";
+    }
 }

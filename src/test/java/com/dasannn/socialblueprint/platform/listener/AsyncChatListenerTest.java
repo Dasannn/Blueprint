@@ -11,16 +11,30 @@ import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.PsychosisLevel;
 import com.dasannn.socialblueprint.domain.Tier;
 import com.dasannn.socialblueprint.domain.TierLadder;
+import com.dasannn.socialblueprint.feature.gui.StatusGuiService;
+import com.dasannn.socialblueprint.feature.honor.HonorService;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
+import com.dasannn.socialblueprint.storage.AuditRepository;
+import com.dasannn.socialblueprint.storage.CompensationRepository;
 import com.dasannn.socialblueprint.storage.ProfileRepository;
 import com.dasannn.socialblueprint.storage.PsychosisRepository;
+import com.dasannn.socialblueprint.storage.RaterRevealRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
 import io.papermc.paper.chat.ChatRenderer;
+import io.papermc.paper.event.player.AsyncChatEvent;
+import net.kyori.adventure.chat.SignedMessage;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.TextColor;
+import org.bukkit.entity.Player;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Proxy;
+import java.util.concurrent.CompletableFuture;
+import java.util.Collections;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -326,5 +340,114 @@ class AsyncChatListenerTest {
             }
         }
         return false;
+    }
+
+    @Test
+    @DisplayName("Finding 6: AsyncChatListener cancels event off-thread and runs reason prompt on main thread")
+    void finding6_chatReasonPromptHopsToMainThread() throws Exception {
+        UUID playerUuid = UUID.randomUUID();
+        AtomicReference<Thread> consumeThread = new AtomicReference<>();
+        AtomicReference<Thread> chatCallingThread = new AtomicReference<>();
+
+        Thread mainThread = new Thread(() -> {}, "MainServerThread");
+
+        StatusCache statusCache = new StatusCache();
+        ReputationRepository reputationRepo = new ReputationRepository(storage, statusCache);
+        RaterRevealRepository raterRevealRepo = new RaterRevealRepository(storage);
+        AuditRepository auditRepo = new AuditRepository(storage);
+        CompensationRepository compensationRepo = new CompensationRepository(storage);
+        HonorService honorService = new HonorService(
+                configManager,
+                messageRegistry,
+                reputationRepo,
+                auditRepo,
+                compensationRepo,
+                profileService,
+                null,
+                Runnable::run
+        );
+
+        StatusGuiService testGuiService =
+                new StatusGuiService(
+                        messageRegistry,
+                        profileService,
+                        reputationRepo,
+                        raterRevealRepo,
+                        honorService,
+                        Runnable::run,
+                        null,
+                        null,
+                        java.time.Clock.systemUTC(),
+                        null,
+                        compensationRepo,
+                        null
+                ) {
+                    @Override
+                    public boolean hasPendingReason(UUID uuid) {
+                        return playerUuid.equals(uuid);
+                    }
+
+                    @Override
+                    public CompletableFuture<Void> consumePendingReason(Player player, String rawMessage) {
+                        consumeThread.set(Thread.currentThread());
+                        return CompletableFuture.completedFuture(null);
+                    }
+                };
+
+        InvocationHandler playerHandler = (proxy, method, args) -> {
+            if ("getUniqueId".equals(method.getName())) return playerUuid;
+            if ("getName".equals(method.getName())) return "ReasonPlayer";
+            if ("isOnline".equals(method.getName())) return true;
+            return null;
+        };
+        Player mockPlayer = (Player) Proxy.newProxyInstance(
+                Player.class.getClassLoader(),
+                new Class<?>[]{Player.class},
+                playerHandler
+        );
+
+        AsyncChatListener listener = new AsyncChatListener(
+                profileService,
+                configManager,
+                messageRegistry,
+                testGuiService,
+                r -> {
+                    // Simulate scheduler running task on main server thread
+                    Thread runner = new Thread(r, "MainServerThread");
+                    runner.start();
+                    try {
+                        runner.join();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                },
+                uuid -> mockPlayer
+        );
+
+        AsyncChatEvent event = new AsyncChatEvent(
+                true,
+                mockPlayer,
+                Collections.emptySet(),
+                (p, dn, m, v) -> m,
+                Component.text("Griefing defense reason"),
+                Component.text("Griefing defense reason"),
+                SignedMessage.system("Griefing defense reason", Component.text("Griefing defense reason"))
+        );
+
+        // Deliver chat event from an async thread
+        Thread asyncChatThread = new Thread(() -> {
+            chatCallingThread.set(Thread.currentThread());
+            listener.onChat(event);
+        }, "AsyncChatThread");
+        asyncChatThread.start();
+        asyncChatThread.join();
+
+        // 1. Event must be cancelled on the async chat thread
+        assertThat(event.isCancelled()).isTrue();
+
+        // 2. Reason consumption MUST have occurred on the main thread, NEVER on the async chat thread
+        assertThat(consumeThread.get()).isNotNull();
+        assertThat(consumeThread.get().getName()).isEqualTo("MainServerThread");
+        assertThat(consumeThread.get()).isNotEqualTo(chatCallingThread.get());
     }
 }

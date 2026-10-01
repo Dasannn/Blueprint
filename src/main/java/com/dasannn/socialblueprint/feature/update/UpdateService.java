@@ -91,6 +91,22 @@ public class UpdateService {
             MessageRegistry messageRegistry,
             Executor asyncExecutor,
             Consumer<Runnable> mainThreadRunner,
+            File updateFolder,
+            String currentVersion,
+            File currentJar,
+            HttpClient httpClient,
+            Logger logger
+    ) {
+        this(configManager, messageRegistry, asyncExecutor, mainThreadRunner,
+                () -> updateFolder, () -> currentVersion, () -> currentJar,
+                httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting());
+    }
+
+    public UpdateService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            Executor asyncExecutor,
+            Consumer<Runnable> mainThreadRunner,
             Supplier<File> updateFolderSupplier,
             Supplier<String> currentVersionSupplier,
             Supplier<File> currentJarSupplier,

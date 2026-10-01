@@ -6,9 +6,15 @@ import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.MessagesSnapshot;
 import com.dasannn.socialblueprint.config.PluginConfig;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
+import com.dasannn.socialblueprint.domain.AuditEvent;
+import com.dasannn.socialblueprint.domain.NonPlayerTarget;
+import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.storage.AuditRepository;
+import com.dasannn.socialblueprint.storage.StorageEngine;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Server;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionAttachment;
 import org.bukkit.permissions.PermissionAttachmentInfo;
@@ -17,6 +23,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Proxy;
+import java.util.concurrent.CompletableFuture;
 
 import java.io.File;
 import java.io.InputStream;
@@ -364,7 +374,57 @@ class StatusConfigCommandTest {
     }
 
     @Test
-    @DisplayName("Finding 8: /status config kill-penalty.exempt-worlds supports get and set in-game")
+    @DisplayName("Finding 2: /status config reload runs off the command thread and replies on the main thread")
+    void finding2_reloadSubmitsThroughIoExecutorAndRepliesOnMainThread() throws Exception {
+        AtomicReference<Thread> reloadThread = new AtomicReference<>();
+        AtomicReference<Thread> replyThread = new AtomicReference<>();
+        java.util.concurrent.ExecutorService testIo = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+        File configFile = new File(tempDir, "config-finding2.yml");
+        Files.copy(new File(tempDir, "config.yml").toPath(), configFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+        ConfigManager customConfig = new ConfigManager(
+                configFile,
+                messageRegistry,
+                r -> testIo.submit(() -> {
+                    reloadThread.set(Thread.currentThread());
+                    r.run();
+                }),
+                () -> "1.0",
+                Logger.getLogger("test")
+        );
+        customConfig.initialize();
+
+        java.util.concurrent.CountDownLatch replied = new java.util.concurrent.CountDownLatch(1);
+        StatusConfigCommand customCmd = new StatusConfigCommand(
+                customConfig,
+                messageRegistry,
+                null,
+                r -> {
+                    replyThread.set(Thread.currentThread());
+                    r.run();
+                    replied.countDown();
+                },
+                Logger.getLogger("test")
+        );
+
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+        boolean executed = customCmd.execute(admin, new String[]{"reload"});
+        assertThat(executed).isTrue();
+
+        // The reply runner trips the latch, so the wait ends when the work ends
+        // rather than when a poll interval happens to notice.
+        assertThat(replied.await(3, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        assertThat(reloadThread.get()).isNotNull();
+        assertThat(reloadThread.get()).isNotSameAs(Thread.currentThread());
+        assertThat(replyThread.get()).isNotNull();
+
+        testIo.shutdownNow();
+    }
+
+    @Test
+    @DisplayName("Finding 8: /status config <key> [value] edits kill-penalty.exempt-worlds in-game")
     void finding8_editExemptWorldsInGame() {
         MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
 
@@ -426,6 +486,77 @@ class StatusConfigCommandTest {
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-success");
         assertThat(configManager.config().sounds().creeperFuse().pitch()).isEqualTo(1.5f);
     }
+
+    @Test
+    @DisplayName("Finding 8: /status config set derives the actor on the calling thread")
+    void finding8_setCapturesActorBeforeAsyncExecution() throws Exception {
+        UUID expectedUuid = UUID.randomUUID();
+        try (StorageEngine storage = StorageEngine.inMemory()) {
+            storage.runMigrations();
+            AuditRepository auditRepo = new AuditRepository(storage);
+
+            StatusConfigCommand customCmd = new StatusConfigCommand(
+                    configManager,
+                    messageRegistry,
+                    auditRepo,
+                    Runnable::run,
+                    Logger.getLogger("test")
+            );
+
+            // The proxy is the assertion: if the actor were derived inside the
+            // asynchronous write instead of before it, getUniqueId would run off
+            // this thread and throw, and no audit row would carry the right uuid.
+            Thread mainThread = Thread.currentThread();
+            InvocationHandler playerHandler = (proxy, method, args) -> {
+                if ("getUniqueId".equals(method.getName())) {
+                    if (Thread.currentThread() != mainThread) {
+                        throw new IllegalStateException("Player.getUniqueId() called off main thread!");
+                    }
+                    return expectedUuid;
+                }
+                if ("getName".equals(method.getName())) return "AdminPlayer";
+                if ("hasPermission".equals(method.getName())) return true;
+                return null;
+            };
+            Player player = (Player) Proxy.newProxyInstance(
+                    Player.class.getClassLoader(),
+                    new Class<?>[]{Player.class},
+                    playerHandler
+            );
+
+            boolean executed = customCmd.execute(player, new String[]{"honor.cost", "150"});
+            assertThat(executed).isTrue();
+
+            List<AuditEvent> audits = auditRepo.findByTarget(NonPlayerTarget.configKey("honor.cost"));
+            assertThat(audits).isNotEmpty();
+            assertThat(audits.getFirst().actor()).isEqualTo(PlayerId.of(expectedUuid));
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 3: /status config get serves from snapshot without touching disk")
+    void finding3_getServesFromSnapshotWithoutReadingFile() throws Exception {
+        File configFile = new File(tempDir, "config.yml");
+        // Delete the config file from disk completely to guarantee any disk read would fail
+        File deletedConfig = new File(tempDir, "config-deleted.yml");
+        Files.move(configFile.toPath(), deletedConfig.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+        messageRegistry.clear();
+
+        // Reading honor.cost must serve from the in-memory snapshot leaf values
+        boolean result = command.execute(admin, new String[]{"honor.cost"});
+        assertThat(result).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
+        assertThat(messageRegistry.lastCall().placeholders().get("key")).isEqualTo("honor.cost");
+        // 500.0 is the shipped default; the point of the test is that it was read
+        // with config.yml renamed out from under the command.
+        assertThat(messageRegistry.lastCall().placeholders().get("value")).isEqualTo("500.0");
+
+        // Restore file
+        Files.move(deletedConfig.toPath(), configFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    }
+
 
     private static class MockSender implements CommandSender {
         private final String name;
