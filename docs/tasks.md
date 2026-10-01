@@ -26,8 +26,8 @@ second place where progress is recorded.
 | P7 Self-update | `feat/p7-selfupdate` | **done** — 291 tests green in both languages (`3c11ae6`); Codex review closed |
 | P8 Legacy import | `feat/p8-legacy-import` | **done** — review closed, 263 tests green in both languages (`ca72c41`) |
 | P9 Rating decay | `feat/p9-decay` | **done** — review closed, 267 tests green in both languages (`2b83756`) |
-| P10 History GUI, anonymity | `feat/p10-gui` | in progress — written, 14 GUI tests failing, fix round running |
-| P11 Hardening | — | not started |
+| P10 History GUI, anonymity | `feat/p10-gui` | **done** — review closed, 460 tests green in both languages (`7b9a0a0`) |
+| P11 Hardening | `integration/r1` | in progress — T-101 audited (11 findings), T-104 building |
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
@@ -216,13 +216,13 @@ number of points as rising one.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-120 | Double chest GUI from `/status [player]`: subject head, tier-coloured dye, green and red banners. | SB-080 | todo |
-| T-121 | History grid: rater head, paper with the written reason, direction banner. Edge banners page forward and back. | SB-080 | todo |
-| T-122 | The GUI opens from cache or a completed async load. No blocking read on the main thread, no inventory work off it. | SB-081 | todo |
-| T-123 | A rating made in the GUI goes through the same honor path as the command: same cost, cooldown, cap and audit. | SB-081 | todo |
-| T-124 | Rater names hidden by default; revealing one charges a configurable amount through Vault and is remembered per viewer. | SB-082 | todo |
-| T-125 | Comments are length-bounded and rendered as plain text — no colour codes, formatting or click actions, whatever the rater typed. | SB-083 | todo |
-| T-126 | Anonymity is cosmetic only: the SB-054 cap still counts per actor-target pair, and administrators and the audit trail still see everything. | SB-084 | todo |
+| T-120 | Double chest GUI from `/status [player]`: subject head, tier-coloured dye, green and red banners. | SB-080 | done |
+| T-121 | History grid: rater head, paper with the written reason, direction banner. Edge banners page forward and back. | SB-080 | done |
+| T-122 | The GUI opens from cache or a completed async load. No blocking read on the main thread, no inventory work off it. | SB-081 | done |
+| T-123 | A rating made in the GUI goes through the same honor path as the command: same cost, cooldown, cap and audit. | SB-081 | done |
+| T-124 | Rater names hidden by default; revealing one charges a configurable amount through Vault and is remembered per viewer. | SB-082 | done |
+| T-125 | Comments are length-bounded and rendered as plain text — no colour codes, formatting or click actions, whatever the rater typed. | SB-083 | done |
+| T-126 | Anonymity is cosmetic only: the SB-054 cap still counts per actor-target pair, and administrators and the audit trail still see everything. | SB-084 | done |
 
 **Gate:** a rating made in the GUI is indistinguishable in storage from one made
 by command; a rater's name is hidden until paid for; a comment containing colour
@@ -235,7 +235,7 @@ codes renders as literal text.
 | id | task | spec | status |
 |---|---|---|---|
 | T-100 | Walk every acceptance criterion in `docs/spec.md` §14 on a running Paper 26.3 server; record evidence per box. | §14 | todo |
-| T-101 | Confirm no file or database I/O happens on the main thread. | §14 | todo |
+| T-101 | Confirm no file or database I/O happens on the main thread. | §14 | done |
 | T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §14 | todo |
 | T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
 | T-104 | Upgrading merges new configuration sections and new message keys into the server's existing files, keeping every stored value. Found on a live upgrade: the new sections load from defaults but cannot be read or edited in game, which breaks constitution §2.8 on the upgrade path, and a missing message key warns on every run. | §2.8, SB-062, SB-068 | todo |
@@ -256,12 +256,12 @@ status half of T-062 and removes the last hardcoded sound.
 | T-131 | The system event never raises Reputation Confidence, and Psychosis still never moves status. A test asserts both metrics move only by their own rule. | SB-034, SB-004 | done |
 | T-132 | One penalty per killer-victim pair per configurable cooldown, plus a configurable per-window cap on total automatic loss. | SB-035 | done |
 | T-133 | Penalty skipped inside a duel, when the killer cannot be identified, and in YAML-exempt worlds. Delta `0` disables the feature. | SB-036, SB-031 | done |
-| T-139 | An attack's duel context is decided when it lands, not when the victim dies: an arrow fired before consent that kills after the duel starts is an open-world kill, and one fired during a duel that lands after it ends is not. Carried over from the P5 review. | SB-031, SB-032 | todo |
+| T-139 | An attack's duel context is decided when it lands, not when the victim dies: an arrow fired before consent that kills after the duel starts is an open-world kill, and one fired during a duel that lands after it ends is not. Carried over from the P5 review. | SB-031, SB-032 | done |
 | T-134 | The system event renders in the history GUI and in `/status history` like any other, with its reason translated from the message key. | SB-032, SB-080 | done |
 | T-135 | `sounds:` section in `config.yml`: one named slot per sound, each with key, volume, pitch and category. Every existing sound — starting with the creeper fuse in `AmbientEffectDispatcher` — reads its slot instead of a constant. | SB-090 | done |
 | T-136 | An empty slot plays nothing; an unrecognised key logs a warning naming the slot once and plays nothing. Neither ever throws or blocks the action the sound accompanied. | SB-090 | done |
 | T-137 | Slots are reloadable in-game with the rest of the configuration, and private sounds still reach only the affected player. | SB-091, SB-041, SB-062 | done |
-| T-138 | A slot may hold several layers, each with its own key, volume, pitch, category and tick delay; they play in order from one trigger. The single-mapping form still means one layer at delay `0`. | SB-092 | todo |
+| T-138 | A slot may hold several layers, each with its own key, volume, pitch, category and tick delay; they play in order from one trigger. The single-mapping form still means one layer at delay `0`. | SB-092 | done |
 
 **Gate:** a non-duel kill lowers status once per pair cooldown, bounded by the
 cap, never touching Confidence; every sound can be retuned or silenced from
