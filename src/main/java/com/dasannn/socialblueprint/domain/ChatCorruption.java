@@ -26,10 +26,10 @@ public final class ChatCorruption {
     public static String corrupt(String message, PsychosisLevel level, long speakerSeed,
                                  long sequence, ChatCorruptionConfig config) {
         String safe = plain(message);
-        if (level == PsychosisLevel.LOW || (sequence & 1) != 0) return safe;
+        if (!level.hasMadnessEffects() || (sequence & 1) != 0) return safe;
         Random random = new Random(seed(message, speakerSeed, sequence));
         int rate = switch (level) {
-            case LOW -> 0;
+            case LOW, NEUTRAL, SERENITY -> 0;
             case MEDIUM -> config.mediumRate();
             case HIGH -> config.highRate();
             case EXTREME -> config.extremeRate();

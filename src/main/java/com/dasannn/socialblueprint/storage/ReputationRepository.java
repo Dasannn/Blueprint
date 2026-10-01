@@ -632,6 +632,7 @@ public final class ReputationRepository {
         Objects.requireNonNull(now, "now must not be null");
         Objects.requireNonNull(settings, "settings must not be null");
         Objects.requireNonNull(psychosisRepository, "psychosisRepository must not be null");
+        psychosisRepository.notifyKill(new PsychosisEvent(0L, killerId, victimId, CombatContext.OPEN, now));
 
         return engine.executeAsync(conn -> {
             boolean initialAutoCommit = conn.getAutoCommit();
@@ -690,6 +691,7 @@ public final class ReputationRepository {
                 notifyInvalidation(killerId);
             }
             psychosisRepository.notifyInvalidation(killerId);
+            psychosisRepository.notifyKill(result.psychosisEvent());
             return result;
         });
     }

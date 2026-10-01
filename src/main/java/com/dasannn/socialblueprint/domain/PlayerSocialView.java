@@ -19,8 +19,13 @@ public record PlayerSocialView(
         Tier tier,
         ConfidenceLevel confidence,
         PsychosisLevel psychosis,
-        int contributors
+        int contributors,
+        double psychosisMagnitude
 ) {
+    public PlayerSocialView(PlayerId playerId, String name, int status, Tier tier, ConfidenceLevel confidence,
+                            PsychosisLevel psychosis, int contributors) {
+        this(playerId, name, status, tier, confidence, psychosis, contributors, 0);
+    }
     public PlayerSocialView {
         Objects.requireNonNull(playerId, "playerId must not be null");
         Objects.requireNonNull(name, "name must not be null");
@@ -31,7 +36,7 @@ public record PlayerSocialView(
 
     /**
      * Creates a neutral profile view for a player with no record per SB-005.
-     * Status 0, Confidence Unknown, Psychosis Low, 0 contributors.
+     * Status 0, Confidence Unknown, Psychosis Neutral, 0 contributors.
      * Never negative or suspect.
      */
     public static PlayerSocialView neutral(PlayerId playerId, String name, TierLadder ladder) {
@@ -44,7 +49,7 @@ public record PlayerSocialView(
                 0,
                 ladder.resolve(0),
                 ConfidenceLevel.UNKNOWN,
-                PsychosisLevel.LOW,
+                PsychosisLevel.NEUTRAL,
                 0
         );
     }

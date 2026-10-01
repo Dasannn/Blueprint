@@ -100,6 +100,10 @@ decay:
 # If these thresholds are too aggressive for an active PvP server, raise them below.
 # ==============================================================================
 psychosis:
+  serenity:
+    ceiling: 100
+    active-hours-to-ceiling: 100
+    idle-timeout-seconds: 300
   # Percentages; every other message and at least 75% of words/letters stay intact.
   chat:
     medium-rate: 10
@@ -194,6 +198,48 @@ duel:
 # Private, cosmetic episodes triggered by Medium, High and Extreme Psychosis.
 # ==============================================================================
 effects:
+  # Serenity episode settings.
+  serenity:
+    episodes:
+      interval-ticks: 6000
+      quiet-ticks: 200
+    observer-range-blocks: 16
+    dawn:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      time-ticks: 23000
+      duration-ticks: 60
+    source-less-sounds:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      sound-slot: serenity-clean
+      offset:
+        forward-blocks: 0
+        right-blocks: 0
+        up-blocks: 0
+      playback-ticks: 60
+    particles:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      type: end_rod
+      placement: around
+      count: 8
+      radius-blocks: 1
+      duration-ticks: 40
+    apparition:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      kind: cat
+      range-blocks: 3
+      duration-ticks: 60
   advancement-toast:
     enabled: true
     minimum-level: medium
@@ -393,6 +439,22 @@ sounds:
     volume: 0.7
     pitch: 1.0
     category: PLAYERS
+  serenity-clean:
+    - key: minecraft:entity.parrot.ambient
+      volume: 0.3
+      pitch: 1.2
+      category: AMBIENT
+      delay: 0
+    - key: minecraft:block.bell.resonate
+      volume: 0.2
+      pitch: 1.0
+      category: AMBIENT
+      delay: 10
+    - key: minecraft:block.water.ambient
+      volume: 0.3
+      pitch: 1.0
+      category: AMBIENT
+      delay: 20
   source-less:
     - key: minecraft:block.stone.step
       volume: 0.7

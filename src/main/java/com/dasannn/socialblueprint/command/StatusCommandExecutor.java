@@ -439,6 +439,25 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         String sub = args[0].toLowerCase(Locale.ROOT);
         String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
 
+        if ("psychosis".equals(sub)) {
+            if (subArgs.length > 1) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.psychosis-usage"));
+                return true;
+            }
+            if (subArgs.length == 0 && !(sender instanceof Player)) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.player-only"));
+                return true;
+            }
+            String target = subArgs.length == 0 ? ((Player) sender).getName() : subArgs[0];
+            String permission = subArgs.length == 0 ? "show" : "show-others";
+            if (!PermissionChecker.hasPermission(sender, permission, snapshot)) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return true;
+            }
+            this.lastExecution = executeShowPsychosis(sender, target, snapshot);
+            return true;
+        }
+
         // 2. Subcommand: /status config ...
         if ("config".equals(sub)) {
             this.lastExecution = configCommand.executeAsync(sender, subArgs, snapshot);
@@ -697,8 +716,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         String confKey = "confidence." + view.confidence().name().toLowerCase(Locale.ROOT);
         String localizedConfidence = messageRegistry.getRaw(snapshot, confKey);
 
-        String psychKey = "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT);
-        String localizedPsychosis = messageRegistry.getRaw(snapshot, psychKey);
+        String localizedPsychosis = messageRegistry.psychosisLabel(snapshot, view);
 
         Component prefixComp = (prefix != null && !prefix.isEmpty())
                 ? ColorParser.parse(prefix)
@@ -717,6 +735,20 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 Map.of("psychosis", localizedPsychosis)));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-contributors",
                 Map.of("contributors", String.valueOf(view.contributors()))));
+    }
+
+    public CompletableFuture<Void> executeShowPsychosis(CommandSender sender, String target, RuntimeSnapshot snapshot) {
+        return CompletableFuture.completedFuture(null)
+                .thenCompose(ignored -> profileService.resolvePlayerAsync(target, snapshot))
+                .thenAccept(view -> mainThreadRunner.accept(() -> {
+                    if (view.isEmpty()) sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found", Map.of("player", target)));
+                    else sender.sendMessage(messageRegistry.render(snapshot, "status.profile-psychosis",
+                            Map.of("psychosis", messageRegistry.psychosisLabel(snapshot, view.get()))));
+                })).exceptionally(error -> {
+                    Logger.getLogger(StatusCommandExecutor.class.getName()).log(java.util.logging.Level.WARNING, "Could not read Psychosis", error);
+                    mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.read-failed")));
+                    return null;
+                });
     }
 
     @Override
@@ -738,6 +770,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             if (PermissionChecker.hasPermission(sender, "version", snapshot) && "version".startsWith(current)) {
                 suggestions.add("version");
             }
+            if (PermissionChecker.hasPermission(sender, "show", snapshot) && "psychosis".startsWith(current)) suggestions.add("psychosis");
 
             if (PermissionChecker.hasPermission(sender, "admin-update", snapshot) && "update".startsWith(current)) {
                 suggestions.add("update");

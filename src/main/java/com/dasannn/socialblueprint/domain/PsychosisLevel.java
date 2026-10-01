@@ -2,10 +2,12 @@ package com.dasannn.socialblueprint.domain;
 
 /**
  * Killing Psychosis metric level per SB-001, SB-004 and Constitution §2.3.
- * Represents PvP frequency / aggressiveness over a rolling window.
- * LOW is the lowest level (and default for newcomers with no record, SB-005).
+ * Madness bands describe rolling-window kills; serenity is the same metric's peaceful direction.
+ * Newcomers begin NEUTRAL with no credited peaceful play (SB-005, SB-117).
  */
 public enum PsychosisLevel {
+    SERENITY("Serenity"),
+    NEUTRAL("Neutral"),
     LOW("Low"),
     MEDIUM("Medium"),
     HIGH("High"),
@@ -20,4 +22,6 @@ public enum PsychosisLevel {
     public String displayName() {
         return displayName;
     }
+
+    public boolean hasMadnessEffects() { return this == MEDIUM || this == HIGH || this == EXTREME; }
 }

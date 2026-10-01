@@ -22,20 +22,22 @@ class ChatCorruptionTest {
 
     @Test
     void ratesIncreaseAndEveryEpisodeHasAnIntactMessageAfterIt() {
-        int[] counts = new int[4];
+        int[] counts = new int[PsychosisLevel.values().length];
         for (PsychosisLevel level : PsychosisLevel.values()) {
             for (int sequence = 0; sequence < 10000; sequence++) {
                 String output = ChatCorruption.corrupt(MESSAGE, level, 123, sequence, DEFAULT);
                 if (!output.equals(MESSAGE)) counts[level.ordinal()]++;
-                if ((sequence & 1) != 0 || level == PsychosisLevel.LOW) assertThat(output).isEqualTo(MESSAGE);
+                if ((sequence & 1) != 0 || !level.hasMadnessEffects()) assertThat(output).isEqualTo(MESSAGE);
             }
         }
-        assertThat(counts[0]).isZero();
-        assertThat(counts[1]).isBetween(800, 1200);
-        assertThat(counts[2]).isBetween(2300, 2700);
-        assertThat(counts[3]).isBetween(3800, 4200);
-        assertThat(counts[1]).isLessThan(counts[2]);
-        assertThat(counts[2]).isLessThan(counts[3]);
+        assertThat(counts[PsychosisLevel.SERENITY.ordinal()]).isZero();
+        assertThat(counts[PsychosisLevel.NEUTRAL.ordinal()]).isZero();
+        assertThat(counts[PsychosisLevel.LOW.ordinal()]).isZero();
+        assertThat(counts[PsychosisLevel.MEDIUM.ordinal()]).isBetween(800, 1200);
+        assertThat(counts[PsychosisLevel.HIGH.ordinal()]).isBetween(2300, 2700);
+        assertThat(counts[PsychosisLevel.EXTREME.ordinal()]).isBetween(3800, 4200);
+        assertThat(counts[PsychosisLevel.MEDIUM.ordinal()]).isLessThan(counts[PsychosisLevel.HIGH.ordinal()]);
+        assertThat(counts[PsychosisLevel.HIGH.ordinal()]).isLessThan(counts[PsychosisLevel.EXTREME.ordinal()]);
     }
 
     @Test

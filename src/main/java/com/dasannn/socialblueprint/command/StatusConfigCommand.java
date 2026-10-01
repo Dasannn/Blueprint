@@ -45,6 +45,9 @@ public class StatusConfigCommand {
             "psychosis.chat.high-rate",
             "psychosis.chat.extreme-rate",
             "psychosis.chat.extent",
+            "psychosis.serenity.ceiling",
+            "psychosis.serenity.active-hours-to-ceiling",
+            "psychosis.serenity.idle-timeout-seconds",
             "honor.cost",
             "honor.multiplier-window",
             "honor.cap-window",
@@ -104,6 +107,7 @@ public class StatusConfigCommand {
             "sounds.creeper-fuse.volume",
             "sounds.creeper-fuse.pitch",
             "sounds.creeper-fuse.category",
+            "sounds.serenity-clean",
             "history.reveal-cost"
     );
 
@@ -301,6 +305,7 @@ public class StatusConfigCommand {
         if (args.length == 1) {
             String current = args[0].toLowerCase(Locale.ROOT);
             List<String> suggestions = new ArrayList<>(SUGGESTED_KEYS);
+            suggestions.addAll(com.dasannn.socialblueprint.config.SerenityEffectsConfig.defaults().leafValues().keySet());
             suggestions.add(0, "set");
             suggestions.add(0, "get");
             List<String> matches = new ArrayList<>();
@@ -326,7 +331,9 @@ public class StatusConfigCommand {
         if (args.length == 2 && ("set".equalsIgnoreCase(args[0]) || "get".equalsIgnoreCase(args[0]))) {
             String current = args[1].toLowerCase(Locale.ROOT);
             List<String> matches = new ArrayList<>();
-            for (String s : SUGGESTED_KEYS) {
+            List<String> keys = new ArrayList<>(SUGGESTED_KEYS);
+            keys.addAll(com.dasannn.socialblueprint.config.SerenityEffectsConfig.defaults().leafValues().keySet());
+            for (String s : keys) {
                 if (!"reload".equals(s) && s.toLowerCase(Locale.ROOT).startsWith(current)) {
                     matches.add(s);
                 }

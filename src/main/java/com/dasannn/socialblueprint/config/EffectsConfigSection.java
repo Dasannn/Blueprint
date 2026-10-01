@@ -20,10 +20,18 @@ public record EffectsConfigSection(
         Duration highQuietInterval,
         Duration extremeQuietInterval,
         int maxEpisodeTicks,
-        PresentationConfig presentation
+        PresentationConfig presentation,
+        SerenityEffectsConfig serenity
 ) {
+    public EffectsConfigSection(Duration checkInterval, SingleEffectConfig silverfish, SingleEffectConfig whisper,
+                                SingleEffectConfig creeper, SingleEffectConfig fakeAnnouncement, Duration medium,
+                                Duration high, Duration extreme, int maxEpisodeTicks, PresentationConfig presentation) {
+        this(checkInterval, silverfish, whisper, creeper, fakeAnnouncement, medium, high, extreme,
+                maxEpisodeTicks, presentation, SerenityEffectsConfig.defaults());
+    }
     public EffectsConfigSection {
         Objects.requireNonNull(presentation, "presentation must not be null");
+        Objects.requireNonNull(serenity, "serenity must not be null");
         Objects.requireNonNull(checkInterval, "checkInterval must not be null");
         if (checkInterval.isNegative() || checkInterval.isZero()
                 || checkInterval.compareTo(Duration.ofMillis((Long.MAX_VALUE - 20_000L) / 3L)) > 0) {
@@ -71,7 +79,7 @@ public record EffectsConfigSection(
 
     public Duration quietInterval(PsychosisLevel level) {
         Duration configured = switch (level) {
-            case LOW -> throw new IllegalArgumentException("Low Psychosis has no episodes");
+            case LOW, NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
             case MEDIUM -> mediumQuietInterval;
             case HIGH -> highQuietInterval;
             case EXTREME -> extremeQuietInterval;
@@ -93,7 +101,7 @@ public record EffectsConfigSection(
             case MEDIUM -> 3;
             case HIGH -> 2;
             case EXTREME -> 1;
-            case LOW -> throw new IllegalArgumentException("Low Psychosis has no episodes");
+            case LOW, NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
         };
         Duration minimum = checkInterval.multipliedBy(checks);
         return configured.compareTo(minimum) < 0 ? minimum : configured;
@@ -134,7 +142,7 @@ public record EffectsConfigSection(
                 DurationParser.parseNonNegative(section.getString("quiet-interval.medium", "5m"), "effects.quiet-interval.medium"),
                 DurationParser.parseNonNegative(section.getString("quiet-interval.high", "2m"), "effects.quiet-interval.high"),
                 DurationParser.parseNonNegative(section.getString("quiet-interval.extreme", "30s"), "effects.quiet-interval.extreme"),
-                section.getInt("max-episode-ticks", 200), PresentationConfig.load(root));
+                section.getInt("max-episode-ticks", 200), PresentationConfig.load(root), SerenityEffectsConfig.load(root));
     }
 
     private static SingleEffectConfig loadEffect(ConfigurationSection section, String key, String cooldownDefault, int capDefault) {

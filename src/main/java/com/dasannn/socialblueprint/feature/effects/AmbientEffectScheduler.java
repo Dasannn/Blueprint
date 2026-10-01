@@ -117,7 +117,7 @@ public class AmbientEffectScheduler {
             // a cold cache returns LOW until loaded. Player access and dispatch stay on this main thread.
             PlayerSocialView view = profileService.getViewQuick(id, snapshot);
             PsychosisLevel level = view.psychosis();
-            if (level == PsychosisLevel.LOW) {
+            if (!level.hasMadnessEffects()) {
                 continue;
             }
 
