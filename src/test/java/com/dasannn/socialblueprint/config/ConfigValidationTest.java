@@ -511,6 +511,9 @@ class ConfigValidationTest {
                 .isInstanceOf(ConfigValidationException.class)
                 .hasMessageContaining("update.api-url")
                 .matches(e -> ((ConfigValidationException) e).key().equals("update.api-url"));
+    }
+
+    @Test
     @DisplayName("T-110: Missing decay section or required keys fails naming the key")
     void missingDecaySectionOrKeysFailNamingKey() {
         // An absent section is an older server's configuration, not an error: it loads

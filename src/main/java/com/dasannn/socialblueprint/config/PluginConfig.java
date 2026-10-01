@@ -48,7 +48,7 @@ public record PluginConfig(
                 null,
                 EffectsConfigSection.defaults(),
                 UpdateConfig.defaults(),
-                LegacyImportConfig.defaults(),
+                LegacyImportConfig.DEFAULT,
                 DecayConfigSection.defaults(),
                 KillPenaltyConfigSection.defaults(),
                 SoundsConfigSection.defaults(),

@@ -658,10 +658,6 @@ public final class ReputationRepository {
         return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt);
     }
 
-    public StorageEngine engine() {
-        return engine;
-    }
-
     public boolean hasLegacyImport(PlayerId target) {
         Objects.requireNonNull(target, "Target must not be null");
         return engine.execute(conn -> hasLegacyImportInternal(conn, target.toString()));

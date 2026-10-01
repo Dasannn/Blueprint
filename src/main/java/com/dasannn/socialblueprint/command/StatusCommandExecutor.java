@@ -78,6 +78,24 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             com.dasannn.socialblueprint.feature.update.UpdateService updateService,
             com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
     ) {
+        this(configManager, messageRegistry, profileService, honorService, duelService, auditRepository,
+                mainThreadRunner, onlinePlayersSupplier, optOutCleaner, updateService, statusGuiService, null);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier,
+            Consumer<UUID> optOutCleaner,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService,
+            com.dasannn.socialblueprint.feature.legacy.LegacyImportService legacyImportService
+    ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
         this.profileService = profileService;
@@ -86,7 +104,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.duelService = duelService;
         this.auditRepository = auditRepository;
         this.configCommand = new StatusConfigCommand(configManager, messageRegistry, auditRepository, this.mainThreadRunner, Logger.getLogger(StatusConfigCommand.class.getName()));
-        this.adminCommand = honorService != null ? new StatusAdminCommand(honorService, messageRegistry) : null;
+        this.adminCommand = honorService != null || legacyImportService != null
+                ? new StatusAdminCommand(honorService, messageRegistry, legacyImportService) : null;
         this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
@@ -139,7 +158,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier
     ) {
-        this(configManager, messageRegistry, profileService, honorService, auditRepository, mainThreadRunner, onlinePlayersSupplier, null);
+        this(configManager, messageRegistry, profileService, honorService, null, auditRepository,
+                mainThreadRunner, onlinePlayersSupplier, null, null, null, legacyImportService);
     }
 
     public StatusCommandExecutor(
@@ -190,8 +210,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 messageRegistry,
                 profileService,
                 honorService,
+                duelService,
                 auditRepository,
-                legacyImportService,
                 runnable -> {
                     if (plugin != null && plugin.isEnabled()) {
                         Bukkit.getScheduler().runTask(plugin, runnable);
@@ -199,7 +219,11 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                         runnable.run();
                     }
                 },
-                Bukkit::getOnlinePlayers
+                Bukkit::getOnlinePlayers,
+                null,
+                null,
+                null,
+                legacyImportService
         );
     }
 
@@ -216,7 +240,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 messageRegistry,
                 profileService,
                 honorService,
-                duelService,
+                null,
                 auditRepository,
                 runnable -> {
                     if (plugin != null && plugin.isEnabled()) {
@@ -243,6 +267,23 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             com.dasannn.socialblueprint.feature.update.UpdateService updateService,
             com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
     ) {
+        this(configManager, messageRegistry, profileService, honorService, duelService, auditRepository,
+                optOutCleaner, null, plugin, updateService, statusGuiService);
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<UUID> optOutCleaner,
+            com.dasannn.socialblueprint.feature.legacy.LegacyImportService legacyImportService,
+            Plugin plugin,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
+    ) {
         this(
                 configManager,
                 messageRegistry,
@@ -260,7 +301,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 Bukkit::getOnlinePlayers,
                 optOutCleaner,
                 updateService,
-                statusGuiService
+                statusGuiService,
+                legacyImportService
         );
     }
 
@@ -351,17 +393,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 Bukkit::getOnlinePlayers,
                 updateService
         );
-    }
-
-    public StatusCommandExecutor(
-            ConfigManager configManager,
-            MessageRegistry messageRegistry,
-            ProfileService profileService,
-            HonorService honorService,
-            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
-            Plugin plugin
-    ) {
-        this(configManager, messageRegistry, profileService, honorService, auditRepository, plugin, null);
     }
 
     public StatusCommandExecutor(

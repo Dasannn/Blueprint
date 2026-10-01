@@ -88,7 +88,7 @@ public class ConfigManager {
         synchronized (writeLock) {
             migrateLegacyHonorWindowIfNeeded(configFile, logger);
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
-            PluginConfig newConfig = PluginConfig.load(yaml, logger);
+            PluginConfig newConfig = PluginConfig.load(yaml);
             File dataFolder = configFile.getParentFile();
             MessagesSnapshot newMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
             RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages);
@@ -192,7 +192,7 @@ public class ConfigManager {
                 Object parsedValue = parseValueForPath(resolvedConfigPath, rawValue);
                 yaml.set(resolvedConfigPath, parsedValue);
 
-                PluginConfig newConfig = PluginConfig.load(yaml, logger);
+                PluginConfig newConfig = PluginConfig.load(yaml);
 
                 // 2. Persist atomically preserving comments and formatting
                 try {
