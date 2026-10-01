@@ -12,8 +12,10 @@ import java.util.Set;
  */
 public record DuelConfigSection(
         Duration challengeTimeout,
-        DisconnectConfig disconnect
+        DisconnectConfig disconnect,
+        Duration attackContextWindow
 ) {
+    public static final Duration DEFAULT_ATTACK_CONTEXT_WINDOW = Duration.ofSeconds(30);
     public static final Set<String> SUPPORTED_ACTIONS = Set.of("broadcast", "notify");
 
     public record DisconnectConfig(
@@ -28,9 +30,19 @@ public record DuelConfigSection(
         }
     }
 
+    public DuelConfigSection(
+            Duration challengeTimeout,
+            DisconnectConfig disconnect
+    ) {
+        this(challengeTimeout, disconnect, DEFAULT_ATTACK_CONTEXT_WINDOW);
+    }
+
     public DuelConfigSection {
         Objects.requireNonNull(challengeTimeout, "challengeTimeout must not be null");
         Objects.requireNonNull(disconnect, "disconnect must not be null");
+        if (attackContextWindow == null) {
+            attackContextWindow = DEFAULT_ATTACK_CONTEXT_WINDOW;
+        }
     }
 
     public static DuelConfigSection load(ConfigurationSection root) {
@@ -76,6 +88,16 @@ public record DuelConfigSection(
             throw new ConfigValidationException(actionKey, "Unsupported disconnect action '" + actionRaw + "'. Supported actions: " + SUPPORTED_ACTIONS);
         }
 
-        return new DuelConfigSection(challengeTimeout, new DisconnectConfig(combatLogWindow, reconnectGracePeriod, action));
+        String attackContextKey = "duel.attack-context-window";
+        Duration attackContextWindow;
+        if (section.contains("attack-context-window")) {
+            attackContextWindow = DurationParser.parsePositive(section.getString("attack-context-window"), attackContextKey);
+        } else if (section.contains("context-window")) {
+            attackContextWindow = DurationParser.parsePositive(section.getString("context-window"), "duel.context-window");
+        } else {
+            attackContextWindow = DEFAULT_ATTACK_CONTEXT_WINDOW;
+        }
+
+        return new DuelConfigSection(challengeTimeout, new DisconnectConfig(combatLogWindow, reconnectGracePeriod, action), attackContextWindow);
     }
 }

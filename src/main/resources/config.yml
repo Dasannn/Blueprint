@@ -178,6 +178,9 @@ duel:
     # Social action taken on combat log. Supported: 'broadcast', 'notify'
     action: broadcast
 
+  # Time window within which an attack's duel context remains valid before death (default: 30s, T-139).
+  attack-context-window: 30s
+
 
 # ==============================================================================
 # Low-Status Ambient Effects (SB-040, SB-043, Decision 0002)
