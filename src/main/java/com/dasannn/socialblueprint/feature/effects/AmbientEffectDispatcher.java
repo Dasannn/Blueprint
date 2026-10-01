@@ -114,6 +114,10 @@ public class AmbientEffectDispatcher {
             case PARTICLES -> dispatchParticles(player, config.presentation().particles());
             case SCREEN_FLASH -> dispatchScreen(player, config.presentation().flash(), snapshot);
             case SOURCE_LESS_SOUNDS -> dispatchSourceLess(player, config.presentation(), snapshot);
+            case BLOCK_CHANGE -> dispatchBlock(player, config.presentation().block(), false, snapshot);
+            case SIGN -> dispatchBlock(player, config.presentation().sign(), true, snapshot);
+            case HURT_FLASH -> dispatchHurt(player, config.presentation(), snapshot);
+            case VICTIM_GHOST -> false; // Requires the asynchronous killer-history read before rendering.
             case SILVERFISH -> dispatchSilverfish(player);
             case WHISPER -> {
                 dispatchWhisper(player, snapshot);
@@ -142,6 +146,91 @@ public class AmbientEffectDispatcher {
         }
         registry.cleanPresentation(entry);
         return null; // Never change the client without a scheduled restoration.
+    }
+
+    private boolean dispatchBlock(Player player, PresentationConfig.Block config, boolean sign, RuntimeSnapshot snapshot) {
+        org.bukkit.block.data.BlockData fake = player.getServer().createBlockData(config.data());
+        org.bukkit.block.Block block = PrivateBlocks.choose(player, config, fake, sign, random);
+        if (block == null) return false;
+        List<Component> lines = new java.util.ArrayList<>();
+        if (sign) {
+            for (String key : snapshot.messages().lineKeys("effects.sign.lines"))
+                lines.add(messageRegistry.render(snapshot, key, Map.of()));
+            if (lines.isEmpty()) return false;
+            while (lines.size() < 4) lines.add(Component.empty());
+        }
+        Location at = block.getLocation();
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), sign ? AmbientEffectType.SIGN : AmbientEffectType.BLOCK_CHANGE,
+                config.durationTicks(), () -> PrivateBlocks.restore(player, at));
+        if (entry == null) return false;
+        try {
+            player.sendBlockChange(at, fake);
+            if (sign) player.sendSignChange(at, lines);
+            return true;
+        } catch (RuntimeException failure) {
+            silverfishService.registry().cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    private boolean dispatchHurt(Player player, PresentationConfig config, RuntimeSnapshot snapshot) {
+        PresentationConfig.Hurt hurt = config.hurt();
+        SoundSlotConfig slot = snapshot.config().sounds().get(hurt.slot());
+        if (slot.isSilent()) return false;
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.HURT_FLASH,
+                config.durationTicks(AmbientEffectType.HURT_FLASH, snapshot.config().sounds()), () -> stopLayers(player, slot));
+        if (entry == null) return false;
+        try {
+            long audioTicks = slot.layers().stream().filter(layer -> !layer.isSilent())
+                    .mapToLong(SoundLayerConfig::delay).max().orElse(0) + hurt.playbackTicks();
+            if (audioTicks < hurt.animationTicks()
+                    && !scheduleTracked(player.getUniqueId(), () -> stopLayers(player, slot), audioTicks)) {
+                silverfishService.registry().cleanPresentation(entry);
+                return false;
+            }
+            player.sendHurtAnimation(hurt.yaw());
+            playSoundSlot(player, slot, hurt.slot(), snapshot);
+            return true;
+        } catch (RuntimeException failure) {
+            silverfishService.registry().cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    public boolean dispatchVictimGhost(Player player, PresentationConfig.Ghost config, RuntimeSnapshot snapshot, String name) {
+        Component label = messageRegistry.render(snapshot, "effects.victim-ghost.label", Map.of("victim", name));
+        if (label.equals(Component.empty())) return false;
+        double yaw = Math.toRadians(player.getLocation().getYaw());
+        double distance = Math.min(config.range() / 2, 3);
+        double height = Math.min(config.range() / 2, 1.5);
+        Location at = player.getLocation().clone().add(-Math.sin(yaw) * distance, height, Math.cos(yaw) * distance);
+        PrivateGhost ghost;
+        try {
+            ghost = new PrivateGhost(player, at, label,
+                    silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft("text_display")));
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            if (warnedKeys.add("ghost-bridge")) java.util.logging.Logger.getLogger(getClass().getName())
+                    .warning("Private ghost bridge unavailable; skipping victim ghosts: " + failure.getMessage());
+            return false;
+        }
+        cancelPending(player.getUniqueId());
+        AmbientEntityRegistry registry = silverfishService.registry();
+        registry.register(ghost.entry());
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.VICTIM_GHOST,
+                config.durationTicks(), () -> registry.cleanDespawn(ghost.entry()));
+        if (entry == null) return false;
+        try { ghost.show(); return true; }
+        catch (ReflectiveOperationException | RuntimeException failure) {
+            registry.cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    public void restoreBlocks(UUID playerId) {
+        AmbientEntityRegistry registry = silverfishService.registry();
+        for (ActivePresentationEntry entry : registry.presentationsFor(playerId))
+            if (entry.type() == AmbientEffectType.BLOCK_CHANGE || entry.type() == AmbientEffectType.SIGN)
+                registry.cleanPresentation(entry);
     }
 
     private boolean dispatchSky(Player player, PresentationConfig.Sky config) {

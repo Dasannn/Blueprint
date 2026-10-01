@@ -281,8 +281,10 @@ public class ConfigManager {
                 if (rawValue.isBlank()) {
                     throw new ConfigValidationException(path, "Message translation must not be blank");
                 }
-                String messageValue = path.equals(ScreenLines.KEY) ? ScreenLines.editValue(rawValue) : rawValue;
-                if (!path.equals(ScreenLines.KEY)) ColorParser.validate(rawValue, path);
+                boolean list = path.equals(ScreenLines.KEY) || path.equals("effects.sign.lines");
+                String messageValue = list ? ScreenLines.editValue(rawValue, path) : rawValue;
+                if (!list) ColorParser.validate(rawValue, path);
+                if (path.equals("effects.victim-ghost.label")) ScreenLines.validateGhostLabel(rawValue);
 
                 File dataFolder = configFile.getParentFile();
                 String activeLang = current.config().language();
@@ -567,7 +569,7 @@ public class ConfigManager {
         set.add("duel.disconnect.action");
         set.add("duel.attack-context-window");
 
-        for (String id : List.of("sky", "particles", "screen-flash", "source-less-sounds")) {
+        for (String id : List.of("sky", "particles", "screen-flash", "source-less-sounds", "block-change", "sign", "hurt-flash", "victim-ghost")) {
             for (String key : List.of("enabled", "minimum-level", "cooldown-ticks", "session-cap"))
                 set.add("effects." + id + "." + key);
         }
@@ -579,6 +581,14 @@ public class ConfigManager {
             set.add("effects." + key);
         for (String level : List.of("medium", "high", "extreme")) set.add("effects.episodes." + level + ".interval-ticks");
         set.add("effects.episodes.quiet-ticks");
+        for (String id : List.of("block-change", "sign", "victim-ghost")) {
+            set.add("effects." + id + ".range-blocks");
+            set.add("effects." + id + ".duration-ticks");
+        }
+        set.add("effects.block-change.block-data");
+        set.add("effects.sign.block-data");
+        set.add("effects.hurt-flash.sound-slot");
+        set.add("effects.hurt-flash.playback-ticks");
         set.add("effects.check-interval");
         set.add("effects.quiet-interval.medium");
         set.add("effects.quiet-interval.high");

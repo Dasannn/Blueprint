@@ -30,7 +30,7 @@ class PresentationEffectsTest {
         for (AmbientEffectType type : config.rules().keySet()) {
             PresentationConfig.Rule rule = config.rules().get(type);
             assertThat(rule.allows(PsychosisLevel.LOW)).isFalse();
-            assertThat(rule.allows(PsychosisLevel.MEDIUM)).isEqualTo(type != AmbientEffectType.SKY);
+            assertThat(rule.allows(PsychosisLevel.MEDIUM)).isEqualTo(type.floor() == PsychosisLevel.MEDIUM);
             assertThat(rule.allows(PsychosisLevel.HIGH)).isTrue();
             assertThat(rule.allows(PsychosisLevel.EXTREME)).isTrue();
             yaml.set("effects." + type.configId() + ".minimum-level", "extreme");

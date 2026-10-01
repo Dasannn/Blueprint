@@ -35,6 +35,11 @@ class PresentationConfigTest {
                 Map.entry("screen-flash.duration-ticks", 101),
                 Map.entry("source-less-sounds.offset.forward-blocks", Double.POSITIVE_INFINITY),
                 Map.entry("source-less-sounds.playback-ticks", 0),
+                Map.entry("block-change.block-data", "minecraft:air"), Map.entry("block-change.range-blocks", 0),
+                Map.entry("block-change.duration-ticks", 101), Map.entry("sign.block-data", "minecraft:stone"),
+                Map.entry("sign.range-blocks", Double.POSITIVE_INFINITY), Map.entry("sign.duration-ticks", 0),
+                Map.entry("hurt-flash.playback-ticks", 101), Map.entry("victim-ghost.range-blocks", Double.NaN),
+                Map.entry("victim-ghost.duration-ticks", 101), Map.entry("victim-ghost.skin", "victim"),
                 Map.entry("episodes.quiet-ticks", 0), Map.entry("episodes.medium.interval-ticks", 0));
         for (Map.Entry<String, Object> entry : invalid.entrySet()) {
             YamlConfiguration yaml = shipped();
@@ -43,6 +48,9 @@ class PresentationConfigTest {
                     .hasMessageContaining("effects." + entry.getKey());
         }
         YamlConfiguration yaml = shipped();
+        yaml.set("effects.sign.block-data", "minecraft:oak_wall_sign[rotation=0,waterlogged=false]");
+        assertThatThrownBy(() -> PresentationConfig.load(yaml)).hasMessageContaining("effects.sign.block-data");
+        yaml.set("effects.sign.block-data", "minecraft:oak_sign[rotation=0,waterlogged=false]");
         yaml.set("effects.screen-flash.duration-ticks", 100);
         assertThatThrownBy(() -> PresentationConfig.load(yaml)).hasMessageContaining("effects.screen-flash.duration-ticks");
         yaml.set("effects.screen-flash.duration-ticks", 30);
@@ -66,7 +74,7 @@ class PresentationConfigTest {
     @Test void liveEditsUseTheSameValidationAndMessageListFallback() throws Exception {
         ConfigManager manager = manager();
         manager.initialize();
-        for (String id : List.of("sky", "particles", "screen-flash", "source-less-sounds")) {
+        for (String id : List.of("sky", "particles", "screen-flash", "source-less-sounds", "block-change", "sign", "hurt-flash", "victim-ghost")) {
             assertThat(manager.isEditableKey("effects." + id + ".minimum-level")).isTrue();
             assertThat(manager.isEditableKey("effects." + id + ".session-cap")).isTrue();
         }
@@ -80,6 +88,24 @@ class PresentationConfigTest {
         assertThat(manager.snapshot()).isSameAs(before);
         assertThatThrownBy(() -> manager.set("effects.source-less-sounds.sound-slot", "missing"))
                 .hasMessageContaining("effects.source-less-sounds.sound-slot");
+        manager.set("effects.block-change.block-data", "minecraft:granite");
+        manager.set("effects.sign.duration-ticks", "80");
+        manager.set("effects.victim-ghost.range-blocks", "4.5");
+        assertThat(manager.snapshot().config().effects().presentation().block().data()).isEqualTo("minecraft:granite");
+        assertThat(manager.snapshot().config().effects().presentation().sign().durationTicks()).isEqualTo(80);
+        assertThat(manager.snapshot().config().effects().presentation().ghost().range()).isEqualTo(4.5);
+        RuntimeSnapshot beforeHurt = manager.snapshot();
+        assertThatThrownBy(() -> manager.set("effects.hurt-flash.sound-slot", "missing"))
+                .hasMessageContaining("effects.hurt-flash.sound-slot");
+        assertThat(manager.snapshot()).isSameAs(beforeHurt);
+        manager.set("effects.sign.lines", "['&7X', '&8Y']");
+        assertThat(manager.snapshot().messages().lineKeys("effects.sign.lines")).hasSize(2);
+        assertThatThrownBy(() -> manager.set("effects.sign.lines", "['" + "x".repeat(81) + "']"))
+                .hasMessageContaining("effects.sign.lines");
+        RuntimeSnapshot beforeLabel = manager.snapshot();
+        assertThatThrownBy(() -> manager.set("effects.victim-ghost.label", "{victim}"))
+                .hasMessageContaining("effects.victim-ghost.label");
+        assertThat(manager.snapshot()).isSameAs(beforeLabel);
 
         assertThat(manager.isEditableKey(ScreenLines.KEY)).isTrue();
         manager.set(ScreenLines.KEY, "['&8X, Y', '&7Z']");

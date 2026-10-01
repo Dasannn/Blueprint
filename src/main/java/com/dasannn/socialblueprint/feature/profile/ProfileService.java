@@ -493,4 +493,16 @@ public class ProfileService {
     public ReputationRepository reputationRepository() {
         return reputationRepository;
     }
+
+    /** SB-108: one executor task, existing synchronous read paths run inline on that executor. */
+    public CompletableFuture<Optional<com.dasannn.socialblueprint.feature.effects.VictimGhost>>
+            findVictimGhostAsync(PlayerId killer, RuntimeSnapshot snapshot) {
+        return storageEngine.supplyAsync(() -> {
+            Instant now = clock.instant();
+            Instant since = now.minus(snapshot.config().psychosis().window());
+            List<PsychosisEvent> rows = psychosisRepository.findKillsByKillerSince(killer, since);
+            return com.dasannn.socialblueprint.feature.effects.VictimGhost.select(killer, rows, since, now,
+                    victim -> profileRepository.findById(victim).map(PlayerProfile::lastKnownName));
+        });
+    }
 }

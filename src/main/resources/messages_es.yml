@@ -123,6 +123,12 @@ duel:
   reconnected: '&e{player}&a ¡se reconectó al duelo!'
 
 effects:
+  sign:
+    lines:
+      - '&8Sigo aquí.'
+      - '&7Lo recuerdas.'
+  victim-ghost:
+    label: '&7Fantasma de {victim}'
   screen-flash:
     lines:
       - '&8Detrás de ti.'

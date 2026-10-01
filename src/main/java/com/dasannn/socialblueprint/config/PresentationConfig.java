@@ -9,9 +9,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** Typed SB-102–105 settings. No registry-backed Bukkit objects in the decisions. */
+/** Typed SB-102–108 settings. No registry-backed Bukkit objects in the decisions. */
 public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Particles particles,
-                                 Flash flash, Sounds sounds, Episodes episodes) {
+                                 Flash flash, Sounds sounds, Episodes episodes, Block block, Block sign,
+                                 Hurt hurt, Ghost ghost) {
     public record Rule(boolean enabled, PsychosisLevel minimumLevel, SingleEffectConfig limits) {
         public boolean allows(PsychosisLevel level) {
             return enabled && level != PsychosisLevel.LOW && level.ordinal() >= minimumLevel.ordinal();
@@ -38,6 +39,13 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
         public int totalTicks() { return fadeInTicks + durationTicks + fadeOutTicks; }
     }
     public record Sounds(String slot, double forward, double right, double up, int playbackTicks) {}
+    public record Block(String data, double range, int durationTicks) {}
+    /** Pure cosmetic instruction; deliberately contains no damage or movement fields. */
+    public record Hurt(String slot, int playbackTicks) {
+        public int animationTicks() { return 10; }
+        public float yaw() { return 0; }
+    }
+    public record Ghost(double range, int durationTicks) {}
 
     public PresentationConfig { rules = Map.copyOf(rules); }
 
@@ -46,6 +54,10 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             case SKY -> sky.durationTicks();
             case PARTICLES -> particles.totalTicks();
             case SCREEN_FLASH -> flash.totalTicks();
+            case BLOCK_CHANGE -> block.durationTicks();
+            case SIGN -> sign.durationTicks();
+            case VICTIM_GHOST -> ghost.durationTicks();
+            case HURT_FLASH -> Math.max(hurt.animationTicks(), soundTicks(slots, hurt.slot(), hurt.playbackTicks()));
             case SOURCE_LESS_SOUNDS -> slots.get(sounds.slot()).layers().stream()
                     .filter(layer -> !layer.isSilent()).mapToLong(SoundLayerConfig::delay).max().orElse(0)
                     + sounds.playbackTicks();
@@ -61,10 +73,23 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             fail("source-less-sounds.playback-ticks", "Final delay plus playback must not exceed 100 ticks");
     }
 
+    public void validateHurtSounds(SoundsConfigSection slots) {
+        if (!slots.slots().containsKey(hurt.slot())) fail("hurt-flash.sound-slot", "Must name an existing sounds slot");
+        if (slots.get(hurt.slot()).layers().stream().filter(layer -> !layer.isSilent())
+                .anyMatch(layer -> layer.delay() > 100L - hurt.playbackTicks()))
+            fail("hurt-flash.playback-ticks", "Final delay plus playback must not exceed 100 ticks");
+    }
+
+    private static long soundTicks(SoundsConfigSection slots, String slot, int playback) {
+        return slots.get(slot).layers().stream().filter(layer -> !layer.isSilent())
+                .mapToLong(SoundLayerConfig::delay).max().orElse(0) + playback;
+    }
+
     public static PresentationConfig load(ConfigurationSection root) {
         Map<AmbientEffectType, Rule> rules = new java.util.EnumMap<>(AmbientEffectType.class);
         for (AmbientEffectType type : Set.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
-                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS)) {
+                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS,
+                AmbientEffectType.BLOCK_CHANGE, AmbientEffectType.SIGN, AmbientEffectType.HURT_FLASH, AmbientEffectType.VICTIM_GHOST)) {
             String id = type.configId();
             String path = "effects." + id;
             Set<String> allowed = new java.util.HashSet<>(Set.of("enabled", "minimum-level", "cooldown-ticks", "session-cap"));
@@ -73,6 +98,9 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                 case PARTICLES -> Set.of("type", "placement", "count", "radius-blocks", "duration-ticks");
                 case SCREEN_FLASH -> Set.of("channel", "fade-in-ticks", "duration-ticks", "fade-out-ticks");
                 case SOURCE_LESS_SOUNDS -> Set.of("sound-slot", "offset", "playback-ticks");
+                case BLOCK_CHANGE, SIGN -> Set.of("block-data", "range-blocks", "duration-ticks");
+                case HURT_FLASH -> Set.of("sound-slot", "playback-ticks");
+                case VICTIM_GHOST -> Set.of("range-blocks", "duration-ticks");
                 default -> Set.of();
             });
             ConfigurationSection section = root.getConfigurationSection(path);
@@ -81,7 +109,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                 if (!allowed.contains(key)) fail(id + "." + key, "Unknown key");
             if (root.contains(path + ".enabled") && !root.isBoolean(path + ".enabled"))
                 fail(id + ".enabled", "Must be boolean");
-            PsychosisLevel floor = type == AmbientEffectType.SKY ? PsychosisLevel.HIGH : PsychosisLevel.MEDIUM;
+            PsychosisLevel floor = type.floor();
             PsychosisLevel minimum;
             try { minimum = PsychosisLevel.valueOf(root.getString(path + ".minimum-level", floor.name()).toUpperCase(Locale.ROOT)); }
             catch (IllegalArgumentException error) { throw new ConfigValidationException(path + ".minimum-level", "Unknown level"); }
@@ -120,7 +148,30 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                         number(root, "source-less-sounds.offset.forward-blocks", -2, false),
                         number(root, "source-less-sounds.offset.right-blocks", 0, false),
                         number(root, "source-less-sounds.offset.up-blocks", 0, false),
-                        integer(root, "source-less-sounds.playback-ticks", 20, 1, 100)), episodes);
+                        integer(root, "source-less-sounds.playback-ticks", 20, 1, 100)), episodes,
+                block(root, "block-change", "minecraft:andesite"), block(root, "sign", "minecraft:oak_sign[rotation=0,waterlogged=false]"),
+                new Hurt(choice(root, "hurt-flash.sound-slot", "hurt", null), integer(root, "hurt-flash.playback-ticks", 20, 1, 100)),
+                new Ghost(range(root, "victim-ghost"), integer(root, "victim-ghost.duration-ticks", 40, 1, 100)));
+    }
+
+    private static Block block(ConfigurationSection root, String id, String fallback) {
+        String data = choice(root, id + ".block-data", fallback, null);
+        boolean valid = id.equals("sign") ? validSignData(data)
+                : !com.dasannn.socialblueprint.feature.effects.BlockEquivalence.cubeClass(data).isEmpty();
+        if (!valid) fail(id + ".block-data", "Must be in the cosmetic equivalence allow-list");
+        return new Block(data, range(root, id), integer(root, id + ".duration-ticks", 40, 1, 100));
+    }
+
+    private static boolean validSignData(String data) {
+        if (!com.dasannn.socialblueprint.feature.effects.BlockEquivalence.knownSign(data)) return false;
+        // Only non-hanging signs; fixed orientation and dry state. Renderer compares canonical data exactly.
+        if (data.matches("(?:minecraft:)?[a-z_]+_wall_sign\\[facing=(?:north|south|east|west),waterlogged=false\\]")) return true;
+        return !com.dasannn.socialblueprint.feature.effects.BlockEquivalence.material(data).endsWith("_wall_sign")
+                && data.matches("(?:minecraft:)?[a-z_]+_sign\\[rotation=(?:[0-9]|1[0-5]),waterlogged=false\\]");
+    }
+
+    private static double range(ConfigurationSection root, String id) {
+        return number(root, id + ".range-blocks", 6, true);
     }
 
     public static PresentationConfig defaults() { return load(new org.bukkit.configuration.MemoryConfiguration()); }

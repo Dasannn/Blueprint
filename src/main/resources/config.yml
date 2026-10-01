@@ -194,6 +194,36 @@ duel:
 # Private, cosmetic episodes triggered by Medium, High and Extreme Psychosis.
 # ==============================================================================
 effects:
+  block-change:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    block-data: minecraft:andesite
+    range-blocks: 6
+    duration-ticks: 40
+  sign:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    block-data: minecraft:oak_sign[rotation=0,waterlogged=false]
+    range-blocks: 6
+    duration-ticks: 40
+  hurt-flash:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    sound-slot: hurt
+    playback-ticks: 20
+  victim-ghost:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    range-blocks: 6
+    duration-ticks: 40
   episodes:
     medium:
       interval-ticks: 6000
@@ -325,6 +355,11 @@ kill-penalty:
 # Configurable Sounds (SB-090, SB-091, T-135 to T-137)
 # ==============================================================================
 sounds:
+  hurt:
+    key: minecraft:entity.player.hurt
+    volume: 0.7
+    pitch: 1.0
+    category: PLAYERS
   source-less:
     - key: minecraft:block.stone.step
       volume: 0.7

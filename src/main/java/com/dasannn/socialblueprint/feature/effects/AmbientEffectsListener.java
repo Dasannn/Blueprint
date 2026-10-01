@@ -50,9 +50,30 @@ public class AmbientEffectsListener implements Listener {
         cleanupPlayer(event.getPlayer().getUniqueId(), false);
     }
 
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerMove(org.bukkit.event.player.PlayerMoveEvent event) {
+        if (dispatcher != null) dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerInteract(org.bukkit.event.player.PlayerInteractEvent event) {
+        if (dispatcher != null) dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerItemHeld(org.bukkit.event.player.PlayerItemHeldEvent event) {
+        if (dispatcher != null) dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPlayerSwapHands(org.bukkit.event.player.PlayerSwapHandItemsEvent event) {
+        if (dispatcher != null) dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+    }
+
     void cleanupPlayer(UUID playerId, boolean quit) {
         registry.cleanForPlayer(playerId);
         if (quit && scheduler != null) scheduler.handlePlayerQuit(playerId);
+        if (!quit && scheduler != null) scheduler.handlePlayerWorldChange(playerId);
         if (dispatcher != null) dispatcher.cancelPending(playerId);
     }
 

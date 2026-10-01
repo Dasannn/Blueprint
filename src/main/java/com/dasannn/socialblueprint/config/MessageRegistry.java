@@ -309,6 +309,10 @@ public class MessageRegistry {
                 flattenRecursive(section.getConfigurationSection(key), path, map);
             } else if (path.equals(ScreenLines.KEY)) {
                 map.put(path, String.join("\n", ScreenLines.validate(section.get(key))));
+            } else if (path.equals("effects.sign.lines")) {
+                map.put(path, String.join("\n", ScreenLines.validate(section.get(key), path, 4, 80)));
+            } else if (path.equals("effects.victim-ghost.label")) {
+                map.put(path, ScreenLines.validateGhostLabel(section.getString(key, "")));
             } else {
                 map.put(path, section.getString(key, ""));
             }

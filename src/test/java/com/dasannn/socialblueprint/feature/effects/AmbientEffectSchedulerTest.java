@@ -199,10 +199,12 @@ class AmbientEffectSchedulerTest {
         SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
         long now = 1_000_000L;
         for (AmbientEffectType chosen : List.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
-                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS)) {
+                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS,
+                AmbientEffectType.BLOCK_CHANGE, AmbientEffectType.SIGN, AmbientEffectType.HURT_FLASH)) {
             org.bukkit.configuration.file.YamlConfiguration yaml = new org.bukkit.configuration.file.YamlConfiguration();
             for (AmbientEffectType type : List.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
-                    AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS))
+                    AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS,
+                    AmbientEffectType.BLOCK_CHANGE, AmbientEffectType.SIGN, AmbientEffectType.HURT_FLASH, AmbientEffectType.VICTIM_GHOST))
                 yaml.set("effects." + type.configId() + ".enabled", type == chosen);
             com.dasannn.socialblueprint.config.PresentationConfig presentation =
                     com.dasannn.socialblueprint.config.PresentationConfig.load(yaml);
@@ -216,7 +218,7 @@ class AmbientEffectSchedulerTest {
                 onlinePlayers.add(createMockPlayer(uuid, "Catalogue"));
                 setPsychosis(uuid, kills);
                 scheduler.tickAt(now);
-                boolean eligible = kills >= (chosen == AmbientEffectType.SKY ? 5 : 2);
+                boolean eligible = kills >= (chosen.floor() == PsychosisLevel.HIGH ? 5 : 2);
                 if (eligible) assertThat(dispatchedList).singleElement()
                         .satisfies(record -> assertThat(record.type()).isEqualTo(chosen));
                 else assertThat(dispatchedList).isEmpty();
@@ -572,5 +574,73 @@ class AmbientEffectSchedulerTest {
         if (returnType == short.class) return (short) 0;
         if (returnType == char.class) return '\0';
         return null;
+    }
+
+    @Test void ghostHistoryReadHopsToMainAndLateCompletionsCannotSurviveCleanup() throws Exception {
+        RuntimeSnapshot original = configManager.snapshot();
+        org.bukkit.configuration.file.YamlConfiguration yaml = new org.bukkit.configuration.file.YamlConfiguration();
+        yaml.set("effects.victim-ghost.enabled", true);
+        yaml.set("effects.victim-ghost.cooldown-ticks", 1);
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        EffectsConfigSection config = new EffectsConfigSection(Duration.ofMillis(1), disabled, disabled, disabled, disabled,
+                Duration.ofSeconds(3), Duration.ofSeconds(2), Duration.ofSeconds(1), 100,
+                com.dasannn.socialblueprint.config.PresentationConfig.load(yaml));
+        configManager.snapshotReference().set(new RuntimeSnapshot(original.config().withEffects(config), original.messages()));
+        java.util.concurrent.LinkedBlockingQueue<Runnable> mainQueue = new java.util.concurrent.LinkedBlockingQueue<>();
+        List<String> victims = new ArrayList<>();
+        AmbientEntityRegistry registry = new AmbientEntityRegistry();
+        AmbientEffectDispatcher ghostDispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                new FakeSilverfishService(null, registry, null)) {
+            @Override public boolean dispatchVictimGhost(Player player, com.dasannn.socialblueprint.config.PresentationConfig.Ghost settings,
+                                                        RuntimeSnapshot snapshot, String name) {
+                player.getUniqueId(); // proxy asserts main-thread access
+                victims.add(name);
+                assertThat(snapshot).isSameAs(configManager.snapshot());
+                return true;
+            }
+        };
+        AmbientEffectScheduler ghostScheduler = new AmbientEffectScheduler(null, configManager, profileService,
+                ghostDispatcher, () -> onlinePlayers, mainQueue::add);
+        long now = 1_000_000L;
+        for (String ending : List.of("delivery", "quit", "world-change", "disable", "unresolved", "medium", "low", "extreme")) {
+            onlinePlayers.clear();
+            victims.clear();
+            UUID uuid = UUID.randomUUID();
+            onlinePlayers.add(createMockPlayer(uuid, "Killer"));
+            setPsychosis(uuid, ending.equals("medium") ? 2 : ending.equals("low") ? 0 : ending.equals("extreme") ? 10 : 5);
+            PlayerId id = PlayerId.of(uuid);
+            List<PsychosisEvent> before = psychosisRepo.findKillsByKillerSince(id, Instant.EPOCH);
+            if (!before.isEmpty() && !ending.equals("unresolved"))
+                new ProfileRepository(storage).saveAsync(com.dasannn.socialblueprint.domain.PlayerProfile.create(
+                        before.getFirst().victim(), "KnownVictim", Instant.now())).join();
+            ghostScheduler.tickAt(now);
+            assertThat(victims).isEmpty();
+            if (ending.equals("medium") || ending.equals("low")) {
+                assertThat(mainQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS)).isNull();
+            } else {
+                Runnable completion = mainQueue.poll(2, java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(completion).isNotNull();
+                PlayerEffectState state = ghostScheduler.getOrCreateState(uuid);
+                assertThat(state.getSessionCount(AmbientEffectType.VICTIM_GHOST)).isZero();
+                switch (ending) {
+                    case "quit" -> ghostScheduler.handlePlayerQuit(uuid);
+                    case "world-change" -> ghostScheduler.handlePlayerWorldChange(uuid);
+                    case "disable" -> ghostScheduler.stop();
+                    default -> {}
+                }
+                completion.run();
+                boolean delivered = ending.equals("delivery") || ending.equals("extreme");
+                assertThat(victims).hasSize(delivered ? 1 : 0);
+                assertThat(state.getSessionCount(AmbientEffectType.VICTIM_GHOST)).isEqualTo(delivered ? 1 : 0);
+                if (delivered) {
+                    assertThat(victims).containsExactly("KnownVictim");
+                    assertThat(state.canStartEpisode(state.getLastFiredMillis(AmbientEffectType.VICTIM_GHOST) + 40 * 50L)).isFalse();
+                    assertThat(state.canFire(AmbientEffectType.VICTIM_GHOST,
+                            SingleEffectConfig.of(Duration.ZERO, 1), now + 1_000_000)).isFalse();
+                }
+            }
+            assertThat(psychosisRepo.findKillsByKillerSince(id, Instant.EPOCH)).isEqualTo(before);
+            now += 1_000_000L;
+        }
     }
 }

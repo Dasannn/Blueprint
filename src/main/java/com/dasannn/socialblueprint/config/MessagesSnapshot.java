@@ -86,9 +86,10 @@ public record MessagesSnapshot(
     }
 
     private static String lookup(Map<String, String> messages, String key) {
-        String prefix = ScreenLines.KEY + ".";
+        String listKey = key.startsWith("effects.sign.lines.") ? "effects.sign.lines" : ScreenLines.KEY;
+        String prefix = listKey + ".";
         if (key.startsWith(prefix)) {
-            String lines = messages.get(ScreenLines.KEY);
+            String lines = messages.get(listKey);
             if (lines == null) return null;
             try {
                 int index = Integer.parseInt(key.substring(prefix.length()));

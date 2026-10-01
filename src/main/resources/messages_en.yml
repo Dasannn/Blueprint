@@ -123,6 +123,12 @@ duel:
   reconnected: '&e{player}&a reconnected to the duel!'
 
 effects:
+  sign:
+    lines:
+      - '&8Still here.'
+      - '&7You remember.'
+  victim-ghost:
+    label: '&7Ghost of {victim}'
   screen-flash:
     lines:
       - '&8Behind you.'
