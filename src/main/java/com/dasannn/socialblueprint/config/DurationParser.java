@@ -41,6 +41,70 @@ public final class DurationParser {
         return duration;
     }
 
+    /**
+     * Parses a delay tick value from an object (String or Number) per T-138.
+     * Absent/empty value defaults to 0. Supports tick suffixes (e.g. "4t", "4ticks", "4")
+     * and duration units (e.g. "200ms", "1s"). Rejects negative values naming the offending key.
+     */
+    public static long parseTicks(Object raw, String key) {
+        if (raw == null) {
+            return 0L;
+        }
+        if (raw instanceof Number num) {
+            long ticks = num.longValue();
+            if (ticks < 0) {
+                throw new ConfigValidationException(key, "Delay ticks must not be negative, got: " + ticks);
+            }
+            return ticks;
+        }
+        if (raw instanceof String str) {
+            String trimmed = str.trim();
+            if (trimmed.isEmpty()) {
+                return 0L;
+            }
+            if (trimmed.startsWith("-")) {
+                throw new ConfigValidationException(key, "Delay ticks must not be negative, got: " + str);
+            }
+            Matcher matcher = UNIT_PATTERN.matcher(trimmed);
+            if (matcher.matches()) {
+                long amount;
+                try {
+                    amount = Long.parseLong(matcher.group(1));
+                } catch (NumberFormatException e) {
+                    throw new ConfigValidationException(key, "Invalid duration numeric value: " + matcher.group(1));
+                }
+                if (amount < 0) {
+                    throw new ConfigValidationException(key, "Delay ticks must not be negative, got: " + str);
+                }
+                String unit = matcher.group(2).toLowerCase(Locale.ROOT);
+                try {
+                    return switch (unit) {
+                        case "t", "tick", "ticks" -> amount;
+                        case "d", "day", "days" -> Math.multiplyExact(amount, 20L * 60 * 60 * 24);
+                        case "h", "hr", "hrs", "hour", "hours" -> Math.multiplyExact(amount, 20L * 60 * 60);
+                        case "m", "min", "mins", "minute", "minutes" -> Math.multiplyExact(amount, 20L * 60);
+                        case "s", "sec", "secs", "second", "seconds" -> Math.multiplyExact(amount, 20L);
+                        case "ms", "milli", "millis", "millisecond", "milliseconds" -> amount / 50L;
+                        default -> throw new ConfigValidationException(key, "Unknown duration unit '" + unit + "' in: " + str);
+                    };
+                } catch (ArithmeticException e) {
+                    throw new ConfigValidationException(key, "Duration value causes arithmetic overflow: " + str);
+                }
+            }
+            try {
+                long amount = Long.parseLong(trimmed);
+                if (amount < 0) {
+                    throw new ConfigValidationException(key, "Delay ticks must not be negative, got: " + str);
+                }
+                return amount;
+            } catch (NumberFormatException ignored) {
+                // Not a plain number
+            }
+            throw new ConfigValidationException(key, "Invalid delay tick format: '" + str + "'");
+        }
+        throw new ConfigValidationException(key, "Invalid delay tick value: " + raw);
+    }
+
     private static Duration parseInternal(String raw, String key) {
         if (raw == null || raw.isBlank()) {
             throw new ConfigValidationException(key, "Duration value must not be empty or null");
@@ -83,6 +147,7 @@ public final class DurationParser {
                     case "m", "min", "mins", "minute", "minutes" -> Duration.ofMinutes(amount);
                     case "s", "sec", "secs", "second", "seconds" -> Duration.ofSeconds(amount);
                     case "ms", "milli", "millis", "millisecond", "milliseconds" -> Duration.ofMillis(amount);
+                    case "t", "tick", "ticks" -> Duration.ofMillis(Math.multiplyExact(amount, 50L));
                     default -> throw new ConfigValidationException(key, "Unknown duration unit '" + unit + "' in: " + raw);
                 };
             } catch (ArithmeticException e) {

@@ -322,7 +322,7 @@ public class ConfigManager {
             String[] parts = path.split("\\.");
             if (parts.length == 3) {
                 String leaf = parts[2];
-                return leaf.equals("key") || leaf.equals("volume") || leaf.equals("pitch") || leaf.equals("category");
+                return leaf.equals("key") || leaf.equals("volume") || leaf.equals("pitch") || leaf.equals("category") || leaf.equals("delay");
             }
         }
         return false;
@@ -508,6 +508,7 @@ public class ConfigManager {
         set.add("sounds.creeper-fuse.volume");
         set.add("sounds.creeper-fuse.pitch");
         set.add("sounds.creeper-fuse.category");
+        set.add("sounds.creeper-fuse.delay");
         set.add("history.reveal-cost");
 
         return Collections.unmodifiableSet(set);

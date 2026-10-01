@@ -4,37 +4,59 @@ import org.bukkit.Location;
 import org.bukkit.SoundCategory;
 import org.bukkit.entity.Player;
 
-import java.util.Objects;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Immutable configuration for a single named sound slot per SB-071, SB-072, and T-135.
- * Key is the Minecraft sound key (e.g. "entity.creeper.primed"). Empty key = silence.
+ * Immutable configuration for a single named sound slot per SB-071, SB-072, SB-092, and T-138.
+ * A slot holds either a single layer or a list of layers.
  */
 public record SoundSlotConfig(
-        String key,
-        float volume,
-        float pitch,
-        SoundCategory category
+        List<SoundLayerConfig> layers
 ) {
-    public static final SoundSlotConfig SILENT = new SoundSlotConfig("", 1.0f, 1.0f, SoundCategory.MASTER);
+    public static final SoundSlotConfig SILENT = new SoundSlotConfig(Collections.emptyList());
 
     public SoundSlotConfig {
-        if (key == null) {
-            key = "";
-        }
-        if (category == null) {
-            category = SoundCategory.MASTER;
-        }
-        if (!Float.isFinite(volume) || volume < 0.0f) {
-            throw new IllegalArgumentException("Volume must be a non-negative finite number, got: " + volume);
-        }
-        if (!Float.isFinite(pitch) || pitch < 0.0f || pitch > 2.0f) {
-            throw new IllegalArgumentException("Pitch must be a finite number between 0.0 and 2.0, got: " + pitch);
+        if (layers == null) {
+            layers = Collections.emptyList();
+        } else {
+            layers = List.copyOf(layers);
         }
     }
 
+    /**
+     * Backward-compatible constructor for single layer slot at delay 0.
+     */
+    public SoundSlotConfig(String key, float volume, float pitch, SoundCategory category) {
+        this(List.of(new SoundLayerConfig(key, volume, pitch, category, 0L)));
+    }
+
+    public String key() {
+        return layers.isEmpty() ? "" : layers.getFirst().key();
+    }
+
+    public float volume() {
+        return layers.isEmpty() ? 1.0f : layers.getFirst().volume();
+    }
+
+    public float pitch() {
+        return layers.isEmpty() ? 1.0f : layers.getFirst().pitch();
+    }
+
+    public SoundCategory category() {
+        return layers.isEmpty() ? SoundCategory.MASTER : layers.getFirst().category();
+    }
+
     public boolean isSilent() {
-        return key.isBlank();
+        if (layers.isEmpty()) {
+            return true;
+        }
+        for (SoundLayerConfig layer : layers) {
+            if (!layer.isSilent()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -57,7 +79,11 @@ public record SoundSlotConfig(
             return;
         }
         try {
-            player.playSound(location, key, category, volume, pitch);
+            for (SoundLayerConfig layer : layers) {
+                if (!layer.isSilent() && layer.delay() <= 0L) {
+                    player.playSound(location, layer.key(), layer.category(), layer.volume(), layer.pitch());
+                }
+            }
         } catch (Throwable ignored) {
             // Quiet failure per T-136
         }

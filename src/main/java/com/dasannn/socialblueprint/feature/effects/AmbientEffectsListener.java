@@ -28,10 +28,16 @@ public class AmbientEffectsListener implements Listener {
 
     private final AmbientEntityRegistry registry;
     private final AmbientEffectScheduler scheduler;
+    private final AmbientEffectDispatcher dispatcher;
 
     public AmbientEffectsListener(AmbientEntityRegistry registry, AmbientEffectScheduler scheduler) {
+        this(registry, scheduler, null);
+    }
+
+    public AmbientEffectsListener(AmbientEntityRegistry registry, AmbientEffectScheduler scheduler, AmbientEffectDispatcher dispatcher) {
         this.registry = Objects.requireNonNull(registry, "AmbientEntityRegistry must not be null");
         this.scheduler = scheduler;
+        this.dispatcher = dispatcher;
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -40,6 +46,9 @@ public class AmbientEffectsListener implements Listener {
         registry.cleanForPlayer(playerId);
         if (scheduler != null) {
             scheduler.handlePlayerQuit(playerId);
+        }
+        if (dispatcher != null) {
+            dispatcher.cancelPending(playerId);
         }
     }
 
