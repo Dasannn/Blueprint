@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -190,6 +191,68 @@ class AmbientEffectSchedulerTest {
             psychosisRepo.saveAsync(new PsychosisEvent(id, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, Instant.now())).join();
         }
         profileService.loadViewAsync(id, "TestPlayer", configManager.snapshot()).join();
+    }
+
+    @Test
+    void catalogueFloorsGateActualSchedulerSelectionWithoutRenderingBukkitEffects() {
+        RuntimeSnapshot original = configManager.snapshot();
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        long now = 1_000_000L;
+        for (AmbientEffectType chosen : List.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
+                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS)) {
+            org.bukkit.configuration.file.YamlConfiguration yaml = new org.bukkit.configuration.file.YamlConfiguration();
+            for (AmbientEffectType type : List.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
+                    AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS))
+                yaml.set("effects." + type.configId() + ".enabled", type == chosen);
+            com.dasannn.socialblueprint.config.PresentationConfig presentation =
+                    com.dasannn.socialblueprint.config.PresentationConfig.load(yaml);
+            EffectsConfigSection config = new EffectsConfigSection(Duration.ofMillis(1), disabled, disabled, disabled, disabled,
+                    Duration.ofSeconds(3), Duration.ofSeconds(2), Duration.ofSeconds(1), 100, presentation);
+            configManager.snapshotReference().set(new RuntimeSnapshot(original.config().withEffects(config), original.messages()));
+            for (int kills : List.of(0, 2, 5, 10)) {
+                onlinePlayers.clear();
+                dispatchedList.clear();
+                UUID uuid = UUID.randomUUID();
+                onlinePlayers.add(createMockPlayer(uuid, "Catalogue"));
+                setPsychosis(uuid, kills);
+                scheduler.tickAt(now);
+                boolean eligible = kills >= (chosen == AmbientEffectType.SKY ? 5 : 2);
+                if (eligible) assertThat(dispatchedList).singleElement()
+                        .satisfies(record -> assertThat(record.type()).isEqualTo(chosen));
+                else assertThat(dispatchedList).isEmpty();
+                now += 1_000_000L;
+            }
+        }
+    }
+
+    @Test
+    void actualSchedulerIncludesFinalSourceLessLayerAndPlaybackBeforeQuiet() {
+        RuntimeSnapshot original = configManager.snapshot();
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        org.bukkit.configuration.file.YamlConfiguration yaml = new org.bukkit.configuration.file.YamlConfiguration();
+        yaml.set("effects.source-less-sounds.enabled", true);
+        yaml.set("effects.source-less-sounds.cooldown-ticks", 1);
+        com.dasannn.socialblueprint.config.PresentationConfig presentation =
+                com.dasannn.socialblueprint.config.PresentationConfig.load(yaml);
+        EffectsConfigSection config = new EffectsConfigSection(Duration.ofMillis(1), disabled, disabled, disabled, disabled,
+                Duration.ofSeconds(3), Duration.ofSeconds(2), Duration.ofSeconds(1), 100, presentation);
+        Map<String, com.dasannn.socialblueprint.config.SoundSlotConfig> slots = new java.util.HashMap<>(original.config().sounds().slots());
+        slots.put("source-less", new com.dasannn.socialblueprint.config.SoundSlotConfig(List.of(
+                new com.dasannn.socialblueprint.config.SoundLayerConfig("minecraft:ambient.cave", 1, 1, org.bukkit.SoundCategory.AMBIENT, 80))));
+        configManager.snapshotReference().set(new RuntimeSnapshot(original.config().withEffects(config)
+                .withSounds(new com.dasannn.socialblueprint.config.SoundsConfigSection(slots)), original.messages()));
+        UUID uuid = UUID.randomUUID();
+        onlinePlayers.add(createMockPlayer(uuid, "SoundTail"));
+        setPsychosis(uuid, 10);
+        long now = 1_000_000L;
+        scheduler.tickAt(now);
+        assertThat(dispatchedList).hasSize(1);
+        scheduler.tickAt(now + 4000L);
+        assertThat(dispatchedList).hasSize(1);
+        scheduler.tickAt(now + 5000L);
+        assertThat(dispatchedList).hasSize(1);
+        scheduler.tickAt(now + 6000L);
+        assertThat(dispatchedList).hasSize(2);
     }
 
     @Test

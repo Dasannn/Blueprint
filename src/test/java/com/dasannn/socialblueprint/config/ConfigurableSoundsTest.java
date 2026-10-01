@@ -110,6 +110,12 @@ class ConfigurableSoundsTest {
         );
     }
 
+    private SoundsConfigSection preservePresentationSlots(SoundsConfigSection sounds) {
+        Map<String, SoundSlotConfig> slots = new java.util.HashMap<>(configManager.snapshot().config().sounds().slots());
+        slots.putAll(sounds.slots());
+        return new SoundsConfigSection(slots);
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         copyResource("messages_en.yml", new File(tempDir, "messages_en.yml"));
@@ -289,7 +295,7 @@ class ConfigurableSoundsTest {
         // 2. Dynamic reload: update sounds section with a new sound key and volume
         SoundSlotConfig updatedSlot = new SoundSlotConfig("custom.creeper.warning", 0.4f, 0.8f, SoundCategory.AMBIENT);
         SoundsConfigSection updatedSounds = new SoundsConfigSection(Map.of("creeper-fuse", updatedSlot));
-        PluginConfig updatedConfig = snap1.config().withSounds(updatedSounds);
+        PluginConfig updatedConfig = snap1.config().withSounds(preservePresentationSlots(updatedSounds));
         RuntimeSnapshot snap2 = new RuntimeSnapshot(updatedConfig, snap1.messages());
         configManager.snapshotReference().set(snap2);
 
@@ -394,7 +400,7 @@ class ConfigurableSoundsTest {
             SoundLayerConfig last = new SoundLayerConfig("block.note_block.pling", 1, 1, SoundCategory.MASTER, 199);
             SoundLayerConfig outside = new SoundLayerConfig("block.note_block.chime", 1, 1, SoundCategory.MASTER, Long.MAX_VALUE);
             SoundsConfigSection sounds = new SoundsConfigSection(Map.of("creeper-fuse", new SoundSlotConfig(List.of(first, last, outside))));
-            RuntimeSnapshot snap = new RuntimeSnapshot(configManager.config().withSounds(sounds), configManager.snapshot().messages());
+            RuntimeSnapshot snap = new RuntimeSnapshot(configManager.config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
             AmbientEffectDispatcher dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
                     new FakeSilverfishService(null, new AmbientEntityRegistry(), null), scheduler,
                     (p, layer) -> played.add(layer));
@@ -472,7 +478,7 @@ class ConfigurableSoundsTest {
                 category: HOSTILE
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -514,7 +520,7 @@ class ConfigurableSoundsTest {
                   delay: 0t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -554,7 +560,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -612,7 +618,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -660,7 +666,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -711,7 +717,7 @@ class ConfigurableSoundsTest {
                   delay: 4t
             """;
         SoundsConfigSection sounds = SoundsConfigSection.load(YamlConfiguration.loadConfiguration(new StringReader(yamlContent)));
-        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(sounds), configManager.snapshot().messages());
+        RuntimeSnapshot snap = new RuntimeSnapshot(configManager.snapshot().config().withSounds(preservePresentationSlots(sounds)), configManager.snapshot().messages());
 
         List<SoundLayerConfig> decided = new ArrayList<>();
         TestSoundScheduler scheduler = new TestSoundScheduler();
@@ -871,7 +877,7 @@ class ConfigurableSoundsTest {
                 new SoundLayerConfig("custom.horn.b", 0.6f, 1.5f, SoundCategory.AMBIENT, 0L)
         ));
         SoundsConfigSection updatedSounds = new SoundsConfigSection(Map.of("creeper-fuse", updatedSlot));
-        PluginConfig updatedConfig = snap1.config().withSounds(updatedSounds);
+        PluginConfig updatedConfig = snap1.config().withSounds(preservePresentationSlots(updatedSounds));
         RuntimeSnapshot snap2 = new RuntimeSnapshot(updatedConfig, snap1.messages());
         configManager.snapshotReference().set(snap2);
 

@@ -22,6 +22,19 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AmbientEntityRegistry {
 
+    private final Set<ActivePresentationEntry> presentations = ConcurrentHashMap.newKeySet();
+
+    public void registerPresentation(ActivePresentationEntry entry) { presentations.add(entry); }
+
+    public void cleanPresentation(ActivePresentationEntry entry) {
+        if (presentations.remove(entry)) entry.cleanup();
+    }
+
+    public Set<ActivePresentationEntry> presentationsFor(UUID playerId) {
+        return presentations.stream().filter(entry -> entry.playerId().equals(playerId))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     private final Set<ActiveEntityEntry> activeEntries = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Set<ActiveEntityEntry>> playerEntries = new ConcurrentHashMap<>();
     private final Map<UUID, ActiveEntityEntry> entityToEntry = new ConcurrentHashMap<>();
@@ -68,6 +81,7 @@ public class AmbientEntityRegistry {
      */
     public void cleanForPlayer(UUID playerId) {
         if (playerId == null) return;
+        for (ActivePresentationEntry entry : presentationsFor(playerId)) cleanPresentation(entry);
         Set<ActiveEntityEntry> entries = playerEntries.remove(playerId);
         if (entries != null) {
             for (ActiveEntityEntry entry : entries) {
@@ -91,6 +105,7 @@ public class AmbientEntityRegistry {
      * Trigger 4: Cleaned on plugin disable.
      */
     public void cleanAll() {
+        for (ActivePresentationEntry entry : Set.copyOf(presentations)) cleanPresentation(entry);
         List<ActiveEntityEntry> all = new ArrayList<>(activeEntries);
         activeEntries.clear();
         playerEntries.clear();

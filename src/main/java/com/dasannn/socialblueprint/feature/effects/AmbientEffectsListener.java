@@ -42,20 +42,17 @@ public class AmbientEffectsListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        UUID playerId = event.getPlayer().getUniqueId();
-        registry.cleanForPlayer(playerId);
-        if (scheduler != null) {
-            scheduler.handlePlayerQuit(playerId);
-        }
-        if (dispatcher != null) {
-            dispatcher.cancelPending(playerId);
-        }
+        cleanupPlayer(event.getPlayer().getUniqueId(), true);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
-        UUID playerId = event.getPlayer().getUniqueId();
-        registry.cleanForPlayerWorldChange(playerId);
+        cleanupPlayer(event.getPlayer().getUniqueId(), false);
+    }
+
+    void cleanupPlayer(UUID playerId, boolean quit) {
+        registry.cleanForPlayer(playerId);
+        if (quit && scheduler != null) scheduler.handlePlayerQuit(playerId);
         if (dispatcher != null) dispatcher.cancelPending(playerId);
     }
 

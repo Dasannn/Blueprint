@@ -7,6 +7,7 @@ import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.config.SoundLayerConfig;
 import com.dasannn.socialblueprint.config.SoundSlotConfig;
+import com.dasannn.socialblueprint.config.PresentationConfig;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -107,7 +108,12 @@ public class AmbientEffectDispatcher {
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(config, "config must not be null");
 
+        cancelPending(player.getUniqueId()); // interruption restores the previous owned presentation first
         return switch (type) {
+            case SKY -> dispatchSky(player, config.presentation().sky());
+            case PARTICLES -> dispatchParticles(player, config.presentation().particles());
+            case SCREEN_FLASH -> dispatchScreen(player, config.presentation().flash(), snapshot);
+            case SOURCE_LESS_SOUNDS -> dispatchSourceLess(player, config.presentation(), snapshot);
             case SILVERFISH -> dispatchSilverfish(player);
             case WHISPER -> {
                 dispatchWhisper(player, snapshot);
@@ -122,6 +128,105 @@ public class AmbientEffectDispatcher {
                 yield true;
             }
         };
+    }
+
+    ActivePresentationEntry startPresentation(UUID playerId, AmbientEffectType type, long ticks, Runnable restore) {
+        AmbientEntityRegistry registry = silverfishService.registry();
+        ActivePresentationEntry entry = new ActivePresentationEntry(playerId, type, ticks, restore);
+        registry.registerPresentation(entry);
+        try {
+            if (scheduleTracked(entry.playerId(), () -> registry.cleanPresentation(entry), ticks)) return entry;
+        } catch (RuntimeException failure) {
+            registry.cleanPresentation(entry);
+            throw failure;
+        }
+        registry.cleanPresentation(entry);
+        return null; // Never change the client without a scheduled restoration.
+    }
+
+    private boolean dispatchSky(Player player, PresentationConfig.Sky config) {
+        org.bukkit.WeatherType previousWeather = player.getPlayerWeather();
+        UUID worldId = player.getWorld().getUID();
+        boolean night = config.mode().equals("night");
+        SkyPresentation sky = new SkyPresentation(player.getPlayerTimeOffset(), player.isPlayerTimeRelative(),
+                previousWeather == null ? null : previousWeather.name(), 18000L, false, "DOWNFALL", night, !night);
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.SKY, config.durationTicks(), () -> {
+            if (sky.ownsTime(player.getPlayerTimeOffset(), player.isPlayerTimeRelative())) {
+                if (sky.resetTime(player.getWorld().getUID().equals(worldId))) player.resetPlayerTime();
+                else player.setPlayerTime(sky.previousTimeOffset(), sky.previousTimeRelative());
+            }
+            org.bukkit.WeatherType currentWeather = player.getPlayerWeather();
+            if (sky.ownsWeather(currentWeather == null ? null : currentWeather.name())) {
+                if (sky.resetWeather(player.getWorld().getUID().equals(worldId))) player.resetPlayerWeather();
+                else player.setPlayerWeather(previousWeather);
+            }
+        });
+        if (entry == null) return false;
+        try {
+            if (night) player.setPlayerTime(18000L, false);
+            else player.setPlayerWeather(org.bukkit.WeatherType.DOWNFALL);
+            return true;
+        } catch (RuntimeException failure) {
+            silverfishService.registry().cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    private boolean dispatchParticles(Player player, PresentationConfig.Particles config) {
+        org.bukkit.Particle particle = org.bukkit.Particle.valueOf(config.type().toUpperCase(java.util.Locale.ROOT));
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.PARTICLES, config.totalTicks(), () -> {});
+        if (entry == null) return false;
+        try {
+            Location origin = player.getLocation();
+            for (int i = 0; i < config.count(); i++) {
+                ParticlePoint point = ParticlePoint.at(config, i);
+                player.spawnParticle(particle, origin.clone().add(point.x(), point.y(), point.z()), 1, 0, 0, 0, 0);
+            }
+            return true;
+        } catch (RuntimeException failure) {
+            silverfishService.registry().cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    private boolean dispatchScreen(Player player, PresentationConfig.Flash config, RuntimeSnapshot snapshot) {
+        List<String> keys = snapshot.messages().lineKeys("effects.screen-flash.lines");
+        if (keys.isEmpty()) return false;
+        String key = keys.get(random.nextInt(keys.size()));
+        Component text = messageRegistry.render(snapshot, key, Map.of());
+        PrivateScreen screen;
+        try { screen = new PrivateScreen(player, text, config); }
+        catch (ReflectiveOperationException | RuntimeException failure) {
+            if (warnedKeys.add("screen-bridge")) java.util.logging.Logger.getLogger(getClass().getName())
+                    .warning("Private screen bridge unavailable; skipping screen flashes: " + failure.getMessage());
+            return false;
+        }
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.SCREEN_FLASH, config.totalTicks(), screen::restore);
+        if (entry == null) return false;
+        try { screen.show(); return true; }
+        catch (ReflectiveOperationException | RuntimeException failure) {
+            silverfishService.registry().cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    private boolean dispatchSourceLess(Player player, PresentationConfig config, RuntimeSnapshot snapshot) {
+        PresentationConfig.Sounds settings = config.sounds();
+        SoundSlotConfig slot = snapshot.config().sounds().get(settings.slot());
+        if (slot.isSilent()) return false;
+        long ticks = config.durationTicks(AmbientEffectType.SOURCE_LESS_SOUNDS, snapshot.config().sounds());
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.SOURCE_LESS_SOUNDS, ticks,
+                () -> stopLayers(player, slot));
+        if (entry == null) return false;
+        // Reuse the same layered player/scheduler; only its recipient-relative location differs.
+        playSoundSlot(player, slot, settings.slot(), snapshot, (recipient, layer) -> {
+            Location origin = recipient.getLocation();
+            double yaw = Math.toRadians(origin.getYaw());
+            Location at = origin.clone().add(-Math.sin(yaw) * settings.forward() - Math.cos(yaw) * settings.right(),
+                    settings.up(), Math.cos(yaw) * settings.forward() - Math.sin(yaw) * settings.right());
+            recipient.playSound(at, layer.key(), layer.category(), layer.volume(), layer.pitch());
+        });
+        return true;
     }
 
     private boolean dispatchSilverfish(Player player) {
@@ -179,6 +284,10 @@ public class AmbientEffectDispatcher {
      * Immediate layers (delay <= 0) play synchronously; delayed layers are scheduled.
      */
     public void playSoundSlot(Player player, SoundSlotConfig slot, String slotName, RuntimeSnapshot snapshot) {
+        playSoundSlot(player, slot, slotName, snapshot, soundPlayer);
+    }
+
+    private void playSoundSlot(Player player, SoundSlotConfig slot, String slotName, RuntimeSnapshot snapshot, SoundPlayer playback) {
         if (player == null || slot == null || slot.isSilent()) {
             return;
         }
@@ -188,20 +297,20 @@ public class AmbientEffectDispatcher {
                 continue;
             }
             if (layer.delay() <= 0L) {
-                playLayerSafely(player, layer, slotName, snapshot);
+                playLayerSafely(player, layer, slotName, snapshot, playback);
             } else {
-                scheduleLayer(player, playerId, layer, slotName, snapshot);
+                scheduleLayer(player, playerId, layer, slotName, snapshot, playback);
             }
         }
     }
 
-    private void scheduleLayer(Player player, UUID playerId, SoundLayerConfig layer, String slotName, RuntimeSnapshot snapshot) {
+    private void scheduleLayer(Player player, UUID playerId, SoundLayerConfig layer, String slotName, RuntimeSnapshot snapshot, SoundPlayer playback) {
         if (player == null) {
             return;
         }
         scheduleTracked(playerId, () -> {
             if (player.isOnline()) {
-                playLayerSafely(player, layer, slotName, snapshot);
+                playLayerSafely(player, layer, slotName, snapshot, playback);
             }
         }, layer.delay());
     }
@@ -227,7 +336,7 @@ public class AmbientEffectDispatcher {
         scheduleTracked(playerId, () -> {}, ticks);
     }
 
-    private void scheduleTracked(UUID playerId, Runnable action, long delayTicks) {
+    private boolean scheduleTracked(UUID playerId, Runnable action, long delayTicks) {
         AtomicReference<SoundScheduler.TaskHandle> handleRef = new AtomicReference<>();
         SoundScheduler.TaskHandle handle = scheduler.schedule(() -> {
             try {
@@ -240,14 +349,15 @@ public class AmbientEffectDispatcher {
             handleRef.set(handle);
             addPendingTask(playerId, handle);
         }
+        return handle != null;
     }
 
-    private void playLayerSafely(Player player, SoundLayerConfig layer, String slotName, RuntimeSnapshot snapshot) {
+    private void playLayerSafely(Player player, SoundLayerConfig layer, String slotName, RuntimeSnapshot snapshot, SoundPlayer playback) {
         if (player == null || layer.isSilent()) {
             return;
         }
         try {
-            soundPlayer.play(player, layer);
+            playback.play(player, layer);
         } catch (Throwable t) {
             if (snapshot != null) {
                 snapshot.config().sounds().logKeyWarning(slotName, layer.key(), t.getMessage());
@@ -263,6 +373,7 @@ public class AmbientEffectDispatcher {
         if (playerId == null) {
             return;
         }
+        silverfishService.registry().cleanForPlayer(playerId);
         Runnable stop = activeSoundStops.remove(playerId);
         if (stop != null) stop.run();
         List<SoundScheduler.TaskHandle> handles = pendingTasks.remove(playerId);
@@ -279,6 +390,7 @@ public class AmbientEffectDispatcher {
     }
 
     public void cancelAllPending() {
+        silverfishService.registry().cleanAll();
         for (UUID id : Set.copyOf(pendingTasks.keySet())) cancelPending(id);
         for (UUID id : Set.copyOf(activeSoundStops.keySet())) cancelPending(id);
     }

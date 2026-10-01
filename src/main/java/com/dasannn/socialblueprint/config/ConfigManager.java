@@ -112,6 +112,21 @@ public class ConfigManager {
         }
     }
 
+    private void adoptEpisodeIntervals(YamlConfiguration beforeMerge) {
+        for (String level : List.of("medium", "high", "extreme")) {
+            String path = "effects.episodes." + level + ".interval-ticks";
+            String legacy = "effects.quiet-interval." + level;
+            if (!beforeMerge.contains(path) && beforeMerge.contains(legacy)) {
+                // Preserve the previous guaranteed floor, including its scheduler check interval.
+                EffectsConfigSection previous = EffectsConfigSection.load(beforeMerge);
+                long millis = previous.quietInterval(com.dasannn.socialblueprint.domain.PsychosisLevel.valueOf(level.toUpperCase(java.util.Locale.ROOT))).toMillis();
+                long ticks = millis / 50L + (millis % 50L == 0 ? 0 : 1);
+                try { YamlFileUpdater.updateLeafAndSave(configFile, path, Long.toString(ticks)); }
+                catch (IOException error) { throw new ConfigValidationException(path, "Cannot adopt legacy cadence: " + error.getMessage()); }
+            }
+        }
+    }
+
     public CompletableFuture<RuntimeSnapshot> reloadAsync() {
         return CompletableFuture.supplyAsync(this::reload, ioExecutor);
     }
@@ -125,7 +140,9 @@ public class ConfigManager {
         synchronized (writeLock) {
             migrateLegacyHonorWindowIfNeeded(configFile, logger);
             File dataFolder = configFile.getParentFile();
+            YamlConfiguration beforeMerge = YamlConfiguration.loadConfiguration(configFile);
             ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
+            adoptEpisodeIntervals(beforeMerge);
             retireEffectsKeys();
 
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
@@ -264,7 +281,8 @@ public class ConfigManager {
                 if (rawValue.isBlank()) {
                     throw new ConfigValidationException(path, "Message translation must not be blank");
                 }
-                ColorParser.validate(rawValue, path);
+                String messageValue = path.equals(ScreenLines.KEY) ? ScreenLines.editValue(rawValue) : rawValue;
+                if (!path.equals(ScreenLines.KEY)) ColorParser.validate(rawValue, path);
 
                 File dataFolder = configFile.getParentFile();
                 String activeLang = current.config().language();
@@ -276,7 +294,7 @@ public class ConfigManager {
 
                 // Persist atomically to the active language file
                 try {
-                    YamlFileUpdater.updateLeafAndSave(messageFile, path, rawValue);
+                    YamlFileUpdater.updateLeafAndSave(messageFile, path, messageValue);
                 } catch (IOException e) {
                     throw new IllegalStateException("Failed to persist updated message to disk: " + e.getMessage(), e);
                 }
@@ -380,6 +398,10 @@ public class ConfigManager {
     }
 
     private Object parseValueForPath(String path, String raw) {
+        if (path.startsWith("effects.episodes.")) {
+            try { return Long.parseLong(raw.trim()); }
+            catch (NumberFormatException error) { throw new ConfigValidationException(path, "Expected integer ticks"); }
+        }
         if ("honor.multipliers".equals(path)) {
             return parseDoubleList(raw);
         }
@@ -545,6 +567,18 @@ public class ConfigManager {
         set.add("duel.disconnect.action");
         set.add("duel.attack-context-window");
 
+        for (String id : List.of("sky", "particles", "screen-flash", "source-less-sounds")) {
+            for (String key : List.of("enabled", "minimum-level", "cooldown-ticks", "session-cap"))
+                set.add("effects." + id + "." + key);
+        }
+        for (String key : List.of("sky.mode", "sky.duration-ticks", "particles.type", "particles.placement",
+                "particles.count", "particles.radius-blocks", "particles.duration-ticks", "screen-flash.channel",
+                "screen-flash.fade-in-ticks", "screen-flash.duration-ticks", "screen-flash.fade-out-ticks",
+                "source-less-sounds.sound-slot", "source-less-sounds.offset.forward-blocks",
+                "source-less-sounds.offset.right-blocks", "source-less-sounds.offset.up-blocks", "source-less-sounds.playback-ticks"))
+            set.add("effects." + key);
+        for (String level : List.of("medium", "high", "extreme")) set.add("effects.episodes." + level + ".interval-ticks");
+        set.add("effects.episodes.quiet-ticks");
         set.add("effects.check-interval");
         set.add("effects.quiet-interval.medium");
         set.add("effects.quiet-interval.high");

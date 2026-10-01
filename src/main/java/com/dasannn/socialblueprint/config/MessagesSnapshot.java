@@ -36,13 +36,13 @@ public record MessagesSnapshot(
         Objects.requireNonNull(key, "Message key must not be null");
 
         // 1. Try active language from disk/memory
-        String val = activeMessages.get(key);
+        String val = lookup(activeMessages, key);
         if (val != null && !val.isBlank()) {
             return val;
         }
 
         // 2. Try fallback language from disk/memory
-        String fallbackVal = fallbackMessages.get(key);
+        String fallbackVal = lookup(fallbackMessages, key);
         if (fallbackVal != null && !fallbackVal.isBlank()) {
             if (warnedKeys.add(key) && logger != null) {
                 logger.warning("[SocialBlueprint] Missing translation key '" + key
@@ -52,7 +52,7 @@ public record MessagesSnapshot(
         }
 
         // 3. Try bundled active language from jar
-        String bundledVal = bundledActiveMessages.get(key);
+        String bundledVal = lookup(bundledActiveMessages, key);
         if (bundledVal != null && !bundledVal.isBlank()) {
             if (warnedKeys.add(key) && logger != null) {
                 logger.warning("[SocialBlueprint] Missing translation key '" + key
@@ -62,7 +62,7 @@ public record MessagesSnapshot(
         }
 
         // 4. Try bundled fallback language from jar
-        String bundledFallbackVal = bundledFallbackMessages.get(key);
+        String bundledFallbackVal = lookup(bundledFallbackMessages, key);
         if (bundledFallbackVal != null && !bundledFallbackVal.isBlank()) {
             if (warnedKeys.add(key) && logger != null) {
                 logger.warning("[SocialBlueprint] Missing translation key '" + key
@@ -76,6 +76,27 @@ public record MessagesSnapshot(
             logger.severe("[SocialBlueprint] Translation key '" + key + "' not found in any message file!");
         }
         return "";
+    }
+
+    public java.util.List<String> lineKeys(String key) {
+        String lines = resolveRaw(key, java.util.concurrent.ConcurrentHashMap.newKeySet(), null);
+        if (lines.isBlank()) return java.util.List.of();
+        return java.util.stream.IntStream.range(0, lines.split("\n", -1).length)
+                .mapToObj(index -> key + "." + index).toList();
+    }
+
+    private static String lookup(Map<String, String> messages, String key) {
+        String prefix = ScreenLines.KEY + ".";
+        if (key.startsWith(prefix)) {
+            String lines = messages.get(ScreenLines.KEY);
+            if (lines == null) return null;
+            try {
+                int index = Integer.parseInt(key.substring(prefix.length()));
+                String[] values = lines.split("\n", -1);
+                return index >= 0 && index < values.length ? values[index] : null;
+            } catch (NumberFormatException ignored) { return null; }
+        }
+        return messages.get(key);
     }
 
     public boolean isKnownKey(String key) {

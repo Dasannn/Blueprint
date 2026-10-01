@@ -72,6 +72,7 @@ public class AmbientEffectScheduler {
             task.cancel();
             task = null;
         }
+        dispatcher.cancelAllPending();
         lastCheckTimestamp = 0L;
     }
 
@@ -112,6 +113,9 @@ public class AmbientEffectScheduler {
                 if (type == AmbientEffectType.SILVERFISH && level == PsychosisLevel.MEDIUM) {
                     continue;
                 }
+                if (cfg.presentation().rules().containsKey(type) && !cfg.presentation().rules().get(type).allows(level)) {
+                    continue;
+                }
                 if (state.canFire(type, cfg.getEffect(type), now)) {
                     eligible.add(type);
                 }
@@ -127,7 +131,8 @@ public class AmbientEffectScheduler {
             if (success) {
                 state.recordFired(chosen, now);
                 long quietMillis = cfg.quietInterval(level).toMillis();
-                long episodeTicks = chosen == AmbientEffectType.CREEPER_SOUND ? cfg.maxEpisodeTicks() : 0L;
+                long episodeTicks = chosen == AmbientEffectType.CREEPER_SOUND ? cfg.maxEpisodeTicks()
+                        : cfg.presentation().durationTicks(chosen, snapshot.config().sounds());
                 state.recordEpisode(now, episodeTicks * 50L + quietMillis);
                 // Also retain the gate in server ticks: lag must not let a new episode
                 // overlap delayed layers or consume the quiet interval.

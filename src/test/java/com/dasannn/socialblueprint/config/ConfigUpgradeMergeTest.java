@@ -2,6 +2,7 @@ package com.dasannn.socialblueprint.config;
 
 import com.dasannn.socialblueprint.command.StatusConfigCommand;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -71,7 +72,13 @@ class ConfigUpgradeMergeTest {
         ConfigManager manager = new ConfigManager(configFile, messageRegistry, Runnable::run, testLogger);
         manager.initialize();
         String updated = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
-        assertThat(updated).doesNotContain("threshold: -99", "duration-ticks:", "fake-names:", "effects: sb.effects");
+        // The obsolete key is effects.silverfish.duration-ticks. A bare
+        // "duration-ticks:" now matches the sky, particle and flash keys the
+        // presentation effects legitimately ship, so assert the parsed key is
+        // gone rather than that the text never appears.
+        assertThat(updated).doesNotContain("threshold: -99", "fake-names:", "effects: sb.effects");
+        YamlConfiguration merged = YamlConfiguration.loadConfiguration(configFile);
+        assertThat(merged.contains("effects.silverfish.duration-ticks")).isFalse();
         assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(48));
         assertThat(manager.isEditableKey("effects.threshold")).isFalse();
         assertThat(manager.isEditableKey("effects.silverfish.duration-ticks")).isFalse();

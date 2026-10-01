@@ -123,6 +123,10 @@ duel:
   reconnected: '&e{player}&a reconnected to the duel!'
 
 effects:
+  screen-flash:
+    lines:
+      - '&8Behind you.'
+      - '&8Did you hear that?'
   fake-join: '&e{player} joined the game'
   fake-leave: '&e{player} left the game'
   whisper-1: '&#202020...'

@@ -1,11 +1,8 @@
 package com.dasannn.socialblueprint.feature.effects;
 
-/**
- * The four low-status ambient effects per SB-040 and Decision 0002.
- */
 public enum AmbientEffectType {
-    SILVERFISH,
-    WHISPER,
-    CREEPER_SOUND,
-    FAKE_ANNOUNCEMENT
+    SILVERFISH, WHISPER, CREEPER_SOUND, FAKE_ANNOUNCEMENT,
+    SKY, PARTICLES, SCREEN_FLASH, SOURCE_LESS_SOUNDS;
+
+    public String configId() { return name().toLowerCase(java.util.Locale.ROOT).replace('_', '-'); }
 }

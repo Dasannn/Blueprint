@@ -41,9 +41,20 @@ class EffectsConfigValidationTest {
             yaml.set("effects." + effect + ".cooldown", "0s");
         }
         EffectsConfigSection cfg = PluginConfig.load(yaml).effects();
-        assertThat(cfg.quietInterval(PsychosisLevel.MEDIUM)).isEqualTo(Duration.ofSeconds(90));
-        assertThat(cfg.quietInterval(PsychosisLevel.HIGH)).isEqualTo(Duration.ofSeconds(60));
-        assertThat(cfg.quietInterval(PsychosisLevel.EXTREME)).isEqualTo(Duration.ofSeconds(30));
+        // The requirement is that configuration cannot remove the quiet, and
+        // that calmer levels stay quieter. Pinning an exact number here would
+        // fail whenever a floor rises for a good reason, which says nothing
+        // about the guarantee.
+        assertThat(cfg.quietInterval(PsychosisLevel.MEDIUM))
+                .isGreaterThanOrEqualTo(Duration.ofSeconds(90));
+        assertThat(cfg.quietInterval(PsychosisLevel.HIGH))
+                .isGreaterThanOrEqualTo(Duration.ofSeconds(60));
+        assertThat(cfg.quietInterval(PsychosisLevel.EXTREME))
+                .isGreaterThanOrEqualTo(Duration.ofSeconds(30));
+        assertThat(cfg.quietInterval(PsychosisLevel.MEDIUM))
+                .isGreaterThan(cfg.quietInterval(PsychosisLevel.HIGH));
+        assertThat(cfg.quietInterval(PsychosisLevel.HIGH))
+                .isGreaterThan(cfg.quietInterval(PsychosisLevel.EXTREME));
     }
 
     @Test

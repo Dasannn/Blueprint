@@ -230,6 +230,8 @@ public class MessageRegistry {
             try {
                 YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
                 return flattenKeys(yaml);
+            } catch (ConfigValidationException e) {
+                throw e;
             } catch (Exception e) {
                 if (logger != null) {
                     logger.warning("[SocialBlueprint] Failed to load messages_" + lang + ".yml from disk: " + e.getMessage());
@@ -305,6 +307,8 @@ public class MessageRegistry {
             String path = prefix.isEmpty() ? key : prefix + "." + key;
             if (section.isConfigurationSection(key)) {
                 flattenRecursive(section.getConfigurationSection(key), path, map);
+            } else if (path.equals(ScreenLines.KEY)) {
+                map.put(path, String.join("\n", ScreenLines.validate(section.get(key))));
             } else {
                 map.put(path, section.getString(key, ""));
             }

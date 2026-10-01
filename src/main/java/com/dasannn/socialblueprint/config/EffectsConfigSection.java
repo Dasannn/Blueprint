@@ -19,9 +19,11 @@ public record EffectsConfigSection(
         Duration mediumQuietInterval,
         Duration highQuietInterval,
         Duration extremeQuietInterval,
-        int maxEpisodeTicks
+        int maxEpisodeTicks,
+        PresentationConfig presentation
 ) {
     public EffectsConfigSection {
+        Objects.requireNonNull(presentation, "presentation must not be null");
         Objects.requireNonNull(checkInterval, "checkInterval must not be null");
         if (checkInterval.isNegative() || checkInterval.isZero()
                 || checkInterval.compareTo(Duration.ofMillis((Long.MAX_VALUE - 20_000L) / 3L)) > 0) {
@@ -41,6 +43,13 @@ public record EffectsConfigSection(
         if (maxEpisodeTicks < 1 || maxEpisodeTicks > 200) {
             throw new ConfigValidationException("effects.max-episode-ticks", "Episode must last 1 to 200 ticks");
         }
+    }
+
+    public EffectsConfigSection(Duration checkInterval, SingleEffectConfig silverfish,
+                                SingleEffectConfig whisper, SingleEffectConfig creeper, SingleEffectConfig fakeAnnouncement,
+                                Duration medium, Duration high, Duration extreme, int maxEpisodeTicks) {
+        this(checkInterval, silverfish, whisper, creeper, fakeAnnouncement, medium, high, extreme,
+                maxEpisodeTicks, PresentationConfig.defaults());
     }
 
     public EffectsConfigSection(Duration checkInterval, SingleEffectConfig silverfish,
@@ -67,6 +76,17 @@ public record EffectsConfigSection(
             case HIGH -> highQuietInterval;
             case EXTREME -> extremeQuietInterval;
         };
+        if (presentation.episodes() != null) {
+            PresentationConfig.Episodes episodes = presentation.episodes();
+            // The longest of the three, not the episode figure alone: this is a
+            // floor, and overwriting here would shorten a quiet interval an
+            // operator deliberately made longer.
+            Duration episodeFloor = Duration.ofMillis(
+                    Math.max(episodes.intervalTicks(level), episodes.quietTicks()) * 50L);
+            if (episodeFloor.compareTo(configured) > 0) {
+                configured = episodeFloor;
+            }
+        }
         // Distinct cadence must survive the scheduler's check interval, even when
         // all owner-provided quiet periods and per-effect cooldowns are zero.
         int checks = switch (level) {
@@ -85,6 +105,7 @@ public record EffectsConfigSection(
             case WHISPER -> whisper;
             case CREEPER_SOUND -> creeper;
             case FAKE_ANNOUNCEMENT -> fakeAnnouncement;
+            default -> presentation.rules().get(type).limits();
         };
     }
 
@@ -112,7 +133,7 @@ public record EffectsConfigSection(
                 DurationParser.parseNonNegative(section.getString("quiet-interval.medium", "5m"), "effects.quiet-interval.medium"),
                 DurationParser.parseNonNegative(section.getString("quiet-interval.high", "2m"), "effects.quiet-interval.high"),
                 DurationParser.parseNonNegative(section.getString("quiet-interval.extreme", "30s"), "effects.quiet-interval.extreme"),
-                section.getInt("max-episode-ticks", 200));
+                section.getInt("max-episode-ticks", 200), PresentationConfig.load(root));
     }
 
     private static SingleEffectConfig loadEffect(ConfigurationSection section, String key, String cooldownDefault, int capDefault) {

@@ -44,6 +44,8 @@ public class FakeSilverfishService {
         this.logger = logger != null ? logger : Logger.getLogger(FakeSilverfishService.class.getName());
     }
 
+    public AmbientEntityRegistry registry() { return registry; }
+
     public void setMode(Mode mode) {
         this.mode = Objects.requireNonNull(mode, "mode must not be null");
     }

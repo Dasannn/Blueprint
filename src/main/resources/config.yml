@@ -194,6 +194,52 @@ duel:
 # Private, cosmetic episodes triggered by Medium, High and Extreme Psychosis.
 # ==============================================================================
 effects:
+  episodes:
+    medium:
+      interval-ticks: 6000
+    high:
+      interval-ticks: 2400
+    extreme:
+      interval-ticks: 600
+    quiet-ticks: 20
+  sky:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    mode: night
+    duration-ticks: 60
+  particles:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    # Supported native types: smoke and end_rod; episode includes their finite client tail.
+    type: smoke
+    placement: around
+    count: 8
+    radius-blocks: 1
+    duration-ticks: 40
+  screen-flash:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    channel: title
+    fade-in-ticks: 5
+    duration-ticks: 30
+    fade-out-ticks: 5
+  source-less-sounds:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    sound-slot: source-less
+    offset:
+      forward-blocks: -2
+      right-blocks: 0
+      up-blocks: 0
+    playback-ticks: 20
   # Silence after a complete episode. Must decrease Medium > High > Extreme.
   # Minimums: 3/2/1 seconds and 3/2/1 scheduler checks respectively, even with zero cooldowns.
   quiet-interval:
@@ -279,6 +325,17 @@ kill-penalty:
 # Configurable Sounds (SB-090, SB-091, T-135 to T-137)
 # ==============================================================================
 sounds:
+  source-less:
+    - key: minecraft:block.stone.step
+      volume: 0.7
+      pitch: 1.0
+      category: AMBIENT
+      delay: 0
+    - key: minecraft:block.stone.step
+      volume: 0.7
+      pitch: 1.0
+      category: AMBIENT
+      delay: 10
   # key: the Minecraft sound key. Empty key = silence.
   creeper-fuse:
     key: "entity.creeper.primed"
