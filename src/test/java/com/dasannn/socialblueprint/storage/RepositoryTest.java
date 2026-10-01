@@ -2,6 +2,7 @@ package com.dasannn.socialblueprint.storage;
 
 import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.CombatContext;
+import com.dasannn.socialblueprint.domain.DecayConfig;
 import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.NonPlayerTarget;
 import com.dasannn.socialblueprint.domain.PlayerId;
@@ -448,5 +449,175 @@ class RepositoryTest {
         assertThatThrownBy(() -> reputationRepo.findByTargetInternal(mockConn, UUID.randomUUID().toString()))
                 .isInstanceOf(java.sql.SQLException.class)
                 .hasMessage("Connection closed");
+    }
+
+    @Test
+    @DisplayName("Finding 3: Corrupt created_at timestamp (non-timestamp and null) is skipped and warned once")
+    void corruptTimestampIsSkippedAndWarnedOnce() {
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Simulate a damaged/legacy table that permits null timestamps. Production
+        // schema correctly rejects this fixture before the row mapper can see it.
+        storage.run(conn -> {
+            try (java.sql.Statement stmt = conn.createStatement()) {
+                String ddl;
+                try (java.sql.ResultSet rs = stmt.executeQuery(
+                        "SELECT sql FROM sqlite_master WHERE name = 'reputation_event'")) {
+                    rs.next();
+                    ddl = rs.getString(1);
+                }
+                stmt.execute("DROP TABLE reputation_event");
+                stmt.execute(ddl.replace("created_at TEXT NOT NULL", "created_at TEXT"));
+            }
+        });
+
+        // Valid row (+10)
+        reputationRepo.save(new ReputationEvent(actor, target, 10, HonorKind.POSITIVE, 100.0, "Good", baseTime));
+
+        // Corrupt row 1: created_at is not a timestamp at all
+        long invalidTimestampRowId = storage.execute(conn -> {
+            try (java.sql.PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, actor.toString());
+                ps.setString(2, target.toString());
+                ps.setInt(3, 5);
+                ps.setString(4, "positive");
+                ps.setDouble(5, 50.0);
+                ps.setString(6, null);
+                ps.setString(7, "not-a-timestamp");
+                ps.executeUpdate();
+                try (java.sql.ResultSet rs = ps.getGeneratedKeys()) {
+                    rs.next();
+                    return rs.getLong(1);
+                }
+            }
+        });
+
+        // Corrupt row 2: created_at is null
+        long nullTimestampRowId = storage.execute(conn -> {
+            try (java.sql.PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, actor.toString());
+                ps.setString(2, target.toString());
+                ps.setInt(3, -2);
+                ps.setString(4, "negative");
+                ps.setDouble(5, 50.0);
+                ps.setString(6, "bad");
+                ps.setNull(7, java.sql.Types.VARCHAR);
+                ps.executeUpdate();
+                try (java.sql.ResultSet rs = ps.getGeneratedKeys()) {
+                    rs.next();
+                    return rs.getLong(1);
+                }
+            }
+        });
+
+        // Capture logs from ReputationRepository
+        List<java.util.logging.LogRecord> logs = new java.util.ArrayList<>();
+        java.util.logging.Handler testHandler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord record) {
+                logs.add(record);
+            }
+            @Override
+            public void flush() {}
+            @Override
+            public void close() {}
+        };
+        java.util.logging.Logger repoLogger = java.util.logging.Logger.getLogger(ReputationRepository.class.getName());
+        repoLogger.addHandler(testHandler);
+
+        try {
+            // Read skips both corrupt rows and returns only the single valid row
+            List<ReputationEvent> events = reputationRepo.findByTarget(target);
+            assertThat(events).hasSize(1);
+            assertThat(events.get(0).delta()).isEqualTo(10);
+
+            // Warnings emitted for both row IDs
+            assertThat(reputationRepo.hasWarnedCorruptRow(invalidTimestampRowId)).isTrue();
+            assertThat(reputationRepo.hasWarnedCorruptRow(nullTimestampRowId)).isTrue();
+
+            // Warnings mention the specific row IDs
+            assertThat(logs.stream().anyMatch(r -> r.getMessage().contains("id=" + invalidTimestampRowId))).isTrue();
+            assertThat(logs.stream().anyMatch(r -> r.getMessage().contains("id=" + nullTimestampRowId))).isTrue();
+
+            // Status is derived only from valid row
+            Status status = reputationRepo.getStatus(target, DecayConfig.defaults(), baseTime);
+            assertThat(status.value()).isEqualTo(10);
+            reputationRepo.findByTarget(target);
+            assertThat(logs.stream().filter(r -> r.getMessage().contains("id=" + invalidTimestampRowId)).count())
+                    .isEqualTo(1);
+            assertThat(logs.stream().filter(r -> r.getMessage().contains("id=" + nullTimestampRowId)).count())
+                    .isEqualTo(1);
+        } finally {
+            repoLogger.removeHandler(testHandler);
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 2: Admin reset on target with malformed row refuses, names the row, and display path still works")
+    void adminResetOnTargetWithMalformedRowRefusesAndNamesRow() {
+        PlayerId admin = PlayerId.of(UUID.randomUUID());
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+
+        // Valid row (+10)
+        reputationRepo.save(new ReputationEvent(admin, target, 10, HonorKind.POSITIVE, 100.0, "Initial", baseTime));
+
+        // Insert corrupt row directly via SQL (invalid cost 0.0 for player honor)
+        long badRowId = storage.execute(conn -> {
+            try (java.sql.PreparedStatement ps = conn.prepareStatement("""
+                    INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+                ps.setString(1, admin.toString());
+                ps.setString(2, target.toString());
+                ps.setInt(3, 5);
+                ps.setString(4, "positive");
+                ps.setDouble(5, 0.0); // Corrupt: cost 0.0 for player honor
+                ps.setString(6, null);
+                ps.setString(7, StorageTimestamps.format(baseTime.plusSeconds(5)));
+                ps.executeUpdate();
+                try (java.sql.ResultSet rs = ps.getGeneratedKeys()) {
+                    rs.next();
+                    return rs.getLong(1);
+                }
+            }
+        });
+
+        // 1. Strict write path: executeAdminAdjustmentAsync (ADMIN_RESET) refuses and names the corrupt row
+        var resetFuture = reputationRepo.executeAdminAdjustmentAsync(
+                admin,
+                target,
+                HonorKind.ADMIN_RESET,
+                0,
+                "admin_reset",
+                "Resetting player status",
+                baseTime.plusSeconds(30),
+                auditRepo
+        );
+
+        assertThatThrownBy(resetFuture::join)
+                .hasCauseInstanceOf(StorageException.class)
+                .hasMessageContaining("id=" + badRowId);
+
+        // Verify that NO compensating event was written to reputation_event
+        List<ReputationEvent> eventsAfterFailedReset = reputationRepo.findByTarget(target);
+        assertThat(eventsAfterFailedReset)
+                .noneMatch(e -> e.kind() == HonorKind.ADMIN_RESET);
+
+        // Verify that NO audit event was written
+        List<AuditEvent> auditEvents = auditRepo.findByTarget(target);
+        assertThat(auditEvents).isEmpty();
+
+        // 2. Tolerant display path: target still displays successfully with the valid row counted
+        assertThat(eventsAfterFailedReset).hasSize(1);
+        assertThat(eventsAfterFailedReset.get(0).delta()).isEqualTo(10);
+        Status displayedStatus = reputationRepo.getStatus(target, DecayConfig.defaults(), baseTime);
+        assertThat(displayedStatus.value()).isEqualTo(10);
     }
 }

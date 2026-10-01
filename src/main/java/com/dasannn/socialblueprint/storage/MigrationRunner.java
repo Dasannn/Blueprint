@@ -39,7 +39,8 @@ public final class MigrationRunner {
         return new MigrationRunner(List.of(
                 new Migration_1_InitialSchema(),
                 new Migration_2_RaterReveal(),
-                new Migration_3_KillPenaltyClaim()
+                new Migration_3_KillPenaltyClaim(),
+                new Migration_4_PendingCompensation()
         ));
     }
 

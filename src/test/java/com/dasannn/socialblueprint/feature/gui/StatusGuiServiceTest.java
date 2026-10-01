@@ -201,7 +201,7 @@ public class StatusGuiServiceTest {
     // =========================================================================
 
     @Test
-    @DisplayName("T-120: Double chest GUI has 54 slots, top row items: Give Banner (slot 1), Subject Head (slot 3), Tier Dye (slot 5), Take Banner (slot 7)")
+    @DisplayName("T-120: Double chest GUI has tier dye at 1, give banner at 3, subject head at 4, take banner at 5")
     void doubleChestTopRowLayout() {
         UUID subjectUuid = UUID.randomUUID();
         String subjectName = "SubjectAlice";
@@ -223,24 +223,24 @@ public class StatusGuiServiceTest {
         assertThat(layout).isNotNull();
         assertThat(layout.size()).isEqualTo(54);
 
-        // Top row Give banner at slot 1
+        // Top row Give banner at slot 3
         GuiSlot giveBanner = layout.get(StatusGuiService.SLOT_TOP_GIVE_BANNER);
         assertThat(giveBanner).isNotNull();
         assertThat(giveBanner.iconKind()).isEqualTo(GuiIconKind.GIVE_BANNER);
 
-        // Top row Subject head at slot 3
+        // Top row Subject head at slot 4
         GuiSlot subjectHead = layout.get(StatusGuiService.SLOT_TOP_SUBJECT_HEAD);
         assertThat(subjectHead).isNotNull();
         assertThat(subjectHead.iconKind()).isEqualTo(GuiIconKind.SUBJECT_HEAD);
         assertThat(subjectHead.owningPlayerId()).isEqualTo(subjectUuid);
 
-        // Top row Tier dye at slot 5
+        // Top row Tier dye at slot 1
         GuiSlot tierDye = layout.get(StatusGuiService.SLOT_TOP_TIER_DYE);
         assertThat(tierDye).isNotNull();
         assertThat(tierDye.iconKind()).isEqualTo(GuiIconKind.TIER_DYE);
         assertThat(tierDye.tier()).isEqualTo(Tier.PARTICULAR); // Default score 0 -> Particular
 
-        // Top row Take banner at slot 7
+        // Top row Take banner at slot 5
         GuiSlot takeBanner = layout.get(StatusGuiService.SLOT_TOP_TAKE_BANNER);
         assertThat(takeBanner).isNotNull();
         assertThat(takeBanner.iconKind()).isEqualTo(GuiIconKind.TAKE_BANNER);
@@ -298,6 +298,28 @@ public class StatusGuiServiceTest {
     }
 
     @Test
+    void subjectHeadLoreUsesTranslatedSnapshotValues() {
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        PlayerSocialView view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Subject", 0,
+                Tier.PARTICULAR, ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 1);
+        GuiSlot head = guiService.computeAllPages(view, List.of(), Set.of(), null, snapshot)
+                .getFirst().get(StatusGuiService.SLOT_TOP_SUBJECT_HEAD);
+
+        assertThat(head.lore().get(0).key()).isEqualTo("status.profile-tier");
+        assertThat(head.lore().get(0).placeholders()).containsEntry("tier",
+                messageRegistry.tierName(snapshot, snapshot.config().tiers().ladder().resolve(view.status())));
+        assertThat(head.lore().get(2).key()).isEqualTo("status.profile-confidence");
+        assertThat(head.lore().get(2).placeholders()).containsEntry("confidence",
+                messageRegistry.getRaw(snapshot, "confidence.established"));
+        assertThat(head.lore().get(3).key()).isEqualTo("status.profile-psychosis");
+        assertThat(head.lore().get(3).placeholders()).containsEntry("psychosis",
+                messageRegistry.getRaw(snapshot, "psychosis.low"));
+        assertThat(head.lore().get(0).placeholders()).doesNotContainValue("PARTICULAR");
+        assertThat(head.lore().get(2).placeholders()).doesNotContainValue("ESTABLISHED");
+        assertThat(head.lore().get(3).placeholders()).doesNotContainValue("LOW");
+    }
+
+    @Test
     @DisplayName("T-120: Console /status [player] outputs text profile, player /status [player] opens GUI")
     void consolePrintsTextProfilePlayerOpensGui() {
         UUID targetUuid = UUID.randomUUID();
@@ -340,6 +362,47 @@ public class StatusGuiServiceTest {
     // =========================================================================
     // T-121 — The History Grid
     // =========================================================================
+
+    @Test
+    void fullSlotMapAtRatingPageBoundaries() {
+        PlayerId targetId = PlayerId.of(UUID.randomUUID());
+        PlayerSocialView view = new PlayerSocialView(targetId, "Target", 0, Tier.PARTICULAR,
+                ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 0);
+        List<ReputationEvent> ratings = new ArrayList<>();
+        for (int count : List.of(0, 1, 7, 8)) {
+            while (ratings.size() < count) {
+                int i = ratings.size();
+                ratings.add(new ReputationEvent(i + 1L, PlayerId.of(UUID.randomUUID()), targetId,
+                        1, HonorKind.POSITIVE, 500.0, "Reason", Instant.now().minusSeconds(i)));
+            }
+            List<GuiLayout> pages = guiService.computeAllPages(view, ratings, Set.of(), null, configManager.snapshot());
+            assertThat(pages).hasSize(count == 8 ? 2 : 1);
+            assertSlotMap(pages.getFirst(), Math.min(count, 7));
+            if (count == 8) assertSlotMap(pages.get(1), 1);
+        }
+    }
+
+    private static void assertSlotMap(GuiLayout layout, int ratingCount) {
+        Map<Integer, GuiIconKind> expected = new HashMap<>(Map.of(
+                1, GuiIconKind.TIER_DYE,
+                3, GuiIconKind.GIVE_BANNER,
+                4, GuiIconKind.SUBJECT_HEAD,
+                5, GuiIconKind.TAKE_BANNER,
+                7, GuiIconKind.PAGE_INFO,
+                18, GuiIconKind.PAGE_PREVIOUS,
+                26, GuiIconKind.PAGE_NEXT));
+        for (int n = 0; n < ratingCount; n++) {
+            expected.put(10 + n, GuiIconKind.RATER_HEAD);
+            expected.put(19 + n, GuiIconKind.REASON_PAPER);
+            expected.put(28 + n, GuiIconKind.DIRECTION_BANNER_POSITIVE);
+            assertThat(19 + n).isNotIn(StatusGuiService.SLOT_PAGE_PREV_ROW2,
+                    StatusGuiService.SLOT_PAGE_NEXT_ROW2);
+        }
+        Map<Integer, GuiIconKind> actual = new HashMap<>();
+        layout.slots().forEach((slot, item) -> actual.put(slot, item.iconKind()));
+        assertThat(layout.size()).isEqualTo(54);
+        assertThat(actual).containsExactlyInAnyOrderEntriesOf(expected);
+    }
 
     @Test
     @DisplayName("T-121: History grid places one rating per column: row 1 head, row 2 paper, row 3 direction banner")
@@ -390,15 +453,15 @@ public class StatusGuiServiceTest {
     }
 
     @Test
-    @DisplayName("T-121: Pagination forward and back via edge banners (slots 18/45 and 26/53)")
+    @DisplayName("T-121: Pagination forward and back via edge banners at 18 and 26")
     void paginationWithEdgeBanners() {
         UUID targetUuid = UUID.randomUUID();
         PlayerId targetId = PlayerId.of(targetUuid);
         offlineNames.put(targetUuid, "TargetUser");
         onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(targetId, "TargetUser", true));
 
-        // Insert 10 ratings (capacity is 7 per page, so page 0 has 7, page 1 has 3)
-        for (int i = 1; i <= 10; i++) {
+        // Eight ratings put one item in column 1 of page two.
+        for (int i = 1; i <= 8; i++) {
             reputationRepo.saveAsync(new ReputationEvent(
                     (long) i,
                     PlayerId.of(UUID.randomUUID()),
@@ -426,22 +489,23 @@ public class StatusGuiServiceTest {
         assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_NEXT_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_NEXT);
         assertThat(page0Layout.get(10).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertThat(page0Layout.get(16).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
+        assertSlotMap(page0Layout, 7);
 
         // Click next banner at slot 26
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_NEXT_ROW2);
         assertThat(holder.currentPage()).isEqualTo(1);
-        assertThat(countRaterHeads(holder.layout())).isEqualTo(3);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(1);
 
         GuiLayout page1Layout = holder.layout();
         assertThat(page1Layout.get(10).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
-        assertThat(page1Layout.get(12).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
-        assertThat(page1Layout.get(13)).isNull();
+        assertSlotMap(page1Layout, 1);
 
         // Click previous banner at slot 18
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_PREV_ROW2);
         assertThat(holder.currentPage()).isEqualTo(0);
         assertThat(countRaterHeads(holder.layout())).isEqualTo(7);
         assertThat(holder.layout().get(16).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
+        assertSlotMap(holder.layout(), 7);
     }
 
     // =========================================================================
@@ -766,7 +830,8 @@ public class StatusGuiServiceTest {
                 new PlayerSocialView(targetId, "TargetUser", 0, Tier.PARTICULAR, ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 1),
                 List.of(event),
                 new HashSet<>(),
-                configManager.snapshot()
+                configManager.snapshot(),
+                messageRegistry
         );
 
         // Admin with permission socialblueprint.admin-adjust
@@ -1158,7 +1223,7 @@ public class StatusGuiServiceTest {
             assertThat(GuiDyeKind.fromTier(entry.getKey())).isEqualTo(entry.getValue());
             int status = snapshot.config().tiers().ladder().threshold(entry.getKey());
             PlayerSocialView view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Test", status, entry.getKey(), ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 1);
-            GuiLayout layout = StatusGuiService.buildPageLayout(view, List.of(), 0, 1, Set.of(), null, snapshot, null);
+            GuiLayout layout = StatusGuiService.buildPageLayout(view, List.of(), 0, 1, Set.of(), null, snapshot, null, messageRegistry);
             GuiSlot dyeSlot = layout.get(StatusGuiService.SLOT_TOP_TIER_DYE);
             assertThat(dyeSlot).isNotNull();
             assertThat(dyeSlot.dyeKind()).isEqualTo(entry.getValue());

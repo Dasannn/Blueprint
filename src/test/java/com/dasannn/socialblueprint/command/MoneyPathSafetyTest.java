@@ -540,6 +540,48 @@ public class MoneyPathSafetyTest {
         assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(500.0);
     }
 
+    @Test
+    @DisplayName("Finding 4: Claim whose main-thread deposit never runs, followed by disable, reverts to CHARGED and reconciliation retries it")
+    void claimWithUnstartedDepositRevertsToChargedOnDisableAndRetries() {
+        Player actor = mockPlayer("UnstartedClaimActor");
+        economyBalances.put(actor.getUniqueId(), 500.0);
+
+        // A CHARGED compensation row exists in the database
+        long id = compensationRepo.saveCompensationAsync(actor.getUniqueId(), 500.0, "honor_charge",
+                CompensationState.CHARGED, testClock.instant()).join();
+
+        // Run reconciliation: row is claimed (becomes REFUNDING) and deposit is queued in mainThreadQueue
+        CompletableFuture<Void> reconcileFuture = honorService.reconcileCompensationsAsync();
+        reconcileFuture.join();
+
+        // Notice: we do NOT call drainMainThread()! The queued main-thread deposit task never runs.
+        assertThat(mainThreadQueue).isNotEmpty();
+
+        // While deposit task is still queued and unstarted, plugin disable occurs
+        honorService.shutdown();
+
+        // Assert: on disable, the unstarted claim was reverted back to CHARGED (not REFUNDING and not UNCERTAIN)
+        var recordAfterDisable = compensationRepo.findByIdAsync(id).join();
+        assertThat(recordAfterDisable).isPresent();
+        assertThat(recordAfterDisable.get().state())
+                .as("Claim whose deposit never ran must revert to CHARGED on disable so it can be retried")
+                .isEqualTo(CompensationState.CHARGED);
+
+        // Even if the dropped task in mainThreadQueue were drained now, it must abort and not deposit
+        drainMainThread();
+        assertThat(economyDepositCount.get()).isEqualTo(0);
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(500.0);
+
+        // Next reconciliation (e.g. server restart) retries the CHARGED row rather than marking it UNCERTAIN
+        honorService.reconcileCompensationsAsync().join();
+        drainMainThread();
+
+        // Now the refund succeeds, economy balance updated, and row is cleaned up
+        assertThat(economyDepositCount.get()).isEqualTo(1);
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(1000.0);
+        assertThat(compensationRepo.findByIdAsync(id).join()).isEmpty();
+    }
+
     // =========================================================================
     // 3. Exact preview check
     // =========================================================================

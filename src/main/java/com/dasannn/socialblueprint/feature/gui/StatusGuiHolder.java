@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.feature.gui;
 
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
+import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
@@ -58,12 +59,13 @@ public final class StatusGuiHolder implements InventoryHolder {
             PlayerSocialView targetView,
             List<ReputationEvent> ratings,
             Set<Long> revealedEventIds,
-            RuntimeSnapshot snapshot
+            RuntimeSnapshot snapshot,
+            MessageRegistry messageRegistry
     ) {
         this(
                 viewerUuid,
                 targetName,
-                StatusGuiService.computeInitialPages(targetView, ratings, revealedEventIds, snapshot),
+                StatusGuiService.computeInitialPages(targetView, ratings, revealedEventIds, snapshot, messageRegistry),
                 revealedEventIds,
                 snapshot
         );

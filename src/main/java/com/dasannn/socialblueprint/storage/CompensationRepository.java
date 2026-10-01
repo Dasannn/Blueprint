@@ -139,6 +139,10 @@ public final class CompensationRepository {
         }
     }
 
+    public boolean revertToCharged(long id) {
+        return engine.execute(conn -> revertToChargedInternal(conn, id));
+    }
+
     public CompletableFuture<Boolean> revertToChargedAsync(long id) {
         return engine.executeAsync(conn -> revertToChargedInternal(conn, id));
     }

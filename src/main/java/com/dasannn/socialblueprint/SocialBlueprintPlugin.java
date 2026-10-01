@@ -409,6 +409,9 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (honorService != null) {
+            honorService.shutdown();
+        }
         if (duelService != null) {
             duelService.shutdown();
         }

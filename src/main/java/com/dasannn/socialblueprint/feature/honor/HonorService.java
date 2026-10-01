@@ -35,6 +35,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -69,6 +70,8 @@ public class HonorService {
     private volatile Economy economy;
 
     private final ConcurrentMap<UUID, PendingConfirmation> pendingConfirmations = new ConcurrentHashMap<>();
+    private final Set<Long> unstartedRefundClaims = ConcurrentHashMap.newKeySet();
+    private final Set<CompletableFuture<Void>> inFlightReconciliations = ConcurrentHashMap.newKeySet();
 
     public HonorService(
             ConfigManager configManager,
@@ -506,11 +509,11 @@ public class HonorService {
     /**
      * Reconciles outstanding pending refund compensations across restarts per SB-057.
      */
-    public CompletableFuture<Void> reconcileCompensationsAsync() {
+    public synchronized CompletableFuture<Void> reconcileCompensationsAsync() {
         if (compensationRepository == null || economy == null) {
             return CompletableFuture.completedFuture(null);
         }
-        return compensationRepository.findAllAsync().thenCompose(records -> {
+        CompletableFuture<Void> reconciliation = compensationRepository.findAllAsync().thenCompose(records -> {
             if (records.isEmpty()) {
                 return CompletableFuture.completedFuture(null);
             }
@@ -542,6 +545,10 @@ public class HonorService {
                                 }));
                     }
                     case REFUNDING -> {
+                        // Another pass in this service already queued this deposit.
+                        if (unstartedRefundClaims.contains(record.id())) {
+                            continue;
+                        }
                         // Server crashed mid-deposit! Vault's outcome is genuinely unknown.
                         // Leave in explicit uncertain state and log for owner.
                         logger.warning("[SocialBlueprint] Pending compensation ID " + record.id() + " for player "
@@ -571,48 +578,64 @@ public class HonorService {
                                     if (!claimed) {
                                         return;
                                     }
-                                    mainThreadRunner.accept(() -> {
-                                        org.bukkit.OfflinePlayer op = offlinePlayerResolver.apply(record.playerUuid());
-                                        if (op == null) {
-                                            logger.warning("[SocialBlueprint] Cannot resolve offline player "
-                                                    + record.playerUuid() + " for refund compensation ID " + record.id());
-                                            compensationRepository.revertToChargedAsync(record.id())
-                                                    .exceptionally(ex -> {
-                                                        logger.log(Level.WARNING, "[SocialBlueprint] Failed to revert compensation " + record.id() + " to CHARGED", ex);
-                                                        return false;
-                                                    });
-                                            return;
-                                        }
-                                        try {
-                                            EconomyResponse resp = economy.depositPlayer(op, record.amount());
-                                            if (resp != null && resp.transactionSuccess()
-                                                    && Math.abs(resp.amount - record.amount()) < 0.0001) {
-                                                compensationRepository.markRefundedAsync(record.id())
-                                                        .thenCompose(v -> compensationRepository.deleteCompensationAsync(record.id()))
-                                                        .exceptionally(ex -> {
-                                                            logger.log(Level.WARNING, "[SocialBlueprint] Failed to mark/delete refunded compensation " + record.id(), ex);
-                                                            return null;
-                                                        });
-                                            } else {
-                                                logger.severe("[SocialBlueprint] Reconcile refund deposit failed for player "
-                                                        + record.playerUuid() + ", compensation ID " + record.id() + ": "
-                                                        + (resp != null ? resp.errorMessage : "null response"));
+                                    unstartedRefundClaims.add(record.id());
+                                    try {
+                                        mainThreadRunner.accept(() -> {
+                                            if (!unstartedRefundClaims.remove(record.id())) {
+                                                // Deposit aborted, already started, or reverted on shutdown
+                                                return;
+                                            }
+                                            org.bukkit.OfflinePlayer op = offlinePlayerResolver.apply(record.playerUuid());
+                                            if (op == null) {
+                                                logger.warning("[SocialBlueprint] Cannot resolve offline player "
+                                                        + record.playerUuid() + " for refund compensation ID " + record.id());
                                                 compensationRepository.revertToChargedAsync(record.id())
                                                         .exceptionally(ex -> {
                                                             logger.log(Level.WARNING, "[SocialBlueprint] Failed to revert compensation " + record.id() + " to CHARGED", ex);
                                                             return false;
                                                         });
+                                                return;
                                             }
-                                        } catch (Exception ex) {
-                                            logger.severe("[SocialBlueprint] Exception during reconcile refund for compensation ID "
-                                                    + record.id() + ": " + ex.getMessage());
-                                            compensationRepository.markUncertainAsync(record.id())
-                                                    .exceptionally(markEx -> {
-                                                        logger.log(Level.WARNING, "[SocialBlueprint] Failed to mark compensation " + record.id() + " as UNCERTAIN", markEx);
+                                            try {
+                                                EconomyResponse resp = economy.depositPlayer(op, record.amount());
+                                                if (resp != null && resp.transactionSuccess()
+                                                        && Math.abs(resp.amount - record.amount()) < 0.0001) {
+                                                    compensationRepository.markRefundedAsync(record.id())
+                                                            .thenCompose(v -> compensationRepository.deleteCompensationAsync(record.id()))
+                                                            .exceptionally(ex -> {
+                                                                logger.log(Level.WARNING, "[SocialBlueprint] Failed to mark/delete refunded compensation " + record.id(), ex);
+                                                                return null;
+                                                            });
+                                                } else {
+                                                    logger.severe("[SocialBlueprint] Reconcile refund deposit failed for player "
+                                                            + record.playerUuid() + ", compensation ID " + record.id() + ": "
+                                                            + (resp != null ? resp.errorMessage : "null response"));
+                                                    compensationRepository.revertToChargedAsync(record.id())
+                                                            .exceptionally(ex -> {
+                                                                logger.log(Level.WARNING, "[SocialBlueprint] Failed to revert compensation " + record.id() + " to CHARGED", ex);
+                                                                return false;
+                                                            });
+                                                }
+                                            } catch (Exception ex) {
+                                                logger.severe("[SocialBlueprint] Exception during reconcile refund for compensation ID "
+                                                        + record.id() + ": " + ex.getMessage());
+                                                compensationRepository.markUncertainAsync(record.id())
+                                                        .exceptionally(markEx -> {
+                                                            logger.log(Level.WARNING, "[SocialBlueprint] Failed to mark compensation " + record.id() + " as UNCERTAIN", markEx);
+                                                            return false;
+                                                        });
+                                            }
+                                        });
+                                    } catch (Exception schedEx) {
+                                        if (unstartedRefundClaims.remove(record.id())) {
+                                            compensationRepository.revertToChargedAsync(record.id())
+                                                    .exceptionally(ex -> {
+                                                        logger.log(Level.WARNING, "[SocialBlueprint] Failed to revert compensation " + record.id() + " to CHARGED", ex);
                                                         return false;
                                                     });
                                         }
-                                    });
+                                        logger.log(Level.WARNING, "[SocialBlueprint] Failed to schedule refund deposit for compensation ID " + record.id(), schedEx);
+                                    }
                                 });
                         futures.add(compFuture);
                     }
@@ -620,6 +643,38 @@ public class HonorService {
             }
             return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
         });
+        inFlightReconciliations.add(reconciliation);
+        reconciliation.whenComplete((ignored, failure) -> inFlightReconciliations.remove(reconciliation));
+        return reconciliation;
+    }
+
+    /**
+     * Reverts any claimed refund compensations whose deposit has not yet started back to CHARGED state on shutdown,
+     * allowing subsequent server startup reconciliation to safely retry them.
+     */
+    public synchronized void shutdown() {
+        if (compensationRepository == null) {
+            return;
+        }
+        // Drain storage claims before sweeping: an in-flight claim must not be
+        // registered after the sweep. These futures never wait for a Vault task.
+        try {
+            CompletableFuture.allOf(inFlightReconciliations.toArray(new CompletableFuture[0])).join();
+        } catch (java.util.concurrent.CompletionException ex) {
+            logger.log(Level.WARNING, "[SocialBlueprint] Reconciliation failed during shutdown", ex);
+        }
+        for (Long compId : unstartedRefundClaims) {
+            if (unstartedRefundClaims.remove(compId)) {
+                try {
+                    boolean reverted = compensationRepository.revertToCharged(compId);
+                    if (reverted) {
+                        logger.info("[SocialBlueprint] Reverted unstarted refund compensation ID " + compId + " back to CHARGED on shutdown");
+                    }
+                } catch (Exception ex) {
+                    logger.log(Level.WARNING, "[SocialBlueprint] Failed to revert unstarted compensation " + compId + " on shutdown", ex);
+                }
+            }
+        }
     }
 
     /**

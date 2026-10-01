@@ -13,6 +13,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -177,6 +178,25 @@ public final class ReputationRepository {
         }
     }
 
+    List<ReputationEvent> findByTargetStrictInternal(Connection conn, String target) throws SQLException {
+        String sql = """
+            SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+            FROM reputation_event
+            WHERE target_uuid = ?
+            ORDER BY id ASC;
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, target);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<ReputationEvent> list = new ArrayList<>();
+                while (rs.next()) {
+                    list.add(mapRowStrict(rs));
+                }
+                return list;
+            }
+        }
+    }
+
     public List<ReputationEvent> findByTarget(PlayerId target) {
         Objects.requireNonNull(target, "Target must not be null");
         return engine.execute(conn -> findByTargetInternal(conn, target.toString()));
@@ -260,7 +280,7 @@ public final class ReputationRepository {
             try {
                 conn.setAutoCommit(false);
 
-                List<ReputationEvent> events = findByTargetInternal(conn, targetId.toString());
+                List<ReputationEvent> events = findByTargetStrictInternal(conn, targetId.toString());
                 Status before = Status.fromEvents(events, activeDecay, now);
 
                 int delta;
@@ -674,7 +694,7 @@ public final class ReputationRepository {
         });
     }
 
-    private ReputationEvent mapRow(ResultSet rs) throws SQLException {
+    ReputationEvent mapRowStrict(ResultSet rs) throws SQLException {
         long id = rs.getLong("id");
         String targetStr = rs.getString("target_uuid");
         try {
@@ -692,10 +712,22 @@ public final class ReputationRepository {
             Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
 
             return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt);
-        } catch (IllegalArgumentException ex) {
+        } catch (IllegalArgumentException | DateTimeParseException | NullPointerException ex) {
+            throw new StorageException(
+                    "Corrupt reputation event row id=" + id + " for target=" + targetStr + ": " + ex.getMessage(), ex);
+        }
+    }
+
+    private ReputationEvent mapRow(ResultSet rs) throws SQLException {
+        try {
+            return mapRowStrict(rs);
+        } catch (StorageException ex) {
+            long id = rs.getLong("id");
+            String targetStr = rs.getString("target_uuid");
             if (warnedCorruptRowIds.add(id)) {
+                String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
                 LOGGER.log(Level.WARNING,
-                        "Skipping corrupt reputation event row id=" + id + " for target=" + targetStr + ": " + ex.getMessage());
+                        "Skipping corrupt reputation event row id=" + id + " for target=" + targetStr + ": " + causeMsg);
             }
             return null;
         }

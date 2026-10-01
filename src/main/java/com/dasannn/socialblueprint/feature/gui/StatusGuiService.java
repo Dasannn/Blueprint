@@ -70,17 +70,15 @@ public class StatusGuiService {
     public static final int INVENTORY_SIZE = 54;
 
     // Top row items (Row 0: slots 0..8) per T-120
-    public static final int SLOT_TOP_GIVE_BANNER = 1;
-    public static final int SLOT_TOP_SUBJECT_HEAD = 3;
-    public static final int SLOT_TOP_TIER_DYE = 5;
-    public static final int SLOT_TOP_TAKE_BANNER = 7;
+    public static final int SLOT_TOP_TIER_DYE = 1;
+    public static final int SLOT_TOP_GIVE_BANNER = 3;
+    public static final int SLOT_TOP_SUBJECT_HEAD = 4;
+    public static final int SLOT_TOP_TAKE_BANNER = 5;
 
     // Edge pagination slots (Columns 0 and 8) per T-121
     public static final int SLOT_PAGE_PREV_ROW2 = 18;
     public static final int SLOT_PAGE_NEXT_ROW2 = 26;
-    public static final int SLOT_PAGE_PREV_ROW5 = 45;
-    public static final int SLOT_PAGE_NEXT_ROW5 = 53;
-    public static final int SLOT_PAGE_INFO = 49;
+    public static final int SLOT_PAGE_INFO = 7;
 
     public record PendingReasonPrompt(
             UUID viewerUuid,
@@ -342,7 +340,7 @@ public class StatusGuiService {
 
         List<GuiLayout> pages = new ArrayList<>(totalPages);
         for (int p = 0; p < totalPages; p++) {
-            pages.add(buildPageLayout(view, ratings, p, totalPages, reveals, viewer, snapshot, this::resolveRaterName));
+            pages.add(buildPageLayout(view, ratings, p, totalPages, reveals, viewer, snapshot, this::resolveRaterName, messageRegistry));
         }
         return pages;
     }
@@ -354,14 +352,15 @@ public class StatusGuiService {
             PlayerSocialView view,
             List<ReputationEvent> ratings,
             Set<Long> reveals,
-            RuntimeSnapshot snapshot
+            RuntimeSnapshot snapshot,
+            MessageRegistry messageRegistry
     ) {
         int totalRatings = ratings != null ? ratings.size() : 0;
         int totalPages = totalRatings == 0 ? 1 : (int) Math.ceil((double) totalRatings / StatusGuiHolder.RATINGS_PER_PAGE);
 
         List<GuiLayout> pages = new ArrayList<>(totalPages);
         for (int p = 0; p < totalPages; p++) {
-            pages.add(buildPageLayout(view, ratings, p, totalPages, reveals, null, snapshot, null));
+            pages.add(buildPageLayout(view, ratings, p, totalPages, reveals, null, snapshot, null, messageRegistry));
         }
         return pages;
     }
@@ -377,7 +376,8 @@ public class StatusGuiService {
             Set<Long> reveals,
             Player viewer,
             RuntimeSnapshot snapshot,
-            BiFunction<UUID, RuntimeSnapshot, String> raterNameResolver
+            BiFunction<UUID, RuntimeSnapshot, String> raterNameResolver,
+            MessageRegistry messageRegistry
     ) {
         Map<Integer, GuiSlot> slots = new HashMap<>();
 
@@ -400,9 +400,11 @@ public class StatusGuiService {
                 ? snapshot.config().tiers().ladder().resolve(view.status())
                 : Tier.PARTICULAR;
         String prefix = (snapshot != null && snapshot.config() != null) ? snapshot.config().tiers().prefix(tier) : "";
-        String localizedTier = tier.displayName();
-        String localizedConfidence = view != null ? view.confidence().name() : "";
-        String localizedPsychosis = view != null ? view.psychosis().name() : "";
+        String localizedTier = messageRegistry.tierName(snapshot, tier);
+        String localizedConfidence = view != null
+                ? messageRegistry.getRaw(snapshot, "confidence." + view.confidence().name().toLowerCase(Locale.ROOT)) : "";
+        String localizedPsychosis = view != null
+                ? messageRegistry.getRaw(snapshot, "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT)) : "";
         String targetName = view != null ? view.name() : "Player";
         UUID targetUuid = view != null ? view.playerId().uuid() : null;
 
@@ -473,19 +475,6 @@ public class StatusGuiService {
         );
         slots.put(SLOT_PAGE_PREV_ROW2, prevBannerSlotRow2);
 
-        GuiSlot prevBannerSlotRow5 = new GuiSlot(
-                SLOT_PAGE_PREV_ROW5,
-                GuiIconKind.PAGE_PREVIOUS,
-                null,
-                null,
-                null,
-                null,
-                "gui.history.page-previous",
-                Map.of(),
-                List.of(GuiLoreLine.ofKey("gui.history.page-info", pageInfoPlaceholders))
-        );
-        slots.put(SLOT_PAGE_PREV_ROW5, prevBannerSlotRow5);
-
         GuiSlot nextBannerSlotRow2 = new GuiSlot(
                 SLOT_PAGE_NEXT_ROW2,
                 GuiIconKind.PAGE_NEXT,
@@ -498,19 +487,6 @@ public class StatusGuiService {
                 List.of(GuiLoreLine.ofKey("gui.history.page-info", pageInfoPlaceholders))
         );
         slots.put(SLOT_PAGE_NEXT_ROW2, nextBannerSlotRow2);
-
-        GuiSlot nextBannerSlotRow5 = new GuiSlot(
-                SLOT_PAGE_NEXT_ROW5,
-                GuiIconKind.PAGE_NEXT,
-                null,
-                null,
-                null,
-                null,
-                "gui.history.page-next",
-                Map.of(),
-                List.of(GuiLoreLine.ofKey("gui.history.page-info", pageInfoPlaceholders))
-        );
-        slots.put(SLOT_PAGE_NEXT_ROW5, nextBannerSlotRow5);
 
         slots.put(SLOT_PAGE_INFO, new GuiSlot(
                 SLOT_PAGE_INFO,
