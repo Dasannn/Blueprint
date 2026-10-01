@@ -389,9 +389,10 @@ class StatusCommandTest {
         assertThat(result).isTrue();
         commandExecutor.lastExecution().join();
 
-        List<String> messages = getMessages(player);
-        assertThat(messages).hasSize(1);
-        assertThat(messages.getFirst()).contains("&cPlayer not found: &fGhostPlayerXYZ");
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.not-found");
+            assertThat(call.placeholders()).containsEntry("player", "GhostPlayerXYZ");
+        });
     }
 
     @Test

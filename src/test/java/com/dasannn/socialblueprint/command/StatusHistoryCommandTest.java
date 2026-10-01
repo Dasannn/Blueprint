@@ -6,12 +6,8 @@ import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
-import com.dasannn.socialblueprint.feature.gui.StatusGuiService;
-import com.dasannn.socialblueprint.feature.honor.HonorService;
 import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
-import com.dasannn.socialblueprint.storage.AuditRepository;
-import com.dasannn.socialblueprint.storage.CompensationRepository;
 import com.dasannn.socialblueprint.storage.ProfileRepository;
 import com.dasannn.socialblueprint.storage.PsychosisRepository;
 import com.dasannn.socialblueprint.storage.RaterRevealRepository;
@@ -20,7 +16,6 @@ import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.AfterEach;
@@ -37,7 +32,6 @@ import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,12 +61,10 @@ class StatusHistoryCommandTest {
     private ProfileRepository profileRepo;
     private ProfileService profileService;
     private RaterRevealRepository raterRevealRepo;
-    private StatusGuiService statusGuiService;
     private StatusHistoryCommand historyCommand;
 
     private final Map<String, PlayerLookup.KnownPlayer> onlineLookupMap = new HashMap<>();
-    private final Map<UUID, String> offlineNames = new HashMap<>();
-    private final Instant baseTime = Instant.parse("2026-09-30T12:00:00Z");
+    private final Instant baseTime = Instant.parse("2026-10-01T00:06:25.535503500Z");
 
     public record RenderCall(
             String key,
@@ -187,39 +179,8 @@ class StatusHistoryCommandTest {
                 logger
         );
 
-        AuditRepository auditRepo = new AuditRepository(storage);
-        CompensationRepository compRepo = new CompensationRepository(storage);
-        HonorService honorService = new HonorService(
-                configManager,
-                recordingRegistry,
-                reputationRepo,
-                auditRepo,
-                compRepo,
-                profileService,
-                null,
-                Runnable::run
-        );
-
-        statusGuiService = new StatusGuiService(
-                recordingRegistry,
-                profileService,
-                reputationRepo,
-                raterRevealRepo,
-                honorService,
-                Runnable::run,
-                null,
-                uuid -> offlineNames.containsKey(uuid) ? createMockOfflinePlayer(uuid, offlineNames.get(uuid)) : null,
-                Clock.systemUTC()
-        );
-
         historyCommand = new StatusHistoryCommand(
-                profileService,
-                reputationRepo,
-                recordingRegistry,
-                Runnable::run,
-                raterRevealRepo,
-                statusGuiService
-        );
+                profileService, reputationRepo, recordingRegistry, Runnable::run);
     }
 
     @AfterEach
@@ -227,20 +188,6 @@ class StatusHistoryCommandTest {
         if (storage != null) {
             storage.close();
         }
-    }
-
-    private OfflinePlayer createMockOfflinePlayer(UUID uuid, String name) {
-        InvocationHandler handler = (proxy, method, args) -> {
-            String mName = method.getName();
-            if ("getName".equals(mName)) return name;
-            if ("getUniqueId".equals(mName)) return uuid;
-            return defaultValue(method.getReturnType());
-        };
-        return (OfflinePlayer) Proxy.newProxyInstance(
-                OfflinePlayer.class.getClassLoader(),
-                new Class<?>[]{OfflinePlayer.class},
-                handler
-        );
     }
 
     private static class MockSenderRecord {
@@ -320,7 +267,6 @@ class StatusHistoryCommandTest {
         PlayerId pid = PlayerId.of(uuid);
         onlineLookupMap.put(name.toLowerCase(), new PlayerLookup.KnownPlayer(pid, name, true));
         onlineLookupMap.put(uuid.toString(), new PlayerLookup.KnownPlayer(pid, name, true));
-        offlineNames.put(uuid, name);
 
         InvocationHandler handler = (proxy, method, args) -> {
             String mName = method.getName();
@@ -337,295 +283,64 @@ class StatusHistoryCommandTest {
     }
 
     @Test
-    @DisplayName("T-134: SYSTEM_KILL event renders in /status history with translated reason and System actor")
-    void t134_rendersSystemKillWithTranslatedReasonAndSystemActor() {
-        Player target = registerPlayer("TargetPlayer");
-        PlayerId targetId = PlayerId.of(target.getUniqueId());
-
-        // Save a SYSTEM_KILL event for target
-        reputationRepo.save(new ReputationEvent(
-                0L,
-                null, // System actor
-                targetId,
-                -1,
-                HonorKind.SYSTEM_KILL,
-                0.0,
-                "kill-penalty.reason",
-                baseTime
-        ));
-
-        MockSenderRecord senderRecord = new MockSenderRecord("Viewer", false, "socialblueprint.show.others", "socialblueprint.view");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        historyCommand.execute(senderRecord.sender, new String[]{"TargetPlayer"}, snapshot).join();
-
-        assertThat(senderRecord.receivedMessages).isNotEmpty();
-        // Header
-        assertThat(senderRecord.receivedMessages.getFirst()).contains("TargetPlayer");
-
-        // Assert on message keys and substitutions, never rendered text
-        RenderCall entryCall = recordingRegistry.findFirstCall("status.history-entry")
-                .orElseThrow(() -> new AssertionError("No status.history-entry call recorded"));
-
-        assertThat(entryCall.key()).isEqualTo("status.history-entry");
-        assertThat(entryCall.stringPlaceholders().get("actor")).isEqualTo("System");
-        assertThat(entryCall.stringPlaceholders().get("reason")).isEqualTo("Open-world kill penalty");
-        assertThat(entryCall.componentPlaceholders()).containsKey("delta");
-        assertThat(entryCall.stringPlaceholders()).doesNotContainKey("delta");
-        assertThat(entryCall.stringPlaceholders().values()).noneMatch(v -> v.contains("&"));
-
-        // Rendered text checks
-        String entry = senderRecord.receivedMessages.stream()
-                .filter(m -> m.contains("-1"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("No entry containing -1 found in: " + senderRecord.receivedMessages));
-
-        assertThat(entry).contains("System");
-        assertThat(entry).contains("-1");
-        assertThat(entry).contains("Open-world kill penalty");
-        assertThat(entry).doesNotContain("kill-penalty.reason");
-    }
-
-    @Test
-    @DisplayName("T-134: History renders in Spanish when language is set to 'es'")
-    void t134_rendersSystemKillInSpanish() {
-        Player target = registerPlayer("SpanishTarget");
-        PlayerId targetId = PlayerId.of(target.getUniqueId());
-
-        reputationRepo.save(new ReputationEvent(
-                0L,
-                null,
-                targetId,
-                -1,
-                HonorKind.SYSTEM_KILL,
-                0.0,
-                "kill-penalty.reason",
-                baseTime
-        ));
-
-        configManager.set("language", "es");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        MockSenderRecord senderRecord = new MockSenderRecord("Viewer", false, "socialblueprint.show.others", "socialblueprint.view");
-        historyCommand.execute(senderRecord.sender, new String[]{"SpanishTarget"}, snapshot).join();
-
-        // Assert on message keys and substitutions
-        RenderCall entryCall = recordingRegistry.findFirstCall("status.history-entry")
-                .orElseThrow(() -> new AssertionError("No status.history-entry call recorded"));
-
-        assertThat(entryCall.key()).isEqualTo("status.history-entry");
-        assertThat(entryCall.stringPlaceholders().get("actor")).isEqualTo("Sistema");
-        assertThat(entryCall.stringPlaceholders().get("reason")).isEqualTo("Penalización por muerte fuera de duelo");
-        assertThat(entryCall.componentPlaceholders()).containsKey("delta");
-        assertThat(entryCall.stringPlaceholders()).doesNotContainKey("delta");
-        assertThat(entryCall.stringPlaceholders().values()).noneMatch(v -> v.contains("&"));
-
-        assertThat(senderRecord.receivedMessages).isNotEmpty();
-        String entry = senderRecord.receivedMessages.stream()
-                .filter(m -> m.contains("-1"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("No entry containing -1 found in: " + senderRecord.receivedMessages));
-
-        assertThat(entry).contains("Sistema");
-        assertThat(entry).contains("Penalización por muerte fuera de duelo");
-        assertThat(entry).doesNotContain("kill-penalty.reason");
-    }
-
-    @Test
-    @DisplayName("T-134: Empty history renders empty message")
-    void t134_rendersEmptyHistory() {
-        registerPlayer("CleanPlayer");
-
-        MockSenderRecord senderRecord = new MockSenderRecord("Viewer", false, "socialblueprint.show.others", "socialblueprint.view");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        historyCommand.execute(senderRecord.sender, new String[]{"CleanPlayer"}, snapshot).join();
-
-        assertThat(recordingRegistry.findFirstCall("status.history-empty")).isPresent();
-        assertThat(senderRecord.receivedMessages).isNotEmpty();
-        assertThat(senderRecord.receivedMessages.getFirst()).contains("CleanPlayer");
-        assertThat(senderRecord.receivedMessages.get(1)).contains("No reputation events recorded");
-    }
-
-    @Test
-    @DisplayName("SB-082: Unpaid viewer sees anonymous form; after reveal exists for viewer, same read shows rater name")
-    void viewerWithoutRevealSeesAnonymousForm_afterRevealSeesName() {
-        Player target = registerPlayer("TargetAlice");
-        Player rater = registerPlayer("RaterBob");
+    @DisplayName("SB-085: System, player and revealed ratings have only date, delta and reason in both languages")
+    void historyHasNoActorEvenAfterReveal() {
+        Player target = registerPlayer("Target");
+        Player rater = registerPlayer("Rater");
         PlayerId targetId = PlayerId.of(target.getUniqueId());
         PlayerId raterId = PlayerId.of(rater.getUniqueId());
-
-        ReputationEvent savedEvent = reputationRepo.save(new ReputationEvent(
-                0L,
-                raterId,
-                targetId,
-                1,
-                HonorKind.POSITIVE,
-                500.0,
-                "Outstanding team play",
-                baseTime
-        ));
-
-        MockPlayerRecord viewer = new MockPlayerRecord("ViewerCharlie", false, "socialblueprint.show.others", "socialblueprint.view");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        // 1. ViewerCharlie has NOT paid to reveal the rater
-        historyCommand.execute(viewer.player, new String[]{"TargetAlice"}, snapshot).join();
-
-        RenderCall unrevealedCall = recordingRegistry.findLastCall("status.history-entry")
-                .orElseThrow(() -> new AssertionError("No status.history-entry call recorded"));
-
-        // Assert on message keys and substitutions: must show anonymous form, not name and not UUID
-        assertThat(unrevealedCall.key()).isEqualTo("status.history-entry");
-        assertThat(unrevealedCall.stringPlaceholders().get("actor")).isEqualTo("Anonymous");
-        assertThat(unrevealedCall.stringPlaceholders().get("actor")).isNotEqualTo("RaterBob");
-        assertThat(unrevealedCall.stringPlaceholders().get("actor")).isNotEqualTo(rater.getUniqueId().toString());
-
-        // 2. Persist a reveal for ViewerCharlie and this event
-        raterRevealRepo.saveRevealAsync(viewer.player.getUniqueId(), savedEvent.id(), rater.getUniqueId(), 100.0, baseTime).join();
-
-        recordingRegistry.renderCalls.clear();
-
-        // 3. ViewerCharlie reads the same history again
-        historyCommand.execute(viewer.player, new String[]{"TargetAlice"}, snapshot).join();
-
-        RenderCall revealedCall = recordingRegistry.findLastCall("status.history-entry")
-                .orElseThrow(() -> new AssertionError("No status.history-entry call recorded after reveal"));
-
-        // Assert on message keys and substitutions: must show rater's real name, not anonymous and not UUID
-        assertThat(revealedCall.key()).isEqualTo("status.history-entry");
-        assertThat(revealedCall.stringPlaceholders().get("actor")).isEqualTo("RaterBob");
-        assertThat(revealedCall.stringPlaceholders().get("actor")).isNotEqualTo("Anonymous");
-        assertThat(revealedCall.stringPlaceholders().get("actor")).isNotEqualTo(rater.getUniqueId().toString());
-    }
-
-    @Test
-    @DisplayName("SB-082: Spanish locale renders anonymous rater as Anónimo when unrevealed")
-    void unrevealedRaterInSpanishShowsAnonimo() {
-        Player target = registerPlayer("TargetAliceEs");
-        Player rater = registerPlayer("RaterBobEs");
-        PlayerId targetId = PlayerId.of(target.getUniqueId());
-        PlayerId raterId = PlayerId.of(rater.getUniqueId());
-
         reputationRepo.save(new ReputationEvent(
-                0L,
-                raterId,
-                targetId,
-                1,
-                HonorKind.POSITIVE,
-                500.0,
-                "Buen trabajo",
-                baseTime
-        ));
-
-        configManager.set("language", "es");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        MockPlayerRecord viewer = new MockPlayerRecord("ViewerJuan", false, "socialblueprint.show.others", "socialblueprint.view");
-        historyCommand.execute(viewer.player, new String[]{"TargetAliceEs"}, snapshot).join();
-
-        RenderCall call = recordingRegistry.findLastCall("status.history-entry")
-                .orElseThrow(() -> new AssertionError("No status.history-entry call recorded"));
-
-        assertThat(call.key()).isEqualTo("status.history-entry");
-        assertThat(call.stringPlaceholders().get("actor")).isEqualTo("Anónimo");
-        assertThat(call.stringPlaceholders().values()).noneMatch(v -> v.contains("&"));
-    }
-
-    @Test
-    @DisplayName("SB-082 / SB-083: Delta reaches renderer as component, and no substituted value contains raw & colour codes")
-    void deltaReachesRendererAsComponent_noRawColorCodesInSubstitutedValues() {
-        Player target = registerPlayer("TargetDelta");
-        Player rater = registerPlayer("RaterDelta");
-        PlayerId targetId = PlayerId.of(target.getUniqueId());
-        PlayerId raterId = PlayerId.of(rater.getUniqueId());
-
-        // Event with positive delta (+2)
-        reputationRepo.save(new ReputationEvent(
-                0L, raterId, targetId, 2, HonorKind.POSITIVE, 500.0, "positive", baseTime.minusSeconds(20)
-        ));
-        // Event with negative delta (-3)
-        reputationRepo.save(new ReputationEvent(
-                0L, raterId, targetId, -3, HonorKind.NEGATIVE, 500.0, "negative", baseTime.minusSeconds(10)
-        ));
-        // Event with neutral/system delta (0)
-        reputationRepo.save(new ReputationEvent(
-                0L, null, targetId, 0, HonorKind.SYSTEM_KILL, 0.0, "neutral", baseTime
-        ));
-
-        MockPlayerRecord viewer = new MockPlayerRecord("ViewerDelta", false, "socialblueprint.show.others", "socialblueprint.view");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        historyCommand.execute(viewer.player, new String[]{"TargetDelta"}, snapshot).join();
-
-        List<RenderCall> entryCalls = recordingRegistry.findCalls("status.history-entry");
-        assertThat(entryCalls).hasSize(3);
-
-        for (RenderCall call : entryCalls) {
-            // Delta MUST reach renderer as a Component placeholder
-            assertThat(call.componentPlaceholders()).containsKey("delta");
-            assertThat(call.componentPlaceholders().get("delta")).isNotNull();
-
-            // Delta MUST NOT be in string substitutions (guard against string concatenation like "&a+" + delta)
-            assertThat(call.stringPlaceholders()).doesNotContainKey("delta");
-
-            // No substituted value may contain a raw '&' colour code
-            for (Map.Entry<String, String> entry : call.stringPlaceholders().entrySet()) {
-                assertThat(entry.getValue())
-                        .as("Placeholder '%s' value '%s' must not contain raw '&' colour code", entry.getKey(), entry.getValue())
-                        .doesNotContain("&");
+                0L, null, targetId, -1, HonorKind.SYSTEM_KILL, 0.0, "kill-penalty.reason", baseTime));
+        ReputationEvent rating = reputationRepo.save(new ReputationEvent(
+                0L, raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "Full written reason", baseTime));
+        for (String language : List.of("en", "es")) {
+            MockPlayerRecord viewer = new MockPlayerRecord("Viewer-" + language, false, "socialblueprint.show.others");
+            configManager.set("language", language);
+            RuntimeSnapshot snapshot = configManager.snapshot();
+            for (boolean revealed : List.of(false, true)) {
+                if (revealed) {
+                    raterRevealRepo.saveRevealAsync(viewer.player.getUniqueId(), rating.id(),
+                            rater.getUniqueId(), 100.0, baseTime).join();
+                }
+                recordingRegistry.renderCalls.clear();
+                historyCommand.execute(viewer.player, new String[]{"Target"}, snapshot).join();
+                List<RenderCall> calls = recordingRegistry.findCalls("status.history-entry");
+                assertThat(calls).hasSize(2);
+                for (RenderCall call : calls) {
+                    assertThat(call.stringPlaceholders()).containsOnlyKeys("time", "reason");
+                    assertThat(call.stringPlaceholders()).containsEntry("time", "2026-10-01");
+                    assertThat(call.componentPlaceholders()).containsOnlyKeys("delta");
+                    boolean system = call.stringPlaceholders().get("reason")
+                            .equals(recordingRegistry.getRaw(snapshot, "kill-penalty.reason"));
+                    assertThat(call.stringPlaceholders()).containsEntry("reason", system
+                            ? recordingRegistry.getRaw(snapshot, "kill-penalty.reason") : "Full written reason");
+                    assertThat(call.componentPlaceholders().get("delta"))
+                            .isEqualTo(Component.text(system ? "-1" : "+1", system
+                                    ? net.kyori.adventure.text.format.NamedTextColor.RED
+                                    : net.kyori.adventure.text.format.NamedTextColor.GREEN));
+                }
+                assertThat(recordingRegistry.getRaw(snapshot, "status.history-entry"))
+                        .contains("{time}", "{delta}", "{reason}").doesNotContain("{actor}");
             }
         }
     }
 
     @Test
-    @DisplayName("SB-084 / T-126: Administrator always sees rater identity without paying")
-    void adminViewerAlwaysSeesRaterIdentityWithoutPaying() {
-        Player target = registerPlayer("TargetAdminTest");
-        Player rater = registerPlayer("RaterAdminTest");
-        PlayerId targetId = PlayerId.of(target.getUniqueId());
-        PlayerId raterId = PlayerId.of(rater.getUniqueId());
-
-        reputationRepo.save(new ReputationEvent(
-                0L, raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "Great work", baseTime
-        ));
-
-        // Viewer has administrator permission
-        MockPlayerRecord adminViewer = new MockPlayerRecord("AdminViewer", false, "socialblueprint.admin", "socialblueprint.show.others");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        historyCommand.execute(adminViewer.player, new String[]{"TargetAdminTest"}, snapshot).join();
-
-        RenderCall call = recordingRegistry.findLastCall("status.history-entry")
-                .orElseThrow(() -> new AssertionError("No status.history-entry call recorded"));
-
-        // Admin sees real name even without any reveal record
-        assertThat(call.stringPlaceholders().get("actor")).isEqualTo("RaterAdminTest");
+    void emptyHistoryUsesMessageKey() {
+        registerPlayer("CleanPlayer");
+        MockSenderRecord viewer = new MockSenderRecord("Viewer", false, "socialblueprint.show.others");
+        historyCommand.execute(viewer.sender, new String[]{"CleanPlayer"}, configManager.snapshot()).join();
+        assertThat(recordingRegistry.findFirstCall("status.history-empty")).isPresent();
+        assertThat(recordingRegistry.findCalls("status.history-entry")).isEmpty();
     }
 
     @Test
-    @DisplayName("T-124: Rater viewing their own rating sees their own name without paying")
-    void raterViewingOwnRatingSeesOwnNameWithoutPaying() {
-        Player target = registerPlayer("TargetSelf");
-        Player rater = registerPlayer("RaterSelf");
-        PlayerId targetId = PlayerId.of(target.getUniqueId());
-        PlayerId raterId = PlayerId.of(rater.getUniqueId());
-
-        reputationRepo.save(new ReputationEvent(
-                0L, raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "Self inspection", baseTime
-        ));
-
-        // RaterSelf views the history of target
-        MockPlayerRecord raterViewer = new MockPlayerRecord("RaterSelf", false, "socialblueprint.show.others", "socialblueprint.view");
-        RuntimeSnapshot snapshot = configManager.snapshot();
-
-        historyCommand.execute(raterViewer.player, new String[]{"TargetSelf"}, snapshot).join();
-
-        RenderCall call = recordingRegistry.findLastCall("status.history-entry")
-                .orElseThrow(() -> new AssertionError("No status.history-entry call recorded"));
-
-        // Rater sees their own name on their own rating
-        assertThat(call.stringPlaceholders().get("actor")).isEqualTo("RaterSelf");
+    void nonsenseNameUsesNotFoundKey() {
+        MockSenderRecord viewer = new MockSenderRecord("Viewer", false, "socialblueprint.show.others");
+        historyCommand.execute(viewer.sender, new String[]{"asdkjhasd"}, configManager.snapshot()).join();
+        assertThat(recordingRegistry.findFirstCall("status.not-found").orElseThrow().stringPlaceholders())
+                .containsEntry("player", "asdkjhasd");
+        assertThat(recordingRegistry.findCalls("status.history-header")).isEmpty();
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

@@ -77,7 +77,7 @@ status:
   profile-contributors: '&7Colaboradores: &f{contributors}'
   history-header: '&8--- &bHistorial de Reputación: &e{player} &8---'
   history-empty: '&7No hay eventos de reputación registrados.'
-  history-entry: '&7[{time}] {delta} &7por &e{actor}&7: &f{reason}'
+  history-entry: '&7[{time}] {delta}&7: &f{reason}'
   system-actor: 'Sistema'
   read-failed: '&cError al leer el perfil.'
 

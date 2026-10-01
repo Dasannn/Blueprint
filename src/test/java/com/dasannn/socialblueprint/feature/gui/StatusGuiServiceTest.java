@@ -2,6 +2,8 @@ package com.dasannn.socialblueprint.feature.gui;
 
 import com.dasannn.socialblueprint.command.StatusCommandExecutor;
 import com.dasannn.socialblueprint.config.ConfigManager;
+import com.dasannn.socialblueprint.config.ColorParser;
+import com.dasannn.socialblueprint.config.MessagesSnapshot;
 import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.ConfidenceLevel;
@@ -23,6 +25,7 @@ import com.dasannn.socialblueprint.storage.ReputationRepository;
 import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
@@ -201,7 +204,7 @@ public class StatusGuiServiceTest {
     // =========================================================================
 
     @Test
-    @DisplayName("T-120: Double chest GUI has tier dye at 1, give banner at 3, subject head at 4, take banner at 5")
+    @DisplayName("T-120: Double chest GUI has tier dye at 22, give banner at 12, subject head at 13, take banner at 14")
     void doubleChestTopRowLayout() {
         UUID subjectUuid = UUID.randomUUID();
         String subjectName = "SubjectAlice";
@@ -223,24 +226,24 @@ public class StatusGuiServiceTest {
         assertThat(layout).isNotNull();
         assertThat(layout.size()).isEqualTo(54);
 
-        // Top row Give banner at slot 3
+        // Top row Give banner at slot 12
         GuiSlot giveBanner = layout.get(StatusGuiService.SLOT_TOP_GIVE_BANNER);
         assertThat(giveBanner).isNotNull();
         assertThat(giveBanner.iconKind()).isEqualTo(GuiIconKind.GIVE_BANNER);
 
-        // Top row Subject head at slot 4
+        // Top row Subject head at slot 13
         GuiSlot subjectHead = layout.get(StatusGuiService.SLOT_TOP_SUBJECT_HEAD);
         assertThat(subjectHead).isNotNull();
         assertThat(subjectHead.iconKind()).isEqualTo(GuiIconKind.SUBJECT_HEAD);
         assertThat(subjectHead.owningPlayerId()).isEqualTo(subjectUuid);
 
-        // Top row Tier dye at slot 1
+        // Top row Tier dye at slot 22
         GuiSlot tierDye = layout.get(StatusGuiService.SLOT_TOP_TIER_DYE);
         assertThat(tierDye).isNotNull();
         assertThat(tierDye.iconKind()).isEqualTo(GuiIconKind.TIER_DYE);
         assertThat(tierDye.tier()).isEqualTo(Tier.PARTICULAR); // Default score 0 -> Particular
 
-        // Top row Take banner at slot 5
+        // Top row Take banner at slot 14
         GuiSlot takeBanner = layout.get(StatusGuiService.SLOT_TOP_TAKE_BANNER);
         assertThat(takeBanner).isNotNull();
         assertThat(takeBanner.iconKind()).isEqualTo(GuiIconKind.TAKE_BANNER);
@@ -369,43 +372,112 @@ public class StatusGuiServiceTest {
         PlayerSocialView view = new PlayerSocialView(targetId, "Target", 0, Tier.PARTICULAR,
                 ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 0);
         List<ReputationEvent> ratings = new ArrayList<>();
-        for (int count : List.of(0, 1, 7, 8)) {
+        for (int count : List.of(0, 1, 9, 10)) {
             while (ratings.size() < count) {
                 int i = ratings.size();
                 ratings.add(new ReputationEvent(i + 1L, PlayerId.of(UUID.randomUUID()), targetId,
                         1, HonorKind.POSITIVE, 500.0, "Reason", Instant.now().minusSeconds(i)));
             }
             List<GuiLayout> pages = guiService.computeAllPages(view, ratings, Set.of(), null, configManager.snapshot());
-            assertThat(pages).hasSize(count == 8 ? 2 : 1);
-            assertSlotMap(pages.getFirst(), Math.min(count, 7));
-            if (count == 8) assertSlotMap(pages.get(1), 1);
+            assertThat(pages).hasSize(count == 10 ? 2 : 1);
+            assertSlotMap(pages.getFirst(), Math.min(count, 9));
+            if (count == 10) {
+                assertSlotMap(pages.get(1), 1);
+                for (int slot : List.of(27, 36, 45)) {
+                    assertThat(pages.get(1).get(slot).eventId()).isEqualTo(10L);
+                }
+            }
+            for (int n = 0; n < Math.min(count, 9); n++) {
+                assertThat(pages.getFirst().get(27 + n).eventId()).isEqualTo(n + 1L);
+                assertThat(pages.getFirst().get(36 + n).eventId()).isEqualTo(n + 1L);
+                assertThat(pages.getFirst().get(45 + n).eventId()).isEqualTo(n + 1L);
+            }
+            assertThat(StatusGuiService.computeInitialPages(view, ratings, Set.of(),
+                    configManager.snapshot(), messageRegistry)).isEqualTo(pages);
         }
     }
 
     private static void assertSlotMap(GuiLayout layout, int ratingCount) {
         Map<Integer, GuiIconKind> expected = new HashMap<>(Map.of(
-                1, GuiIconKind.TIER_DYE,
-                3, GuiIconKind.GIVE_BANNER,
-                4, GuiIconKind.SUBJECT_HEAD,
-                5, GuiIconKind.TAKE_BANNER,
-                7, GuiIconKind.PAGE_INFO,
+                22, GuiIconKind.TIER_DYE,
+                12, GuiIconKind.GIVE_BANNER,
+                13, GuiIconKind.SUBJECT_HEAD,
+                14, GuiIconKind.TAKE_BANNER,
+                4, GuiIconKind.PAGE_INFO,
                 18, GuiIconKind.PAGE_PREVIOUS,
                 26, GuiIconKind.PAGE_NEXT));
         for (int n = 0; n < ratingCount; n++) {
-            expected.put(10 + n, GuiIconKind.RATER_HEAD);
-            expected.put(19 + n, GuiIconKind.REASON_PAPER);
-            expected.put(28 + n, GuiIconKind.DIRECTION_BANNER_POSITIVE);
-            assertThat(19 + n).isNotIn(StatusGuiService.SLOT_PAGE_PREV_ROW2,
+            expected.put(27 + n, GuiIconKind.RATER_HEAD);
+            expected.put(36 + n, GuiIconKind.REASON_PAPER);
+            expected.put(45 + n, GuiIconKind.DIRECTION_BANNER_POSITIVE);
+            assertThat(36 + n).isNotIn(StatusGuiService.SLOT_PAGE_PREV_ROW2,
                     StatusGuiService.SLOT_PAGE_NEXT_ROW2);
         }
         Map<Integer, GuiIconKind> actual = new HashMap<>();
         layout.slots().forEach((slot, item) -> actual.put(slot, item.iconKind()));
         assertThat(layout.size()).isEqualTo(54);
         assertThat(actual).containsExactlyInAnyOrderEntriesOf(expected);
+        assertThat(layout.slots().values()).extracting(GuiSlot::slot).doesNotHaveDuplicates();
+        layout.slots().forEach((index, item) -> assertThat(item.slot()).isEqualTo(index));
+        assertThat(layout.slots()).hasSize(7 + 3 * ratingCount);
+        assertParsedText(layout);
+    }
+
+    private static void assertParsedText(GuiLayout layout) {
+        for (GuiSlot slot : layout.slots().values()) {
+            assertThat(slot.title()).as("title at slot %s (%s)", slot.slot(), slot.titleKey()).isNotNull();
+            assertParsedComponent(slot.title());
+            assertThat(slot.renderedLore()).hasSize(slot.lore().size());
+            slot.renderedLore().forEach(StatusGuiServiceTest::assertParsedComponent);
+        }
+    }
+
+    private static void assertParsedComponent(Component component) {
+        assertThat(PlainTextComponentSerializer.plainText().serialize(component))
+                .isNotBlank().doesNotContain("&", "\u00a7");
     }
 
     @Test
-    @DisplayName("T-121: History grid places one rating per column: row 1 head, row 2 paper, row 3 direction banner")
+    void allItemTextIsParsedBeforeItReachesTheRenderer() {
+        RuntimeSnapshot base = configManager.snapshot();
+        // Colour every template and translated label to exercise all text paths, including hex.
+        Map<String, String> coloured = new HashMap<>();
+        base.messages().activeMessages().forEach((key, value) -> coloured.put(key, "&#12ab34" + value));
+        RuntimeSnapshot snapshot = new RuntimeSnapshot(base.config(), new MessagesSnapshot(
+                base.messages().activeLanguage(), base.messages().fallbackLanguage(), coloured,
+                base.messages().fallbackMessages(), base.messages().bundledActiveMessages(),
+                base.messages().bundledFallbackMessages()));
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+        PlayerSocialView view = new PlayerSocialView(target, "Subject", 0, Tier.PARTICULAR,
+                ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 1);
+        List<ReputationEvent> ratings = List.of(
+                new ReputationEvent(1L, rater, target, 1, HonorKind.POSITIVE, 500, null, Instant.now()),
+                new ReputationEvent(2L, rater, target, -1, HonorKind.NEGATIVE, 500,
+                        "&cReason \u00a7aand &#aabbccmore", Instant.now()),
+                new ReputationEvent(3L, null, target, -1, HonorKind.SYSTEM_KILL, 0,
+                        "kill-penalty.reason", Instant.now()),
+                new ReputationEvent(4L, rater, target, 1, HonorKind.POSITIVE, 500,
+                        "&c \u00a7a", Instant.now()));
+        GuiLayout layout = guiService.computeAllPages(view, ratings, Set.of(2L), null, snapshot).getFirst();
+        assertParsedText(layout);
+        assertThat(layout.get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(layout.get(28).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(layout.get(29).titleKey()).isEqualTo("status.system-actor");
+        assertThat(layout.get(37).lore().getFirst().isPlain()).isTrue();
+        assertThat(layout.get(38).lore().getFirst().key()).isEqualTo("kill-penalty.reason");
+        assertThat(layout.get(39).lore().getFirst().key()).isEqualTo("gui.history.no-reason");
+        GuiSlot dye = layout.get(22);
+        assertThat(dye.title()).isEqualTo(messageRegistry.render(snapshot, dye.titleKey(), Map.of(), Map.of(
+                "prefix", ColorParser.parse(snapshot.config().tiers().prefix(Tier.PARTICULAR)),
+                "tier", ColorParser.parse(messageRegistry.tierName(snapshot, Tier.PARTICULAR)))));
+        // Viewer adaptation also resolves its newly created name/lore components.
+        StatusGuiHolder holder = new StatusGuiHolder(UUID.randomUUID(), "Subject", List.of(layout), Set.of(), snapshot);
+        assertParsedText(guiService.computeLayout(holder, null));
+    }
+
+    @Test
+    @DisplayName("T-121: History grid places one rating per column: row 4 head, row 5 paper, row 6 direction banner")
     void historyGridColumnLayout() {
         UUID targetUuid = UUID.randomUUID();
         PlayerId targetId = PlayerId.of(targetUuid);
@@ -436,10 +508,10 @@ public class StatusGuiServiceTest {
         GuiLayout layout = holder.layout();
         assertThat(layout).isNotNull();
 
-        // Column 1 (index 0): slot 10 = row 1, slot 19 = row 2, slot 28 = row 3
-        GuiSlot raterHead = layout.get(10);
-        GuiSlot reasonPaper = layout.get(19);
-        GuiSlot directionBanner = layout.get(28);
+        // Column 1 (index 0): slot 27 = row 4, slot 36 = row 5, slot 45 = row 6
+        GuiSlot raterHead = layout.get(27);
+        GuiSlot reasonPaper = layout.get(36);
+        GuiSlot directionBanner = layout.get(45);
 
         assertThat(raterHead).isNotNull();
         assertThat(raterHead.iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
@@ -460,8 +532,8 @@ public class StatusGuiServiceTest {
         offlineNames.put(targetUuid, "TargetUser");
         onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(targetId, "TargetUser", true));
 
-        // Eight ratings put one item in column 1 of page two.
-        for (int i = 1; i <= 8; i++) {
+        // Ten ratings put one item in column 1 of page two.
+        for (int i = 1; i <= 10; i++) {
             reputationRepo.saveAsync(new ReputationEvent(
                     (long) i,
                     PlayerId.of(UUID.randomUUID()),
@@ -482,14 +554,14 @@ public class StatusGuiServiceTest {
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
         assertThat(holder.totalPages()).isEqualTo(2);
         assertThat(holder.currentPage()).isEqualTo(0);
-        assertThat(countRaterHeads(holder.layout())).isEqualTo(7);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(9);
 
         GuiLayout page0Layout = holder.layout();
         assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_PREV_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_PREVIOUS);
         assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_NEXT_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_NEXT);
-        assertThat(page0Layout.get(10).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
-        assertThat(page0Layout.get(16).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
-        assertSlotMap(page0Layout, 7);
+        assertThat(page0Layout.get(27).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
+        assertThat(page0Layout.get(35).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
+        assertSlotMap(page0Layout, 9);
 
         // Click next banner at slot 26
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_NEXT_ROW2);
@@ -497,15 +569,15 @@ public class StatusGuiServiceTest {
         assertThat(countRaterHeads(holder.layout())).isEqualTo(1);
 
         GuiLayout page1Layout = holder.layout();
-        assertThat(page1Layout.get(10).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
+        assertThat(page1Layout.get(27).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertSlotMap(page1Layout, 1);
 
         // Click previous banner at slot 18
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_PREV_ROW2);
         assertThat(holder.currentPage()).isEqualTo(0);
-        assertThat(countRaterHeads(holder.layout())).isEqualTo(7);
-        assertThat(holder.layout().get(16).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
-        assertSlotMap(holder.layout(), 7);
+        assertThat(countRaterHeads(holder.layout())).isEqualTo(9);
+        assertThat(holder.layout().get(35).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
+        assertSlotMap(holder.layout(), 9);
     }
 
     // =========================================================================
@@ -562,7 +634,7 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // Click slot 1 (Give Honor)
+        // Click slot 12 (Give Honor)
         awaitQueued(guiService.handleClick(viewer, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
 
         // Prepared pending confirmation in HonorService
@@ -587,7 +659,7 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // 1. Click slot 7 (Take Honor) -> closes inventory and initiates chat prompt
+        // 1. Click slot 14 (Take Honor) -> closes inventory and initiates chat prompt
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_TOP_TAKE_BANNER);
         drainMainThreadQueue();
 
@@ -643,10 +715,10 @@ public class StatusGuiServiceTest {
 
         // 1. By default, rater is not revealed to regular viewer
         assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isFalse();
-        assertThat(holder.layout().get(10).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
 
-        // 2. Click rater head at slot 10 to reveal
-        guiService.handleClick(viewer, holder, 10);
+        // 2. Click rater head at slot 27 to reveal
+        guiService.handleClick(viewer, holder, 27);
         awaitGuiOutcome(() -> holder.revealedEventIds().contains(saved.id()));
         Set<Long> revealedEvents = raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join();
 
@@ -655,8 +727,9 @@ public class StatusGuiServiceTest {
 
         // Now revealed in holder
         assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isTrue();
-        assertThat(holder.layout().get(10).titleKey()).isEqualTo("gui.history.revealed-rater");
-        assertThat(holder.layout().get(10).titlePlaceholders()).containsEntry("player", "SecretRater");
+        assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(holder.layout().get(27).titlePlaceholders()).containsEntry("player", "SecretRater");
+        assertParsedText(holder.layout());
 
         // Persisted in SQLite
         assertThat(revealedEvents).containsExactly(saved.id());
@@ -664,8 +737,8 @@ public class StatusGuiServiceTest {
         guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
         drainMainThreadQueue();
         StatusGuiHolder reopenedHolder = (StatusGuiHolder) openedInventories.get(1).getHolder();
-        assertThat(reopenedHolder.layout().get(10).titleKey()).isEqualTo("gui.history.revealed-rater");
-        assertThat(reopenedHolder.layout().get(10).titlePlaceholders()).containsEntry("player", "SecretRater");
+        assertThat(reopenedHolder.layout().get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(reopenedHolder.layout().get(27).titlePlaceholders()).containsEntry("player", "SecretRater");
         assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
 
         // 3. Different viewer still sees Anonymous
@@ -675,7 +748,7 @@ public class StatusGuiServiceTest {
         drainMainThreadQueue();
         StatusGuiHolder otherHolder = (StatusGuiHolder) openedInventories.get(2).getHolder();
         assertThat(guiService.isRaterRevealed(otherViewer, saved, otherHolder)).isFalse();
-        assertThat(otherHolder.layout().get(10).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(otherHolder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
     }
 
     @Test
@@ -704,15 +777,15 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // Click slot 10 to reveal
-        guiService.handleClick(brokeViewer, holder, 10);
+        // Click slot 27 to reveal
+        guiService.handleClick(brokeViewer, holder, 27);
         awaitGuiOutcome(() -> messageRegistry.hasCall("gui.reveal.insufficient-funds"));
 
         // Balance untouched
         assertThat(economyBalances.get(brokeViewerUuid)).isEqualTo(50.0);
         // Error message received
         assertThat(messageRegistry.hasCall("gui.reveal.insufficient-funds")).isTrue();
-        assertThat(holder.layout().get(10).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
         // Not persisted
         assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(brokeViewerUuid).join()).isEmpty();
     }
@@ -740,30 +813,30 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // 1. Verify rater head at slot 10 has status.system-actor title and no reveal lore
-        GuiSlot raterSlot = holder.layout().get(10);
+        // 1. Verify rater head at slot 27 has status.system-actor title and no reveal lore
+        GuiSlot raterSlot = holder.layout().get(27);
         assertThat(raterSlot).isNotNull();
         assertThat(raterSlot.iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertThat(raterSlot.titleKey()).isEqualTo("status.system-actor");
         assertThat(raterSlot.lore()).isEmpty();
         assertThat(raterSlot.owningPlayerId()).isNull();
 
-        // 2. Verify paper slot at slot 19 has kill-penalty.reason as translated key
-        GuiSlot paperSlot = holder.layout().get(19);
+        // 2. Verify paper slot at slot 36 has kill-penalty.reason as translated key
+        GuiSlot paperSlot = holder.layout().get(36);
         assertThat(paperSlot).isNotNull();
         assertThat(paperSlot.iconKind()).isEqualTo(GuiIconKind.REASON_PAPER);
         assertThat(paperSlot.lore()).isNotEmpty();
         assertThat(paperSlot.lore().get(0).key()).isEqualTo("kill-penalty.reason");
         assertThat(paperSlot.lore().get(0).isPlain()).isFalse();
 
-        // 3. Verify direction banner at slot 28 is negative banner
-        GuiSlot bannerSlot = holder.layout().get(28);
+        // 3. Verify direction banner at slot 45 is negative banner
+        GuiSlot bannerSlot = holder.layout().get(45);
         assertThat(bannerSlot).isNotNull();
         assertThat(bannerSlot.iconKind()).isEqualTo(GuiIconKind.DIRECTION_BANNER_NEGATIVE);
 
-        // 4. Verify system event is not revealable and clicking slot 10 does not charge or reveal
+        // 4. Verify system event is not revealable and clicking slot 27 does not charge or reveal
         assertThat(guiService.isRaterRevealed(viewer, systemKill, holder)).isFalse();
-        guiService.handleClick(viewer, holder, 10);
+        guiService.handleClick(viewer, holder, 27);
         assertThat(economyBalances.get(viewerUuid)).isEqualTo(500.0);
         assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join()).isEmpty();
     }
@@ -792,7 +865,7 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
         GuiLayout layout = holder.layout();
-        GuiSlot paper = layout.get(19); // Row 2, Col 1
+        GuiSlot paper = layout.get(36); // Row 5, Col 1
         assertThat(paper).isNotNull();
         assertThat(paper.iconKind()).isEqualTo(GuiIconKind.REASON_PAPER);
         assertThat(paper.lore()).isNotEmpty();
@@ -838,13 +911,15 @@ public class StatusGuiServiceTest {
         Player admin = createMockPlayer("AdminAlice", UUID.randomUUID(), "socialblueprint.admin-adjust");
         assertThat(guiService.isRaterRevealed(admin, event, holder)).isTrue();
         GuiLayout adminLayout = guiService.computeLayout(holder, admin);
-        assertThat(adminLayout.get(10).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertParsedText(adminLayout);
+        assertThat(adminLayout.get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
 
         // Regular player without admin permission
         Player regular = createMockPlayer("Bob", UUID.randomUUID(), "socialblueprint.show");
         assertThat(guiService.isRaterRevealed(regular, event, holder)).isFalse();
         GuiLayout regularLayout = guiService.computeLayout(holder, regular);
-        assertThat(regularLayout.get(10).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertParsedText(regularLayout);
+        assertThat(regularLayout.get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
     }
 
     @Test
@@ -969,8 +1044,8 @@ public class StatusGuiServiceTest {
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
         // Fire two clicks without draining main queue in between
-        guiService.handleClick(viewer, holder, 10);
-        guiService.handleClick(viewer, holder, 10);
+        guiService.handleClick(viewer, holder, 27);
+        guiService.handleClick(viewer, holder, 27);
 
         drainMainThreadQueue();
 
@@ -1008,7 +1083,7 @@ public class StatusGuiServiceTest {
         raterRevealRepo.saveRevealAsync(viewerUuid, event.id(), raterUuid, 100.0, Instant.now()).join();
 
         // Now trigger reveal click
-        guiService.handleClick(viewer, holder, 10);
+        guiService.handleClick(viewer, holder, 27);
         awaitGuiOutcome(() -> messageRegistry.hasCall("gui.reveal.already-revealed")
                 && economyBalances.get(viewerUuid) == 400.0);
         awaitGuiOutcome(() -> compensationRepo.findByPlayerAsync(viewerUuid).join().isEmpty());
@@ -1132,7 +1207,7 @@ public class StatusGuiServiceTest {
 
         Inventory inv = openedInventories.getLast();
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
-        GuiSlot paperSlot = holder.layout().get(19);
+        GuiSlot paperSlot = holder.layout().get(36);
         assertThat(paperSlot).isNotNull();
         assertThat(paperSlot.lore()).isNotEmpty();
         assertThat(paperSlot.lore().getFirst().key()).isEqualTo("gui.history.no-reason");
@@ -1166,7 +1241,7 @@ public class StatusGuiServiceTest {
         // Player closes inventory before reveal executes
         viewer.closeInventory();
 
-        guiService.handleClick(viewer, holder, 10);
+        guiService.handleClick(viewer, holder, 27);
         drainMainThreadQueue();
 
         // No reveal messages sent to closed viewer

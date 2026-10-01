@@ -2,6 +2,7 @@ package com.dasannn.socialblueprint.feature.gui;
 
 import com.dasannn.socialblueprint.command.PermissionChecker;
 import com.dasannn.socialblueprint.config.MessageRegistry;
+import com.dasannn.socialblueprint.config.ColorParser;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.CommentSanitizer;
 import com.dasannn.socialblueprint.domain.HonorCostCalculator;
@@ -16,6 +17,8 @@ import com.dasannn.socialblueprint.storage.CompensationRepository;
 import com.dasannn.socialblueprint.storage.RaterRevealRepository;
 import com.dasannn.socialblueprint.storage.ReputationRepository;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
@@ -69,16 +72,16 @@ public class StatusGuiService {
 
     public static final int INVENTORY_SIZE = 54;
 
-    // Top row items (Row 0: slots 0..8) per T-120
-    public static final int SLOT_TOP_TIER_DYE = 1;
-    public static final int SLOT_TOP_GIVE_BANNER = 3;
-    public static final int SLOT_TOP_SUBJECT_HEAD = 4;
-    public static final int SLOT_TOP_TAKE_BANNER = 5;
+    // Profile icons in the top three rows per the owner layout
+    public static final int SLOT_TOP_TIER_DYE = 22;
+    public static final int SLOT_TOP_GIVE_BANNER = 12;
+    public static final int SLOT_TOP_SUBJECT_HEAD = 13;
+    public static final int SLOT_TOP_TAKE_BANNER = 14;
 
     // Edge pagination slots (Columns 0 and 8) per T-121
     public static final int SLOT_PAGE_PREV_ROW2 = 18;
     public static final int SLOT_PAGE_NEXT_ROW2 = 26;
-    public static final int SLOT_PAGE_INFO = 7;
+    public static final int SLOT_PAGE_INFO = 4;
 
     public record PendingReasonPrompt(
             UUID viewerUuid,
@@ -382,7 +385,7 @@ public class StatusGuiService {
         Map<Integer, GuiSlot> slots = new HashMap<>();
 
         // ---------------------------------------------------------------------
-        // Top row (Row 0: slots 0..8) per T-120
+        // Profile icons in rows 1..3 per T-120
         // ---------------------------------------------------------------------
         slots.put(SLOT_TOP_GIVE_BANNER, new GuiSlot(
                 SLOT_TOP_GIVE_BANNER,
@@ -501,7 +504,7 @@ public class StatusGuiService {
         ));
 
         // ---------------------------------------------------------------------
-        // History Grid: One rating per column below top row (T-121, T-124, T-125)
+        // History Grid: One rating per column in the bottom three rows (T-121, T-124, T-125)
         // ---------------------------------------------------------------------
         if (ratings != null && !ratings.isEmpty()) {
             int start = page * StatusGuiHolder.RATINGS_PER_PAGE;
@@ -509,9 +512,9 @@ public class StatusGuiService {
 
             for (int i = start; i < end; i++) {
                 ReputationEvent event = ratings.get(i);
-                int col = 1 + (i - start); // Columns 1..7
+                int col = i - start; // All nine columns, 0..8
 
-                // 1. Rater's Head (Row 1: slot 9 + col)
+                // 1. Rater's Head (Row 4: slot 27 + col)
                 // Deliberate product decision (SB-082): Anonymity covers the name only;
                 // the rater's head carries their real skin so the player sees who rated them as a face.
                 UUID raterUuid = event.actor() != null ? event.actor().uuid() : null;
@@ -543,8 +546,8 @@ public class StatusGuiService {
                                 Map.of("cost", HonorService.formatCost(cost))));
                     }
                 }
-                slots.put(9 + col, new GuiSlot(
-                        9 + col,
+                slots.put(27 + col, new GuiSlot(
+                        27 + col,
                         GuiIconKind.RATER_HEAD,
                         raterUuid,
                         event.id(),
@@ -555,7 +558,7 @@ public class StatusGuiService {
                         raterLore
                 ));
 
-                // 2. Paper whose lore holds the written reason (Row 2: slot 18 + col, T-125, Finding 5)
+                // 2. Paper whose lore holds the written reason (Row 5: slot 36 + col, T-125, Finding 5)
                 List<GuiLoreLine> paperLore;
                 String rawReason = event.reason();
                 if (rawReason == null || rawReason.isBlank()) {
@@ -571,8 +574,8 @@ public class StatusGuiService {
                             ? List.of(GuiLoreLine.ofKey("gui.history.no-reason"))
                             : List.of(GuiLoreLine.ofPlain(plain));
                 }
-                slots.put(18 + col, new GuiSlot(
-                        18 + col,
+                slots.put(36 + col, new GuiSlot(
+                        36 + col,
                         GuiIconKind.REASON_PAPER,
                         null,
                         event.id(),
@@ -583,15 +586,15 @@ public class StatusGuiService {
                         paperLore
                 ));
 
-                // 3. Direction banner (Row 3: slot 27 + col)
+                // 3. Direction banner (Row 6: slot 45 + col)
                 GuiIconKind dirKind = event.kind().isPositive()
                         ? GuiIconKind.DIRECTION_BANNER_POSITIVE
                         : GuiIconKind.DIRECTION_BANNER_NEGATIVE;
                 String bannerKey = event.kind().isPositive()
                         ? "gui.history.positive-banner"
                         : "gui.history.negative-banner";
-                slots.put(27 + col, new GuiSlot(
-                        27 + col,
+                slots.put(45 + col, new GuiSlot(
+                        45 + col,
                         dirKind,
                         null,
                         event.id(),
@@ -604,7 +607,34 @@ public class StatusGuiService {
             }
         }
 
+        slots.replaceAll((index, slot) -> resolveSlotText(slot, snapshot, messageRegistry));
         return new GuiLayout(INVENTORY_SIZE, slots);
+    }
+
+    private static GuiSlot resolveSlotText(GuiSlot slot, RuntimeSnapshot snapshot, MessageRegistry messages) {
+        Component title = slot.titleKey() == null ? null
+                : renderItemText(snapshot, messages, slot.titleKey(), slot.titlePlaceholders());
+        List<Component> lore = new ArrayList<>();
+        for (GuiLoreLine line : slot.lore()) {
+            lore.add(line.isPlain()
+                    ? Component.text(line.plainText()).color(NamedTextColor.GRAY)
+                            .decoration(TextDecoration.ITALIC, false)
+                    : renderItemText(snapshot, messages, line.key(), line.placeholders()));
+        }
+        return new GuiSlot(slot.slot(), slot.iconKind(), slot.owningPlayerId(), slot.eventId(),
+                slot.tier(), slot.dyeKind(), slot.titleKey(), slot.titlePlaceholders(), slot.lore(), title, lore);
+    }
+
+    private static Component renderItemText(RuntimeSnapshot snapshot, MessageRegistry messages,
+                                           String key, Map<String, String> placeholders) {
+        Map<String, Component> configuredValues = new HashMap<>();
+        // Only configuration-derived placeholders are trusted formatting; player names stay literal.
+        for (String token : List.of("prefix", "tier", "confidence", "psychosis")) {
+            if (placeholders.containsKey(token)) {
+                configuredValues.put(token, ColorParser.parse(placeholders.get(token)));
+            }
+        }
+        return messages.render(snapshot, key, placeholders, configuredValues);
     }
 
     /**
@@ -658,6 +688,7 @@ public class StatusGuiService {
             }
         }
 
+        adaptedSlots.replaceAll((index, slot) -> resolveSlotText(slot, holder.snapshot(), messageRegistry));
         return new GuiLayout(INVENTORY_SIZE, adaptedSlots);
     }
 
@@ -1093,6 +1124,7 @@ public class StatusGuiService {
                 }
             }
             if (modified) {
+                updatedSlots.replaceAll((index, slot) -> resolveSlotText(slot, holder.snapshot(), messageRegistry));
                 holder.pages().set(p, new GuiLayout(INVENTORY_SIZE, updatedSlots));
             }
         }

@@ -117,9 +117,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                         profileService,
                         profileService.reputationRepository(),
                         messageRegistry,
-                        this.mainThreadRunner,
-                        statusGuiService != null ? statusGuiService.raterRevealRepository() : null,
-                        statusGuiService
+                        this.mainThreadRunner
                 )
                 : null;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;

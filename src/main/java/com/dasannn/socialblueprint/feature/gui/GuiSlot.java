@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.feature.gui;
 
 import com.dasannn.socialblueprint.domain.Tier;
+import net.kyori.adventure.text.Component;
 
 import java.util.Collections;
 import java.util.List;
@@ -21,12 +22,24 @@ public record GuiSlot(
         GuiDyeKind dyeKind,
         String titleKey,
         Map<String, String> titlePlaceholders,
-        List<GuiLoreLine> lore
+        List<GuiLoreLine> lore,
+        Component title,
+        List<Component> renderedLore
 ) {
     public GuiSlot {
+        renderedLore = renderedLore != null ? List.copyOf(renderedLore) : List.of();
         Objects.requireNonNull(iconKind, "iconKind must not be null");
         titlePlaceholders = titlePlaceholders != null ? Collections.unmodifiableMap(titlePlaceholders) : Collections.emptyMap();
         lore = lore != null ? Collections.unmodifiableList(lore) : Collections.emptyList();
+    }
+
+    public GuiSlot(
+            int slot, GuiIconKind iconKind, UUID owningPlayerId, Long eventId,
+            Tier tier, GuiDyeKind dyeKind, String titleKey,
+            Map<String, String> titlePlaceholders, List<GuiLoreLine> lore
+    ) {
+        this(slot, iconKind, owningPlayerId, eventId, tier, dyeKind, titleKey,
+                titlePlaceholders, lore, null, List.of());
     }
 
     public GuiSlot(

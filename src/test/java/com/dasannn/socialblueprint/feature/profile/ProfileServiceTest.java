@@ -242,6 +242,21 @@ class ProfileServiceTest {
     }
 
     @Test
+    void onlineAndPreviouslyJoinedUnratedPlayersStayNeutral() throws Exception {
+        PlayerId id = PlayerId.of(UUID.randomUUID());
+        for (boolean online : List.of(true, false)) {
+            PlayerLookup lookup = input -> Optional.of(new PlayerLookup.KnownPlayer(id, "Joined", online));
+            ProfileService service = new ProfileService(storage, reputationRepo, psychosisRepo, profileRepo,
+                    statusCache, configManager, lookup, Logger.getLogger("identity-test"), testClock);
+            PlayerSocialView view = service.resolvePlayerAsync("Joined", configManager.snapshot()).get().orElseThrow();
+            assertThat(view.playerId()).isEqualTo(id);
+            assertThat(view.status()).isZero();
+            assertThat(view.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);
+            assertThat(view.psychosis()).isEqualTo(PsychosisLevel.LOW);
+        }
+    }
+
+    @Test
     @DisplayName("T-019: Invalidation clears cached view and status cache")
     void invalidationClearsCache() throws Exception {
         PlayerId target = PlayerId.of(UUID.randomUUID());

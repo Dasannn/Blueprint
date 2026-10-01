@@ -24,7 +24,7 @@ import java.util.UUID;
  */
 public final class StatusGuiHolder implements InventoryHolder {
 
-    public static final int RATINGS_PER_PAGE = 7;
+    public static final int RATINGS_PER_PAGE = 9;
 
     private final UUID viewerUuid;
     private final String targetName;
