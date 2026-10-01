@@ -27,7 +27,7 @@ second place where progress is recorded.
 | P8 Legacy import | `feat/p8-legacy-import` | **done** — review closed, 263 tests green in both languages (`ca72c41`) |
 | P9 Rating decay | `feat/p9-decay` | **done** — review closed, 267 tests green in both languages (`2b83756`) |
 | P10 History GUI, anonymity | `feat/p10-gui` | **done** — review closed, 460 tests green in both languages (`7b9a0a0`) |
-| P11 Hardening | `integration/r1` | in progress — T-101 audited (11 findings, fix round pending), T-104 done (`6cfc569`) |
+| P11 Hardening | `integration/r1` | in progress — T-101 audited and fix round running, T-104 done (`6cfc569`), T-106 done (`d9386d0`); P12's two follow-up branches merged, 571 tests green |
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
@@ -234,12 +234,12 @@ codes renders as literal text.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-100 | Walk every acceptance criterion in `docs/spec.md` §14 on a running Paper 26.3 server; record evidence per box. | §14 | todo |
+| T-100 | Walk every acceptance criterion in `docs/spec.md` §14 on a running Paper 26.3 server; record evidence per box. | §14 | todo — pre-flight sheet being prepared on `review/r1-acceptance` so the live run confirms rather than explores |
 | T-101 | Confirm no file or database I/O happens on the main thread. | §14 | done |
 | T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §14 | todo |
-| T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
+| T-103 | Codex reviews the full release diff, not phase by phase. | — | in progress — `review/r1-final` |
 | T-104 | Upgrading merges new configuration sections and new message keys into the server's existing files, keeping every stored value. Found on a live upgrade: the new sections load from defaults but cannot be read or edited in game, which breaks constitution §2.8 on the upgrade path, and a missing message key warns on every run. | §2.8, SB-062, SB-068 | done |
-| T-106 | `/status admin` usage omits `import`, added in P8, so the only discoverable way to find the command is the source. Every subcommand appears in its usage line. | SB-065 | todo |
+| T-106 | `/status admin` usage omits `import`, added in P8, so the only discoverable way to find the command is the source. Every subcommand appears in its usage line. | SB-065 | done — `d9386d0` |
 
 **Gate:** every box in §14 ticked with evidence.
 
