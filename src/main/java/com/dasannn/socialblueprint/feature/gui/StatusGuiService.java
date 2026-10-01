@@ -21,6 +21,7 @@ import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -231,6 +232,10 @@ public class StatusGuiService {
 
     public Economy getEconomy() {
         return economy;
+    }
+
+    public RaterRevealRepository raterRevealRepository() {
+        return raterRevealRepository;
     }
 
     /**
@@ -716,17 +721,24 @@ public class StatusGuiService {
         return isRaterRevealed(viewer, event.id(), event.actor().uuid(), holder.snapshot(), holder.revealedEventIds());
     }
 
-    public boolean isRaterRevealed(Player viewer, long eventId, UUID raterUuid, RuntimeSnapshot snapshot, Set<Long> revealedEventIds) {
+    public boolean isRaterRevealed(CommandSender viewer, ReputationEvent event, RuntimeSnapshot snapshot, Set<Long> revealedEventIds) {
+        if (event == null || event.actor() == null || event.kind() == HonorKind.SYSTEM_KILL) {
+            return false;
+        }
+        return isRaterRevealed(viewer, event.id(), event.actor().uuid(), snapshot, revealedEventIds);
+    }
+
+    public boolean isRaterRevealed(CommandSender viewer, long eventId, UUID raterUuid, RuntimeSnapshot snapshot, Set<Long> revealedEventIds) {
         return isRaterRevealedStatic(viewer, eventId, raterUuid, snapshot, revealedEventIds);
     }
 
-    private static boolean isRaterRevealedStatic(Player viewer, long eventId, UUID raterUuid, RuntimeSnapshot snapshot, Set<Long> revealedEventIds) {
+    public static boolean isRaterRevealedStatic(CommandSender viewer, long eventId, UUID raterUuid, RuntimeSnapshot snapshot, Set<Long> revealedEventIds) {
         if (raterUuid == null) {
             return false;
         }
         if (viewer != null) {
             // The rater viewing their own rating sees their own name
-            if (raterUuid.equals(viewer.getUniqueId())) {
+            if (viewer instanceof Player player && raterUuid.equals(player.getUniqueId())) {
                 return true;
             }
             // Administrators still see who rated whom (T-126)

@@ -113,7 +113,14 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.versionCommand = updateService != null ? new StatusVersionCommand(updateService, messageRegistry) : null;
         this.updateCommand = updateService != null ? new StatusUpdateCommand(updateService, messageRegistry) : null;
         this.historyCommand = (profileService != null && profileService.reputationRepository() != null)
-                ? new StatusHistoryCommand(profileService, profileService.reputationRepository(), messageRegistry, this.mainThreadRunner)
+                ? new StatusHistoryCommand(
+                        profileService,
+                        profileService.reputationRepository(),
+                        messageRegistry,
+                        this.mainThreadRunner,
+                        statusGuiService != null ? statusGuiService.raterRevealRepository() : null,
+                        statusGuiService
+                )
                 : null;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
         this.optOutCleaner = optOutCleaner;
