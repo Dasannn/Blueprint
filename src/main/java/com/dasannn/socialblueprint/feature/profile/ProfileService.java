@@ -522,4 +522,8 @@ public class ProfileService {
     public int cacheSize() {
         return viewCache.size();
     }
+
+    public ReputationRepository reputationRepository() {
+        return reputationRepository;
+    }
 }

@@ -14,7 +14,8 @@ public enum HonorKind {
     ADMIN_GIVE("admin_give"),
     ADMIN_TAKE("admin_take"),
     ADMIN_RESET("admin_reset"),
-    LEGACY_IMPORT("legacy_import");
+    LEGACY_IMPORT("legacy_import"),
+    SYSTEM_KILL("system_kill");
 
     public static final HonorKind GIVE = POSITIVE;
     public static final HonorKind REMOVE = NEGATIVE;
@@ -40,7 +41,7 @@ public enum HonorKind {
      * Whether this event represents a negative change in reputation.
      */
     public boolean isNegative() {
-        return this == NEGATIVE || this == ADMIN_TAKE;
+        return this == NEGATIVE || this == ADMIN_TAKE || this == SYSTEM_KILL;
     }
 
     /**
@@ -52,7 +53,7 @@ public enum HonorKind {
 
     /**
      * Whether this event contributes evidence toward Reputation Confidence.
-     * Per SB-003 and ARCHITECTURE.md §4, legacy imports and admin resets contribute no Confidence.
+     * Per SB-003 and ARCHITECTURE.md §4, legacy imports, admin resets and system kills contribute no Confidence.
      */
     public boolean contributesToConfidence() {
         return this == POSITIVE || this == NEGATIVE;
@@ -68,6 +69,7 @@ public enum HonorKind {
             case "admin_take", "admin_remove" -> ADMIN_TAKE;
             case "admin_reset", "reset" -> ADMIN_RESET;
             case "legacy_import" -> LEGACY_IMPORT;
+            case "system_kill" -> SYSTEM_KILL;
             default -> throw new IllegalArgumentException("Unknown HonorKind: " + value);
         };
     }

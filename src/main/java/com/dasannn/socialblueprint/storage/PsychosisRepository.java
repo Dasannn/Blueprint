@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -34,7 +35,7 @@ public final class PsychosisRepository {
         }
     }
 
-    private void notifyInvalidation(PlayerId player) {
+    void notifyInvalidation(PlayerId player) {
         for (java.util.function.Consumer<PlayerId> listener : invalidationListeners) {
             listener.accept(player);
         }
@@ -56,7 +57,7 @@ public final class PsychosisRepository {
                 });
     }
 
-    private PsychosisEvent saveInternal(Connection conn, PsychosisEvent event) throws SQLException {
+    PsychosisEvent saveInternal(Connection conn, PsychosisEvent event) throws SQLException {
         String sql = """
             INSERT INTO psychosis_event (killer_uuid, victim_uuid, context, created_at)
             VALUES (?, ?, ?, ?);
@@ -119,6 +120,100 @@ public final class PsychosisRepository {
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, killer.toString());
                 ps.setString(2, StorageTimestamps.format(since));
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt(1);
+                    }
+                    return 0;
+                }
+            }
+        });
+    }
+
+    public Optional<PsychosisEvent> findLastOpenKillBetween(PlayerId killer, PlayerId victim) {
+        Objects.requireNonNull(killer, "Killer must not be null");
+        Objects.requireNonNull(victim, "Victim must not be null");
+        return engine.execute(conn -> {
+            String sql = """
+                SELECT id, killer_uuid, victim_uuid, context, created_at
+                FROM psychosis_event
+                WHERE killer_uuid = ? AND victim_uuid = ? AND context = 'open'
+                ORDER BY id DESC
+                LIMIT 1;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, killer.toString());
+                ps.setString(2, victim.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return Optional.of(mapRow(rs));
+                    }
+                    return Optional.empty();
+                }
+            }
+        });
+    }
+
+    public CompletableFuture<Optional<PsychosisEvent>> findLastOpenKillBetweenAsync(PlayerId killer, PlayerId victim) {
+        Objects.requireNonNull(killer, "Killer must not be null");
+        Objects.requireNonNull(victim, "Victim must not be null");
+        return engine.executeAsync(conn -> {
+            String sql = """
+                SELECT id, killer_uuid, victim_uuid, context, created_at
+                FROM psychosis_event
+                WHERE killer_uuid = ? AND victim_uuid = ? AND context = 'open'
+                ORDER BY id DESC
+                LIMIT 1;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, killer.toString());
+                ps.setString(2, victim.toString());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return Optional.of(mapRow(rs));
+                    }
+                    return Optional.empty();
+                }
+            }
+        });
+    }
+
+    public int countOpenKillsBetweenSince(PlayerId killer, PlayerId victim, Instant since) {
+        Objects.requireNonNull(killer, "Killer must not be null");
+        Objects.requireNonNull(victim, "Victim must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.execute(conn -> {
+            String sql = """
+                SELECT COUNT(*) FROM psychosis_event
+                WHERE killer_uuid = ? AND victim_uuid = ? AND context = 'open' AND created_at > ?;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, killer.toString());
+                ps.setString(2, victim.toString());
+                ps.setString(3, StorageTimestamps.format(since));
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getInt(1);
+                    }
+                    return 0;
+                }
+            }
+        });
+    }
+
+    public CompletableFuture<Integer> countOpenKillsBetweenSinceAsync(PlayerId killer, PlayerId victim, Instant since) {
+        Objects.requireNonNull(killer, "Killer must not be null");
+        Objects.requireNonNull(victim, "Victim must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.executeAsync(conn -> {
+            String sql = """
+                SELECT COUNT(*) FROM psychosis_event
+                WHERE killer_uuid = ? AND victim_uuid = ? AND context = 'open' AND created_at > ?;
+            """;
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, killer.toString());
+                ps.setString(2, victim.toString());
+                ps.setString(3, StorageTimestamps.format(since));
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
                         return rs.getInt(1);

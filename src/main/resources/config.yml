@@ -246,3 +246,31 @@ legacy-import:
   # Off by default: Minecraft names can be reused, so a name-keyed row can
   # attach an old record to a different player.
   trust-name-lookup: false
+
+# ==============================================================================
+# Kill Penalty (SB-032, SB-034, SB-035, T-130 to T-133)
+#
+# Status lost for open-world kills outside sanctioned duels.
+# ==============================================================================
+kill-penalty:
+  # Status lost for a kill outside a duel. 0 disables the feature entirely.
+  delta: -1
+  # One penalty per killer-victim pair inside this window.
+  pair-cooldown: 30m
+  # Most status one killer can lose automatically inside this window.
+  cap-window: 7d
+  max-loss: 10
+  # Worlds where a kill costs nothing.
+  exempt-worlds: []
+
+# ==============================================================================
+# Configurable Sounds (SB-090, SB-091, T-135 to T-137)
+# ==============================================================================
+sounds:
+  # key: the Minecraft sound key. Empty key = silence.
+  creeper-fuse:
+    key: "entity.creeper.primed"
+    volume: 1.0
+    pitch: 0.5
+    category: HOSTILE
+

@@ -24,6 +24,8 @@ import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.NonPlayerTarget;
 import com.dasannn.socialblueprint.domain.PlayerProfile;
 import com.dasannn.socialblueprint.feature.legacy.LegacyImportReport;
+import com.dasannn.socialblueprint.domain.CombatContext;
+import com.dasannn.socialblueprint.domain.PsychosisEvent;
 
 /**
  * Repository for {@link ReputationEvent}s per T-018, T-019 and ARCHITECTURE.md §4.
@@ -483,6 +485,162 @@ public final class ReputationRepository {
                     return 0;
                 }
             }
+        });
+    }
+
+    public StorageEngine engine() {
+        return engine;
+    }
+
+    int calculateSystemKillLossSinceInternal(Connection conn, PlayerId target, Instant since) throws SQLException {
+        String sql = """
+            SELECT COALESCE(SUM(ABS(delta)), 0)
+            FROM reputation_event
+            WHERE target_uuid = ?
+              AND kind = 'system_kill'
+              AND created_at > ?;
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, target.toString());
+            ps.setString(2, StorageTimestamps.format(since));
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+                return 0;
+            }
+        }
+    }
+
+    public int calculateSystemKillLossSince(PlayerId target, Instant since) {
+        Objects.requireNonNull(target, "Target must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.execute(conn -> calculateSystemKillLossSinceInternal(conn, target, since));
+    }
+
+    public CompletableFuture<Integer> calculateSystemKillLossSinceAsync(PlayerId target, Instant since) {
+        Objects.requireNonNull(target, "Target must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.executeAsync(conn -> calculateSystemKillLossSinceInternal(conn, target, since));
+    }
+
+    int countKillPenaltyClaimsSinceInternal(Connection conn, PlayerId killer, PlayerId victim, Instant since) throws SQLException {
+        String sql = """
+            SELECT COUNT(*) FROM kill_penalty_claim
+            WHERE killer_uuid = ? AND victim_uuid = ? AND created_at > ?;
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, killer.toString());
+            ps.setString(2, victim.toString());
+            ps.setString(3, StorageTimestamps.format(since));
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1);
+                }
+                return 0;
+            }
+        }
+    }
+
+    public int countKillPenaltyClaimsSince(PlayerId killer, PlayerId victim, Instant since) {
+        Objects.requireNonNull(killer, "Killer must not be null");
+        Objects.requireNonNull(victim, "Victim must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.execute(conn -> countKillPenaltyClaimsSinceInternal(conn, killer, victim, since));
+    }
+
+    public CompletableFuture<Integer> countKillPenaltyClaimsSinceAsync(PlayerId killer, PlayerId victim, Instant since) {
+        Objects.requireNonNull(killer, "Killer must not be null");
+        Objects.requireNonNull(victim, "Victim must not be null");
+        Objects.requireNonNull(since, "Since must not be null");
+        return engine.executeAsync(conn -> countKillPenaltyClaimsSinceInternal(conn, killer, victim, since));
+    }
+
+    void saveKillPenaltyClaimInternal(Connection conn, PlayerId killer, PlayerId victim, Instant createdAt) throws SQLException {
+        String sql = """
+            INSERT INTO kill_penalty_claim (killer_uuid, victim_uuid, created_at)
+            VALUES (?, ?, ?);
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, killer.toString());
+            ps.setString(2, victim.toString());
+            ps.setString(3, StorageTimestamps.format(createdAt));
+            ps.executeUpdate();
+        }
+    }
+
+    public CompletableFuture<KillPenaltyResult> executeKillPenaltyAsync(
+            PlayerId killerId,
+            PlayerId victimId,
+            String worldName,
+            Instant now,
+            KillPenaltySettings settings,
+            PsychosisRepository psychosisRepository
+    ) {
+        Objects.requireNonNull(killerId, "killerId must not be null");
+        Objects.requireNonNull(victimId, "victimId must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        Objects.requireNonNull(settings, "settings must not be null");
+        Objects.requireNonNull(psychosisRepository, "psychosisRepository must not be null");
+
+        return engine.executeAsync(conn -> {
+            boolean initialAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+
+                // Fail closed: worldName == null means world is unknown/unresolvable -> exempt from penalty (Finding 5)
+                boolean worldEligible = worldName != null && !settings.isWorldExempt(worldName);
+                boolean penaltyEligible = settings.enabled() && worldEligible;
+
+                int penaltyDelta = 0;
+                ReputationEvent repEvent = null;
+
+                if (penaltyEligible) {
+                    Instant cooldownSince = now.minus(settings.pairCooldown());
+                    int claimsInCooldown = countKillPenaltyClaimsSinceInternal(conn, killerId, victimId, cooldownSince);
+                    if (claimsInCooldown == 0) {
+                        Instant capSince = now.minus(settings.capWindow());
+                        int currentLoss = calculateSystemKillLossSinceInternal(conn, killerId, capSince);
+                        int remainingLoss = settings.maxLoss() - currentLoss;
+                        if (remainingLoss > 0) {
+                            int calculatedDelta = Math.max(settings.delta(), -remainingLoss);
+                            if (calculatedDelta < 0) {
+                                penaltyDelta = calculatedDelta;
+                                repEvent = new ReputationEvent(
+                                        0L,
+                                        null,
+                                        killerId,
+                                        penaltyDelta,
+                                        HonorKind.SYSTEM_KILL,
+                                        0.0,
+                                        "kill-penalty.reason",
+                                        now
+                                );
+                                repEvent = saveInternal(conn, repEvent);
+                                saveKillPenaltyClaimInternal(conn, killerId, victimId, now);
+                            }
+                        }
+                    }
+                }
+
+                // Insert PsychosisEvent inside the exact same transaction (Finding 2)
+                PsychosisEvent psychosisEvent = new PsychosisEvent(0L, killerId, victimId, CombatContext.OPEN, now);
+                psychosisEvent = psychosisRepository.saveInternal(conn, psychosisEvent);
+
+                conn.commit();
+                return new KillPenaltyResult(penaltyDelta, repEvent, psychosisEvent);
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(initialAutoCommit);
+            }
+        }).thenApply(result -> {
+            if (result.wasPenaltyCharged()) {
+                notifyInvalidation(killerId);
+            }
+            psychosisRepository.notifyInvalidation(killerId);
+            return result;
         });
     }
 

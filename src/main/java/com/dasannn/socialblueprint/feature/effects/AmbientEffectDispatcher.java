@@ -22,8 +22,6 @@ import java.util.Random;
  */
 public class AmbientEffectDispatcher {
 
-    private static final String CREEPER_FUSE_SOUND = "entity.creeper.primed";
-
     private final Plugin plugin;
     private final MessageRegistry messageRegistry;
     private final ConfigManager configManager;
@@ -54,7 +52,7 @@ public class AmbientEffectDispatcher {
                 yield true;
             }
             case CREEPER_SOUND -> {
-                dispatchCreeperSound(player);
+                dispatchCreeperSound(player, snapshot);
                 yield true;
             }
             case FAKE_ANNOUNCEMENT -> {
@@ -85,13 +83,23 @@ public class AmbientEffectDispatcher {
         player.sendMessage(whisper);
     }
 
-    private void dispatchCreeperSound(Player player) {
-        // player.playSound sends the sound packet ONLY to this player (private per SB-041)
-        // The String overload, not Sound.ENTITY_CREEPER_PRIMED: the enum is
-        // registry-backed and cannot initialise without a running server,
-        // which made this path impossible to unit test at all.
-        // ponytail: key is a constant; move it to config if an owner ever asks.
-        player.playSound(player.getLocation(), CREEPER_FUSE_SOUND, SoundCategory.HOSTILE, 1.0f, 0.5f);
+    private void dispatchCreeperSound(Player player, RuntimeSnapshot snapshot) {
+        // Read slot from the snapshot at play time, never cache it in a field (T-137)
+        com.dasannn.socialblueprint.config.SoundSlotConfig slot = (snapshot != null)
+                ? snapshot.config().sounds().get("creeper-fuse")
+                : com.dasannn.socialblueprint.config.SoundSlotConfig.SILENT;
+        if (slot.isSilent()) {
+            return;
+        }
+        try {
+            // player.playSound sends the sound packet ONLY to this player (private per SB-041, T-137)
+            // String overload per T-135 so it can be verified in unit tests without registry
+            player.playSound(player.getLocation(), slot.key(), slot.category(), slot.volume(), slot.pitch());
+        } catch (Throwable t) {
+            if (snapshot != null) {
+                snapshot.config().sounds().logKeyWarning("creeper-fuse", slot.key(), t.getMessage());
+            }
+        }
     }
 
     private void dispatchFakeAnnouncement(Player player, EffectsConfigSection config) {

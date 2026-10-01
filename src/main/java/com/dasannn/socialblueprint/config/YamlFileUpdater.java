@@ -160,6 +160,10 @@ public final class YamlFileUpdater {
             return trimmed;
         }
 
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            return trimmed;
+        }
+
         return "'" + raw.replace("'", "''") + "'";
     }
 }

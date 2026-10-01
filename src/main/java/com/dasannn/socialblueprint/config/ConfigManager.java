@@ -10,8 +10,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -159,7 +161,7 @@ public class ConfigManager {
 
         // 2. Check if it's a config.yml leaf
         String resolved = resolveConfigPath(path);
-        if (SUPPORTED_CONFIG_LEAVES.contains(resolved)) {
+        if (isSupportedConfigLeaf(resolved)) {
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
             if (yaml.contains(resolved)) {
                 Object val = yaml.get(resolved);
@@ -184,17 +186,17 @@ public class ConfigManager {
             String resolvedConfigPath = resolveConfigPath(path);
 
             // Handle config.yml leaf edit
-            if (SUPPORTED_CONFIG_LEAVES.contains(resolvedConfigPath)) {
+            if (isSupportedConfigLeaf(resolvedConfigPath)) {
                 // 1. In-memory validation
                 YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
-                Object parsedValue = parseValue(rawValue);
+                Object parsedValue = parseValueForPath(resolvedConfigPath, rawValue);
                 yaml.set(resolvedConfigPath, parsedValue);
 
                 PluginConfig newConfig = PluginConfig.load(yaml, logger);
 
                 // 2. Persist atomically preserving comments and formatting
                 try {
-                    YamlFileUpdater.updateLeafAndSave(configFile, resolvedConfigPath, rawValue);
+                    YamlFileUpdater.updateLeafAndSave(configFile, resolvedConfigPath, formatRawValueForPath(resolvedConfigPath, rawValue));
                 } catch (IOException e) {
                     throw new IllegalStateException("Failed to persist updated configuration to disk: " + e.getMessage(), e);
                 }
@@ -304,17 +306,68 @@ public class ConfigManager {
         }
     }
 
+    private boolean isSupportedConfigLeaf(String path) {
+        if (SUPPORTED_CONFIG_LEAVES.contains(path)) {
+            return true;
+        }
+        if (path.startsWith("sounds.")) {
+            String[] parts = path.split("\\.");
+            if (parts.length == 3) {
+                String leaf = parts[2];
+                return leaf.equals("key") || leaf.equals("volume") || leaf.equals("pitch") || leaf.equals("category");
+            }
+        }
+        return false;
+    }
+
     private String resolveConfigPath(String inputPath) {
-        if (SUPPORTED_CONFIG_LEAVES.contains(inputPath)) {
+        if (isSupportedConfigLeaf(inputPath)) {
             return inputPath;
         }
-        if (SUPPORTED_CONFIG_LEAVES.contains("tiers." + inputPath)) {
+        if (isSupportedConfigLeaf("tiers." + inputPath)) {
             return "tiers." + inputPath;
         }
-        if (inputPath.startsWith("tiers.") && SUPPORTED_CONFIG_LEAVES.contains(inputPath.substring("tiers.".length()))) {
+        if (inputPath.startsWith("tiers.") && isSupportedConfigLeaf(inputPath.substring("tiers.".length()))) {
             return inputPath;
         }
         return inputPath;
+    }
+
+    private Object parseValueForPath(String path, String raw) {
+        if ("kill-penalty.exempt-worlds".equals(path)) {
+            return parseStringList(raw);
+        }
+        return parseValue(raw);
+    }
+
+    private String formatRawValueForPath(String path, String raw) {
+        if ("kill-penalty.exempt-worlds".equals(path)) {
+            List<String> list = parseStringList(raw);
+            return "[" + String.join(", ", list) + "]";
+        }
+        return raw;
+    }
+
+    static List<String> parseStringList(String raw) {
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
+        }
+        if (trimmed.isEmpty()) {
+            return new ArrayList<>();
+        }
+        String[] parts = trimmed.split(",");
+        List<String> result = new ArrayList<>();
+        for (String part : parts) {
+            String item = part.trim();
+            if ((item.startsWith("'") && item.endsWith("'")) || (item.startsWith("\"") && item.endsWith("\""))) {
+                item = item.substring(1, item.length() - 1).trim();
+            }
+            if (!item.isEmpty()) {
+                result.add(item);
+            }
+        }
+        return result;
     }
 
     private Object parseValue(String raw) {
@@ -400,6 +453,17 @@ public class ConfigManager {
         set.add("update.channel");
         set.add("update.api-url");
         set.add("update.max-download-bytes");
+
+        set.add("kill-penalty.delta");
+        set.add("kill-penalty.pair-cooldown");
+        set.add("kill-penalty.cap-window");
+        set.add("kill-penalty.max-loss");
+        set.add("kill-penalty.exempt-worlds");
+
+        set.add("sounds.creeper-fuse.key");
+        set.add("sounds.creeper-fuse.volume");
+        set.add("sounds.creeper-fuse.pitch");
+        set.add("sounds.creeper-fuse.category");
 
         return Collections.unmodifiableSet(set);
     }

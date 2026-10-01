@@ -75,6 +75,10 @@ status:
   profile-confidence: '&7Confianza: &f{confidence}'
   profile-psychosis: '&7Psicosis: &f{psychosis}'
   profile-contributors: '&7Colaboradores: &f{contributors}'
+  history-header: '&8--- &bHistorial de Reputación: &e{player} &8---'
+  history-empty: '&7No hay eventos de reputación registrados.'
+  history-entry: '&7[{time}] {delta} &7por &e{actor}&7: &f{reason}'
+  system-actor: 'Sistema'
 
 honor:
   cost-preview: '&7El costo para emitir esta opinión es &e${cost}&7. Escribe &b/status confirm&7 para confirmar.'
@@ -136,3 +140,7 @@ updater:
   checksum-mismatch: '&cActualización fallida: No coincide la suma de verificación. La descarga fue rechazada por seguridad.'
   failed: '&cError en la verificación o descarga de la actualización: &f{error}'
   no-update: '&7SocialBlueprint ya está actualizado (&b{current}&7).'
+
+kill-penalty:
+  reason: 'Penalización por muerte fuera de duelo'
+

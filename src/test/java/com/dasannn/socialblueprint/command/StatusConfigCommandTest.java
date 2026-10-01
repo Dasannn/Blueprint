@@ -363,6 +363,70 @@ class StatusConfigCommandTest {
         assertThat(sent).doesNotContain("Uso:");
     }
 
+    @Test
+    @DisplayName("Finding 8: /status config kill-penalty.exempt-worlds supports get and set in-game")
+    void finding8_editExemptWorldsInGame() {
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+
+        // 1. Read default value
+        boolean readResult = command.execute(admin, new String[]{"kill-penalty.exempt-worlds"});
+        assertThat(readResult).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("key", "kill-penalty.exempt-worlds")
+                .containsEntry("value", "[]");
+
+        // 2. Set bracketed list: [nether, the_end]
+        messageRegistry.clear();
+        boolean setResult = command.execute(admin, new String[]{"kill-penalty.exempt-worlds", "[nether, the_end]"});
+        assertThat(setResult).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-success");
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("key", "kill-penalty.exempt-worlds")
+                .containsEntry("value", "[nether, the_end]");
+
+        assertThat(configManager.config().killPenalty().exemptWorlds()).containsExactlyInAnyOrder("nether", "the_end");
+
+        // 3. Read back
+        messageRegistry.clear();
+        command.execute(admin, new String[]{"kill-penalty.exempt-worlds"});
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
+        assertThat(messageRegistry.lastCall().placeholders().get("value")).contains("nether").contains("the_end");
+    }
+
+    @Test
+    @DisplayName("Finding 7: /status config sounds.<slot>.<property> validates volume and pitch in-game")
+    void finding7_inGameSoundValidation() {
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+
+        // 1. Invalid volume: negative
+        boolean setNegativeVol = command.execute(admin, new String[]{"sounds.creeper-fuse.volume", "-0.5"});
+        assertThat(setNegativeVol).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-failed");
+        assertThat(messageRegistry.lastCall().placeholders().get("error")).contains("volume").contains("creeper-fuse");
+
+        // 2. Invalid pitch: > 2.0
+        messageRegistry.clear();
+        boolean setHighPitch = command.execute(admin, new String[]{"sounds.creeper-fuse.pitch", "2.5"});
+        assertThat(setHighPitch).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-failed");
+        assertThat(messageRegistry.lastCall().placeholders().get("error")).contains("pitch").contains("creeper-fuse");
+
+        // 3. Invalid pitch: < 0.0
+        messageRegistry.clear();
+        boolean setLowPitch = command.execute(admin, new String[]{"sounds.creeper-fuse.pitch", "-0.1"});
+        assertThat(setLowPitch).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-failed");
+        assertThat(messageRegistry.lastCall().placeholders().get("error")).contains("pitch").contains("creeper-fuse");
+
+        // 4. Valid pitch: 1.5
+        messageRegistry.clear();
+        boolean setValidPitch = command.execute(admin, new String[]{"sounds.creeper-fuse.pitch", "1.5"});
+        assertThat(setValidPitch).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-success");
+        assertThat(configManager.config().sounds().creeperFuse().pitch()).isEqualTo(1.5f);
+    }
+
     private static class MockSender implements CommandSender {
         private final String name;
         private final Set<String> permissions = new HashSet<>();
