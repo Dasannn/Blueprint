@@ -290,21 +290,20 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 component -> getServer().broadcast(component)
         );
 
-        getServer().getPluginManager().registerEvents(
-                new AsyncChatListener(
-                        profileService,
-                        configManager,
-                        messageRegistry,
-                        statusGuiService,
-                        runnable -> {
-                            if (isEnabled()) {
-                                getServer().getScheduler().runTask(this, runnable);
-                            }
-                        },
-                        uuid -> getServer().getPlayer(uuid)
-                ),
-                this
+        AsyncChatListener chatListener = new AsyncChatListener(
+                profileService,
+                configManager,
+                messageRegistry,
+                statusGuiService,
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    }
+                },
+                uuid -> getServer().getPlayer(uuid)
         );
+        getServer().getOnlinePlayers().forEach(chatListener::registerPlayer);
+        getServer().getPluginManager().registerEvents(chatListener, this);
         getServer().getPluginManager().registerEvents(
                 new PlayerLifecycleListener(profileService, configManager),
                 this

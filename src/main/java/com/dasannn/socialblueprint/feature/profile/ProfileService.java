@@ -123,6 +123,18 @@ public class ProfileService {
         this(storageEngine, reputationRepository, psychosisRepository, profileRepository, statusCache, configManager, playerLookup, logger, Clock.systemUTC());
     }
 
+    /** Cache-only chat read: no executor submission, JDBC or platform lookup. */
+    public PlayerSocialView getViewCached(PlayerId id, RuntimeSnapshot snapshot) {
+        if (id != null) {
+            synchronized (loadLock) {
+                CachedView cached = viewCache.get(id);
+                if (cached != null && cached.generation() == playerGenerations.getOrDefault(id, 0)
+                        && !clock.instant().isAfter(cached.expiresAt())) return cached.view();
+            }
+        }
+        return PlayerSocialView.neutral(id != null ? id : PlayerId.CONSOLE, "", snapshot.config().tiers().ladder());
+    }
+
     /**
      * Fast profile lookup designed for {@link io.papermc.paper.event.player.AsyncChatEvent} (T-042).
      * If the profile is in the cache and unexpired, returns it immediately without waiting on JDBC or a future.

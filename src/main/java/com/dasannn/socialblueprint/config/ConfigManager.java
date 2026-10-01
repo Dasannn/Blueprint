@@ -515,6 +515,10 @@ public class ConfigManager {
         set.add("psychosis.medium-threshold");
         set.add("psychosis.high-threshold");
         set.add("psychosis.extreme-threshold");
+        set.add("psychosis.chat.medium-rate");
+        set.add("psychosis.chat.high-rate");
+        set.add("psychosis.chat.extreme-rate");
+        set.add("psychosis.chat.extent");
 
         set.add("honor.cost");
         set.add("honor.multipliers");
@@ -630,6 +634,10 @@ public class ConfigManager {
         if ("psychosis.medium-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().mediumThreshold());
         if ("psychosis.high-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().highThreshold());
         if ("psychosis.extreme-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().extremeThreshold());
+        if ("psychosis.chat.medium-rate".equals(path)) return String.valueOf(config.psychosis().chat().mediumRate());
+        if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());
+        if ("psychosis.chat.extreme-rate".equals(path)) return String.valueOf(config.psychosis().chat().extremeRate());
+        if ("psychosis.chat.extent".equals(path)) return String.valueOf(config.psychosis().chat().extent());
 
         if ("honor.cost".equals(path) && config.honor() != null) return String.valueOf(config.honor().cost());
         if ("honor.multipliers".equals(path) && config.honor() != null) return config.honor().multipliers().toString();

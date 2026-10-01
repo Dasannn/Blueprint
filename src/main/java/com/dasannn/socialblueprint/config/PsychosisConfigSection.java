@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.config;
 
 import com.dasannn.socialblueprint.domain.PsychosisConfig;
+import com.dasannn.socialblueprint.domain.ChatCorruptionConfig;
 import org.bukkit.configuration.ConfigurationSection;
 
 import java.time.Duration;
@@ -13,9 +14,15 @@ public record PsychosisConfigSection(
         Duration window,
         int mediumThreshold,
         int highThreshold,
-        int extremeThreshold
+        int extremeThreshold,
+        ChatCorruptionConfig chat
 ) {
+    public PsychosisConfigSection(Duration window, int mediumThreshold, int highThreshold, int extremeThreshold) {
+        this(window, mediumThreshold, highThreshold, extremeThreshold, ChatCorruptionConfig.DEFAULT);
+    }
+
     public PsychosisConfigSection {
+        Objects.requireNonNull(chat, "Chat configuration must not be null");
         Objects.requireNonNull(window, "Window duration must not be null");
     }
 
@@ -65,7 +72,26 @@ public record PsychosisConfigSection(
                     + high + "), got " + extreme);
         }
 
-        return new PsychosisConfigSection(window, medium, high, extreme);
+        return new PsychosisConfigSection(window, medium, high, extreme, loadChat(root));
+    }
+
+    private static ChatCorruptionConfig loadChat(ConfigurationSection root) {
+        ConfigurationSection section = root.getConfigurationSection("psychosis.chat");
+        if (section == null) return ChatCorruptionConfig.DEFAULT;
+        int extent = integer(section, "extent", 20);
+        if (extent < 1 || extent > 25) {
+            throw new ConfigValidationException("psychosis.chat.extent", "Extent must be between 1 and 25 percent");
+        }
+        try {
+            return new ChatCorruptionConfig(integer(section, "medium-rate", 10), integer(section, "high-rate", 25),
+                    integer(section, "extreme-rate", 40), extent);
+        } catch (IllegalArgumentException ex) {
+            throw new ConfigValidationException("psychosis.chat", ex.getMessage());
+        }
+    }
+
+    private static int integer(ConfigurationSection section, String key, int fallback) {
+        return section.contains(key) ? parseInt(section, key, "psychosis.chat." + key) : fallback;
     }
 
     private static int parseInt(ConfigurationSection section, String subKey, String fullKey) {

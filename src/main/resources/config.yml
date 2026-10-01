@@ -100,6 +100,12 @@ decay:
 # If these thresholds are too aggressive for an active PvP server, raise them below.
 # ==============================================================================
 psychosis:
+  # Percentages; every other message and at least 75% of words/letters stay intact.
+  chat:
+    medium-rate: 10
+    high-rate: 25
+    extreme-rate: 40
+    extent: 20
   # Rolling evaluation window for counting PvP kills (default: 72 hours).
   window: 72h
 
