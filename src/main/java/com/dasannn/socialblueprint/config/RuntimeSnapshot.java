@@ -47,6 +47,7 @@ public record RuntimeSnapshot(
         Objects.requireNonNull(config, "config must not be null");
         Objects.requireNonNull(messages, "messages must not be null");
         Objects.requireNonNull(chatPrefixComponent, "chatPrefixComponent must not be null");
+        CatalogueLines.validateSnapshot(messages, config.effects().presentation().maxVisibleLength());
         leafValues = leafValues != null ? Map.copyOf(leafValues) : Collections.emptyMap();
     }
 

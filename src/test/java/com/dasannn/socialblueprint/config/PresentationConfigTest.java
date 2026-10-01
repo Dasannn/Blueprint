@@ -106,6 +106,58 @@ class PresentationConfigTest {
         assertThatThrownBy(() -> ScreenLines.validate(List.of("x\ny"))).hasMessageContaining(ScreenLines.KEY);
     }
 
+    @Test void customListsRejectBeforePersistenceAndLogKeyAndIndex() throws Exception {
+        ConfigManager manager = manager();
+        manager.initialize();
+        java.util.List<String> logs = new java.util.ArrayList<>();
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger(ConfigManager.class.getName());
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            public void publish(java.util.logging.LogRecord record) { logs.add(record.getMessage()); }
+            public void flush() {}
+            public void close() {}
+        };
+        logger.addHandler(handler);
+        try {
+            manager.set(CatalogueLines.CUSTOM, "['&8...']");
+            RuntimeSnapshot before = manager.snapshot();
+            String disk = Files.readString(folder.resolve("messages_en.yml"));
+            assertThatThrownBy(() -> manager.set(CatalogueLines.CUSTOM, "['&8...', 'Permission granted']"))
+                    .hasMessageContaining(CatalogueLines.CUSTOM + "[1]");
+            assertThat(logs).anySatisfy(log -> assertThat(log).contains(CatalogueLines.CUSTOM + "[1]"));
+            assertThat(manager.snapshot()).isSameAs(before);
+            assertThat(Files.readString(folder.resolve("messages_en.yml"))).isEqualTo(disk);
+            manager.set(CatalogueLines.CUSTOM, "[]");
+            assertThat(manager.snapshot().messages().lineKeys(CatalogueLines.CUSTOM)).isEmpty();
+            YamlFileUpdater.updateLeafAndSave(folder.resolve("messages_es.yml").toFile(), CatalogueLines.CUSTOM,
+                    "['Advancement earned']");
+            assertThatThrownBy(manager::reload).hasMessageContaining(CatalogueLines.CUSTOM + "[0]");
+        } finally { logger.removeHandler(handler); }
+    }
+
+    @Test void upgradeAdoptsPrivateTextOwnerOverrides() throws Exception {
+        ConfigManager manager = manager();
+        File file = folder.resolve("config.yml").toFile();
+        for (String id : List.of("private-chat", "fake-connection")) YamlFileUpdater.removeLeafAndSave(file, "effects." + id);
+        YamlFileUpdater.updateLeafAndSave(file, "effects.whisper.cooldown", "7m");
+        YamlFileUpdater.updateLeafAndSave(file, "effects.whisper.session-cap", "9");
+        YamlFileUpdater.updateLeafAndSave(file, "effects.fake-announcement.cooldown", "17m");
+        YamlFileUpdater.updateLeafAndSave(file, "effects.fake-announcement.session-cap", "8");
+        File messages = folder.resolve("messages_en.yml").toFile();
+        YamlFileUpdater.removeLeafAndSave(messages, "effects.private-chat");
+        YamlFileUpdater.removeLeafAndSave(messages, "effects.fake-connection");
+        YamlFileUpdater.updateLeafAndSave(messages, "effects.whisper-1", "'&8...' ");
+        manager.initialize();
+        EffectsConfigSection config = manager.snapshot().config().effects();
+        assertThat(config.getEffect(AmbientEffectType.WHISPER).cooldown()).isEqualTo(java.time.Duration.ofMinutes(7));
+        assertThat(config.getEffect(AmbientEffectType.WHISPER).sessionCap()).isEqualTo(9);
+        assertThat(config.getEffect(AmbientEffectType.FAKE_ANNOUNCEMENT).cooldown()).isEqualTo(java.time.Duration.ofMinutes(17));
+        assertThat(config.getEffect(AmbientEffectType.FAKE_ANNOUNCEMENT).sessionCap()).isEqualTo(8);
+        assertThat(manager.snapshot().messages().resolveRaw("effects.private-chat.lines.0", new java.util.HashSet<>(), null))
+                .isEqualTo(manager.snapshot().messages().resolveRaw("effects.whisper-1", new java.util.HashSet<>(), null));
+        manager.reload();
+        assertThat(manager.snapshot().config().effects().getEffect(AmbientEffectType.WHISPER)).isEqualTo(config.getEffect(AmbientEffectType.WHISPER));
+    }
+
     @Test void upgradeAdoptsOwnerCadenceWithoutResettingExistingLimits() throws Exception {
         ConfigManager manager = manager();
         File configFile = folder.resolve("config.yml").toFile();

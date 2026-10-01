@@ -110,6 +110,7 @@ public class AmbientEffectScheduler {
             }
             List<AmbientEffectType> eligible = new ArrayList<>();
             for (AmbientEffectType type : AmbientEffectType.values()) {
+                if (type == AmbientEffectType.ADVANCEMENT_TOAST) continue; // No grant-free Paper delivery API.
                 if (type == AmbientEffectType.SILVERFISH && level == PsychosisLevel.MEDIUM) {
                     continue;
                 }

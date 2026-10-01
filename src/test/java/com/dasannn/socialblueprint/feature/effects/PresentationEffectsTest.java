@@ -30,7 +30,7 @@ class PresentationEffectsTest {
         for (AmbientEffectType type : config.rules().keySet()) {
             PresentationConfig.Rule rule = config.rules().get(type);
             assertThat(rule.allows(PsychosisLevel.LOW)).isFalse();
-            assertThat(rule.allows(PsychosisLevel.MEDIUM)).isEqualTo(type != AmbientEffectType.SKY);
+            assertThat(rule.allows(PsychosisLevel.MEDIUM)).isEqualTo(type != AmbientEffectType.SKY && type != AmbientEffectType.FALSE_DEATH);
             assertThat(rule.allows(PsychosisLevel.HIGH)).isTrue();
             assertThat(rule.allows(PsychosisLevel.EXTREME)).isTrue();
             yaml.set("effects." + type.configId() + ".minimum-level", "extreme");
@@ -176,7 +176,7 @@ class PresentationEffectsTest {
         for (String file : List.of("AmbientEffectDispatcher.java", "PrivateScreen.java", "ActivePresentationEntry.java")) {
             String source = Files.readString(Path.of("src/main/java/com/dasannn/socialblueprint/feature/effects", file));
             assertThat(source).doesNotContain("ReputationRepository", "PsychosisRepository", "Confidence", "Economy",
-                    "depositPlayer", "withdrawPlayer", ".setTime(", ".setFullTime(", ".setStorm(", ".setThundering(");
+                    "depositPlayer", "withdrawPlayer", ".setTime(", ".setFullTime(", ".setStorm(", ".setThundering(", "getAdvancementProgress", "awardCriteria", "revokeCriteria", "incrementStatistic");
         }
     }
 }

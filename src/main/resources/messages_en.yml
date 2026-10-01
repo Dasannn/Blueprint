@@ -123,6 +123,23 @@ duel:
   reconnected: '&e{player}&a reconnected to the duel!'
 
 effects:
+  fake-connection:
+    join: '&e{player} joined the game'
+    leave: '&e{player} left the game'
+  private-chat:
+    lines:
+      - '&#202020...'
+      - '&#202020Did you hear that?'
+      - '&#202020Look behind you.'
+    custom-lines: []
+  advancement-toast:
+    lines:
+      - '&8Something remembers you.'
+  boss-bar:
+    lines:
+      - '&5The silence is watching.'
+  false-death:
+    line: '&e{player} died'
   screen-flash:
     lines:
       - '&8Behind you.'

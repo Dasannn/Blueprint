@@ -231,6 +231,7 @@ public class MessageRegistry {
                 YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
                 return flattenKeys(yaml);
             } catch (ConfigValidationException e) {
+                if (logger != null) logger.warning(e.getMessage());
                 throw e;
             } catch (Exception e) {
                 if (logger != null) {
@@ -307,6 +308,12 @@ public class MessageRegistry {
             String path = prefix.isEmpty() ? key : prefix + "." + key;
             if (section.isConfigurationSection(key)) {
                 flattenRecursive(section.getConfigurationSection(key), path, map);
+            } else if (CatalogueLines.LISTS.contains(path)) {
+                map.put(path, String.join("\n", CatalogueLines.validateList(path, section.get(key), 160)));
+            } else if (CatalogueLines.TEMPLATES.contains(path)) {
+                String line = section.getString(key, "");
+                CatalogueLines.validateLine(path, -1, line, Map.of(), 160, false);
+                map.put(path, line);
             } else if (path.equals(ScreenLines.KEY)) {
                 map.put(path, String.join("\n", ScreenLines.validate(section.get(key))));
             } else {

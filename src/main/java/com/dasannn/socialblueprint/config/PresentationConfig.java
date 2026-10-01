@@ -11,7 +11,7 @@ import java.util.Set;
 
 /** Typed SB-102–105 settings. No registry-backed Bukkit objects in the decisions. */
 public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Particles particles,
-                                 Flash flash, Sounds sounds, Episodes episodes) {
+                                 Flash flash, Sounds sounds, Episodes episodes, Toast toast, Bar bar, double deathRange, int maxVisibleLength) {
     public record Rule(boolean enabled, PsychosisLevel minimumLevel, SingleEffectConfig limits) {
         public boolean allows(PsychosisLevel level) {
             return enabled && level != PsychosisLevel.LOW && level.ordinal() >= minimumLevel.ordinal();
@@ -39,10 +39,15 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
     }
     public record Sounds(String slot, double forward, double right, double up, int playbackTicks) {}
 
+    public record Toast(String icon, int durationTicks) {}
+    public record Bar(String colour, String style, double progress, int durationTicks) {}
+
     public PresentationConfig { rules = Map.copyOf(rules); }
 
     public long durationTicks(AmbientEffectType type, SoundsConfigSection slots) {
         return switch (type) {
+            case ADVANCEMENT_TOAST -> toast.durationTicks();
+            case BOSS_BAR -> bar.durationTicks();
             case SKY -> sky.durationTicks();
             case PARTICLES -> particles.totalTicks();
             case SCREEN_FLASH -> flash.totalTicks();
@@ -64,11 +69,17 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
     public static PresentationConfig load(ConfigurationSection root) {
         Map<AmbientEffectType, Rule> rules = new java.util.EnumMap<>(AmbientEffectType.class);
         for (AmbientEffectType type : Set.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
-                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS)) {
+                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS,
+                AmbientEffectType.ADVANCEMENT_TOAST, AmbientEffectType.BOSS_BAR, AmbientEffectType.FALSE_DEATH,
+                AmbientEffectType.WHISPER, AmbientEffectType.FAKE_ANNOUNCEMENT)) {
             String id = type.configId();
             String path = "effects." + id;
             Set<String> allowed = new java.util.HashSet<>(Set.of("enabled", "minimum-level", "cooldown-ticks", "session-cap"));
             allowed.addAll(switch (type) {
+                case ADVANCEMENT_TOAST -> Set.of("icon", "duration-ticks");
+                case BOSS_BAR -> Set.of("colour", "style", "progress", "duration-ticks");
+                case FALSE_DEATH -> Set.of("range-blocks");
+                case WHISPER -> Set.of("max-visible-length");
                 case SKY -> Set.of("mode", "duration-ticks");
                 case PARTICLES -> Set.of("type", "placement", "count", "radius-blocks", "duration-ticks");
                 case SCREEN_FLASH -> Set.of("channel", "fade-in-ticks", "duration-ticks", "fade-out-ticks");
@@ -81,14 +92,21 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                 if (!allowed.contains(key)) fail(id + "." + key, "Unknown key");
             if (root.contains(path + ".enabled") && !root.isBoolean(path + ".enabled"))
                 fail(id + ".enabled", "Must be boolean");
-            PsychosisLevel floor = type == AmbientEffectType.SKY ? PsychosisLevel.HIGH : PsychosisLevel.MEDIUM;
+            PsychosisLevel floor = (type == AmbientEffectType.SKY || type == AmbientEffectType.FALSE_DEATH) ? PsychosisLevel.HIGH : PsychosisLevel.MEDIUM;
             PsychosisLevel minimum;
             try { minimum = PsychosisLevel.valueOf(root.getString(path + ".minimum-level", floor.name()).toUpperCase(Locale.ROOT)); }
             catch (IllegalArgumentException error) { throw new ConfigValidationException(path + ".minimum-level", "Unknown level"); }
             if (minimum.ordinal() < floor.ordinal()) fail(id + ".minimum-level", "Below catalogue floor");
+            String legacy = type == AmbientEffectType.WHISPER ? "whisper" : "fake-announcement";
+            int cooldownDefault = !root.contains(path + ".cooldown-ticks") && (type == AmbientEffectType.WHISPER || type == AmbientEffectType.FAKE_ANNOUNCEMENT)
+                    ? Math.toIntExact(DurationParser.parseNonNegative(root.getString("effects." + legacy + ".cooldown", "5m"),
+                            "effects." + legacy + ".cooldown").toMillis() / 50L) : 1200;
+            int capDefault = type == AmbientEffectType.WHISPER || type == AmbientEffectType.FAKE_ANNOUNCEMENT
+                    ? root.getInt("effects." + legacy + ".session-cap", 3) : 3;
+            if ((type == AmbientEffectType.WHISPER || type == AmbientEffectType.FAKE_ANNOUNCEMENT) && !root.contains(path)) continue;
             rules.put(type, new Rule(root.getBoolean(path + ".enabled", root.contains(path)), minimum,
-                    new SingleEffectConfig(Duration.ofMillis(integer(root, id + ".cooldown-ticks", 1200, 1, Integer.MAX_VALUE) * 50L),
-                            integer(root, id + ".session-cap", 3, 0, Integer.MAX_VALUE))));
+                    new SingleEffectConfig(Duration.ofMillis(integer(root, id + ".cooldown-ticks", Math.max(1, cooldownDefault), 1, Integer.MAX_VALUE) * 50L),
+                            integer(root, id + ".session-cap", capDefault, 0, Integer.MAX_VALUE))));
         }
         // Only native particles with a verified finite tail; no unbounded client effects or extra data.
         String particle = choice(root, "particles.type", "smoke", Set.of("smoke", "end_rod"));
@@ -120,7 +138,25 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                         number(root, "source-less-sounds.offset.forward-blocks", -2, false),
                         number(root, "source-less-sounds.offset.right-blocks", 0, false),
                         number(root, "source-less-sounds.offset.up-blocks", 0, false),
-                        integer(root, "source-less-sounds.playback-ticks", 20, 1, 100)), episodes);
+                        integer(root, "source-less-sounds.playback-ticks", 20, 1, 100)), episodes,
+                new Toast(icon(root),
+                        integer(root, "advancement-toast.duration-ticks", 60, 1, 100)),
+                new Bar(choice(root, "boss-bar.colour", "purple", Set.of("pink", "blue", "red", "green", "yellow", "purple", "white")),
+                        choice(root, "boss-bar.style", "progress", Set.of("progress", "notched_6", "notched_10", "notched_12", "notched_20")),
+                        progress(root), integer(root, "boss-bar.duration-ticks", 60, 1, 100)),
+                number(root, "false-death.range-blocks", 16, true), integer(root, "private-chat.max-visible-length", 160, 1, 160));
+    }
+
+    private static String icon(ConfigurationSection root) {
+        String icon = choice(root, "advancement-toast.icon", "minecraft:paper", null);
+        if (!icon.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) fail("advancement-toast.icon", "Expected a namespaced visual icon key");
+        return icon;
+    }
+
+    private static double progress(ConfigurationSection root) {
+        double value = number(root, "boss-bar.progress", 0.5, false);
+        if (value < 0 || value > 1) fail("boss-bar.progress", "Must be in [0, 1]");
+        return value;
     }
 
     public static PresentationConfig defaults() { return load(new org.bukkit.configuration.MemoryConfiguration()); }

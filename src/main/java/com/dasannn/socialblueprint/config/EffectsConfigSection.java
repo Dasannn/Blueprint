@@ -100,6 +100,7 @@ public record EffectsConfigSection(
     }
 
     public SingleEffectConfig getEffect(AmbientEffectType type) {
+        if (presentation.rules().containsKey(type)) return presentation.rules().get(type).limits();
         return switch (type) {
             case SILVERFISH -> silverfish;
             case WHISPER -> whisper;
