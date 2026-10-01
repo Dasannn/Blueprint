@@ -8,6 +8,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonParser;
 import org.bukkit.command.CommandSender;
 
+import com.dasannn.socialblueprint.domain.AuditEvent;
+import com.dasannn.socialblueprint.domain.NonPlayerTarget;
+import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.storage.AuditRepository;
+import org.bukkit.entity.Player;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -24,6 +30,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -66,6 +73,7 @@ public class UpdateService {
     private final HttpClient httpClient;
     private final Logger logger;
     private final boolean allowInsecureHttpForTesting;
+    private final AuditRepository auditRepository;
 
     private final AtomicReference<VersionCheckResult> lastResult = new AtomicReference<>(null);
     private final AtomicBoolean checkInProgress = new AtomicBoolean(false);
@@ -83,7 +91,7 @@ public class UpdateService {
             Logger logger
     ) {
         this(configManager, messageRegistry, asyncExecutor, mainThreadRunner, updateFolderSupplier,
-                currentVersionSupplier, currentJarSupplier, httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting());
+                currentVersionSupplier, currentJarSupplier, httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting(), null);
     }
 
     public UpdateService(
@@ -99,7 +107,7 @@ public class UpdateService {
     ) {
         this(configManager, messageRegistry, asyncExecutor, mainThreadRunner,
                 () -> updateFolder, () -> currentVersion, () -> currentJar,
-                httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting());
+                httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting(), null);
     }
 
     public UpdateService(
@@ -114,6 +122,56 @@ public class UpdateService {
             Logger logger,
             boolean allowInsecureHttpForTesting
     ) {
+        this(configManager, messageRegistry, asyncExecutor, mainThreadRunner, updateFolderSupplier,
+                currentVersionSupplier, currentJarSupplier, httpClient, logger, allowInsecureHttpForTesting, null);
+    }
+
+    public UpdateService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            Executor asyncExecutor,
+            Consumer<Runnable> mainThreadRunner,
+            File updateFolder,
+            String currentVersion,
+            File currentJar,
+            HttpClient httpClient,
+            Logger logger,
+            AuditRepository auditRepository
+    ) {
+        this(configManager, messageRegistry, asyncExecutor, mainThreadRunner,
+                () -> updateFolder, () -> currentVersion, () -> currentJar,
+                httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting(), auditRepository);
+    }
+
+    public UpdateService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            Executor asyncExecutor,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<File> updateFolderSupplier,
+            Supplier<String> currentVersionSupplier,
+            Supplier<File> currentJarSupplier,
+            HttpClient httpClient,
+            Logger logger,
+            AuditRepository auditRepository
+    ) {
+        this(configManager, messageRegistry, asyncExecutor, mainThreadRunner, updateFolderSupplier,
+                currentVersionSupplier, currentJarSupplier, httpClient, logger, UpdateConfig.isAllowInsecureHttpForTesting(), auditRepository);
+    }
+
+    public UpdateService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            Executor asyncExecutor,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<File> updateFolderSupplier,
+            Supplier<String> currentVersionSupplier,
+            Supplier<File> currentJarSupplier,
+            HttpClient httpClient,
+            Logger logger,
+            boolean allowInsecureHttpForTesting,
+            AuditRepository auditRepository
+    ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
         this.asyncExecutor = Objects.requireNonNull(asyncExecutor, "asyncExecutor must not be null");
@@ -126,6 +184,7 @@ public class UpdateService {
                 .build();
         this.logger = logger != null ? logger : Logger.getLogger(UpdateService.class.getName());
         this.allowInsecureHttpForTesting = allowInsecureHttpForTesting;
+        this.auditRepository = auditRepository;
     }
 
     public String getCurrentVersion() {
@@ -342,7 +401,7 @@ public class UpdateService {
 
                 if (check.releaseInfo() == null) {
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "No release information available"));
-                    return false;
+                    return null;
                 }
 
                 ReleaseInfo release = check.releaseInfo();
@@ -350,7 +409,7 @@ public class UpdateService {
                 if (optJar.isEmpty()) {
                     logger.warning("No jar asset found in GitHub release " + release.tagName());
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "No jar asset found in release " + release.tagName()));
-                    return false;
+                    return null;
                 }
                 ReleaseAsset jarAsset = optJar.get();
 
@@ -359,13 +418,13 @@ public class UpdateService {
                     logger.warning("Rejecting update download: advertised asset size (" + jarAsset.size()
                             + " bytes) exceeds maximum configured limit (" + maxDownloadBytes + " bytes).");
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Asset exceeds maximum allowed size"));
-                    return false;
+                    return null;
                 }
 
                 if (!isSecureUrl(jarAsset.downloadUrl())) {
                     logger.warning("Rejecting insecure HTTP download URL for asset " + jarAsset.name() + ": " + jarAsset.downloadUrl());
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Insecure HTTP download URL rejected"));
-                    return false;
+                    return null;
                 }
 
                 // 2. Locate expected checksum
@@ -373,7 +432,7 @@ public class UpdateService {
                 if (optExpectedHash.isEmpty()) {
                     logger.warning("No SHA-256 checksum found for release asset " + jarAsset.name() + ". Aborting update for security.");
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "No SHA-256 checksum found for release"));
-                    return false;
+                    return null;
                 }
                 String expectedHash = optExpectedHash.get();
 
@@ -393,14 +452,14 @@ public class UpdateService {
                 if (jarResponse.statusCode() != 200) {
                     logger.warning("Failed to download jar asset from GitHub: HTTP " + jarResponse.statusCode());
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Download failed: HTTP " + jarResponse.statusCode()));
-                    return false;
+                    return null;
                 }
 
                 long cl = jarResponse.headers().firstValueAsLong("Content-Length").orElse(-1L);
                 if (cl > maxDownloadBytes) {
                     logger.warning("Download Content-Length (" + cl + " bytes) exceeds maximum configured limit of " + maxDownloadBytes + " bytes");
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Asset exceeds maximum allowed size"));
-                    return false;
+                    return null;
                 }
 
                 MessageDigest md;
@@ -429,7 +488,7 @@ public class UpdateService {
                 if (totalBytes == 0) {
                     logger.warning("Downloaded empty asset from GitHub");
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Empty download"));
-                    return false;
+                    return null;
                 }
 
                 // 4. Verify checksum BEFORE staging to plugins/update/ (SB-074, T-082)
@@ -439,14 +498,14 @@ public class UpdateService {
                             + "! Expected: " + expectedHash + ", computed: " + computedHash
                             + ". Aborting update. No files written to disk.");
                     sendToSender(sender, currentSnapshot, "updater.checksum-mismatch", Map.of());
-                    return false;
+                    return null;
                 }
 
                 // 5. Verify jar structure and plugin metadata on temp file (Finding 3)
                 if (!isReadablePluginJar(tempFile)) {
                     logger.warning("Downloaded asset is not a valid plugin JAR or lacks required plugin metadata: " + jarAsset.name());
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Invalid plugin jar"));
-                    return false;
+                    return null;
                 }
 
                 // 6. Checksum and JAR verified: write into plugins/update/
@@ -454,7 +513,7 @@ public class UpdateService {
                 if (updateFolder == null) {
                     logger.warning("Update folder could not be determined. Aborting update.");
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "Update folder not available"));
-                    return false;
+                    return null;
                 }
                 if (!updateFolder.exists()) {
                     updateFolder.mkdirs();
@@ -477,21 +536,46 @@ public class UpdateService {
                 logger.info("Successfully downloaded and verified SocialBlueprint update to "
                         + targetFile.getAbsolutePath() + ". Server restart is required to apply.");
                 sendToSender(sender, currentSnapshot, "updater.restart-required", Map.of());
-                return true;
+                return release;
             } catch (Exception e) {
                 String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 logger.warning("Update download failed: " + msg);
                 sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", msg));
-                return false;
+                return null;
             } finally {
                 if (tempFile != null) {
                     try {
                         Files.deleteIfExists(tempFile.toPath());
                     } catch (Exception ignored) {}
                 }
-                downloadInProgress.set(false);
             }
-        }, asyncExecutor);
+        }, asyncExecutor).thenCompose(release -> {
+            if (release == null) {
+                return CompletableFuture.completedFuture(false);
+            }
+            if (auditRepository == null) {
+                return CompletableFuture.completedFuture(true);
+            }
+            PlayerId actor = (sender instanceof Player p)
+                    ? PlayerId.of(p.getUniqueId())
+                    : PlayerId.CONSOLE;
+            String runningVersion = getCurrentVersion();
+            AuditEvent event = new AuditEvent(
+                    actor,
+                    "update",
+                    NonPlayerTarget.of("update"),
+                    runningVersion,
+                    release.tagName(),
+                    Instant.now()
+            );
+            return auditRepository.saveAsync(event)
+                    .handle((audit, auditEx) -> {
+                        if (auditEx != null) {
+                            logger.severe("[SocialBlueprint] Update was staged, but audit logging failed: " + auditEx.getMessage());
+                        }
+                        return true;
+                    });
+        }).whenComplete((res, ex) -> downloadInProgress.set(false));
     }
 
     private Optional<String> findExpectedChecksum(ReleaseInfo release, ReleaseAsset jarAsset) {

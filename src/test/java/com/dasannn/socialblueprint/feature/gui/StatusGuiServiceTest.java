@@ -653,6 +653,57 @@ public class StatusGuiServiceTest {
         assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(brokeViewerUuid).join()).isEmpty();
     }
 
+    @Test
+    @DisplayName("T-103 Finding 3: SYSTEM_KILL event is included in GUI history with system-actor and translated reason")
+    void systemKillEventInGuiHistory() {
+        UUID targetUuid = UUID.randomUUID();
+        PlayerId targetId = PlayerId.of(targetUuid);
+        offlineNames.put(targetUuid, "TargetUser");
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(targetId, "TargetUser", true));
+
+        // Save a SYSTEM_KILL event with null actor and "kill-penalty.reason"
+        ReputationEvent systemKill = reputationRepo.saveAsync(new ReputationEvent(
+                null, targetId, -5, HonorKind.SYSTEM_KILL, 500.0, "kill-penalty.reason", Instant.now()
+        )).join();
+
+        UUID viewerUuid = UUID.randomUUID();
+        economyBalances.put(viewerUuid, 500.0);
+        Player viewer = createMockPlayer("Viewer", viewerUuid, "socialblueprint.show", "socialblueprint.show-others");
+
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+
+        Inventory inv = openedInventories.get(0);
+        StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
+
+        // 1. Verify rater head at slot 10 has status.system-actor title and no reveal lore
+        GuiSlot raterSlot = holder.layout().get(10);
+        assertThat(raterSlot).isNotNull();
+        assertThat(raterSlot.iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
+        assertThat(raterSlot.titleKey()).isEqualTo("status.system-actor");
+        assertThat(raterSlot.lore()).isEmpty();
+        assertThat(raterSlot.owningPlayerId()).isNull();
+
+        // 2. Verify paper slot at slot 19 has kill-penalty.reason as translated key
+        GuiSlot paperSlot = holder.layout().get(19);
+        assertThat(paperSlot).isNotNull();
+        assertThat(paperSlot.iconKind()).isEqualTo(GuiIconKind.REASON_PAPER);
+        assertThat(paperSlot.lore()).isNotEmpty();
+        assertThat(paperSlot.lore().get(0).key()).isEqualTo("kill-penalty.reason");
+        assertThat(paperSlot.lore().get(0).isPlain()).isFalse();
+
+        // 3. Verify direction banner at slot 28 is negative banner
+        GuiSlot bannerSlot = holder.layout().get(28);
+        assertThat(bannerSlot).isNotNull();
+        assertThat(bannerSlot.iconKind()).isEqualTo(GuiIconKind.DIRECTION_BANNER_NEGATIVE);
+
+        // 4. Verify system event is not revealable and clicking slot 10 does not charge or reveal
+        assertThat(guiService.isRaterRevealed(viewer, systemKill, holder)).isFalse();
+        guiService.handleClick(viewer, holder, 10);
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(500.0);
+        assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join()).isEmpty();
+    }
+
     // =========================================================================
     // T-125 — Comments are Inert
     // =========================================================================

@@ -6,10 +6,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import org.bukkit.configuration.file.YamlConfiguration;
+
 import java.io.File;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -246,6 +252,55 @@ class ConfigManagerTest {
         assertThatThrownBy(() -> configManager.set("prefix", "&4[TEST]&r "))
                 .isInstanceOf(ConfigValidationException.class)
                 .hasMessageContaining("prefix");
+    }
+
+    @Test
+    @DisplayName("T-100 Preflight Finding 6: Every leaf in shipped config.yml is editable or named in explicit exclusion list with reason")
+    void everyShippedConfigLeafIsRegisteredAsEditableOrExcludedWithReason() {
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
+        Set<String> allKeys = yaml.getKeys(true);
+
+        // Explicit exclusion list with reasons per T-100 Preflight Finding 6
+        Map<String, String> explicitExclusions = Map.of(
+                // No keys excluded currently: all keys are editable
+        );
+
+        List<String> uneditableLeaves = new ArrayList<>();
+        for (String key : allKeys) {
+            if (!yaml.isConfigurationSection(key)) {
+                if (!configManager.isEditableKey(key) && !explicitExclusions.containsKey(key)) {
+                    uneditableLeaves.add(key);
+                }
+            }
+        }
+
+        assertThat(uneditableLeaves)
+                .as("Every leaf in config.yml must be registered in ConfigManager as editable or explicitly excluded")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("T-100 Preflight Finding 6: duel.attack-context-window and honor.multipliers can be read and edited in game")
+    void duelAttackContextWindowAndHonorMultipliersEditableInGame() {
+        // Read
+        assertThat(configManager.get("duel.attack-context-window")).isEqualTo("30s");
+        assertThat(configManager.get("honor.multipliers")).isEqualTo("[1.0, 1.5, 2.0, 3.0]");
+
+        // Edit duel.attack-context-window
+        configManager.set("duel.attack-context-window", "45s");
+        assertThat(configManager.config().duel().attackContextWindow()).isEqualTo(java.time.Duration.ofSeconds(45));
+        assertThat(configManager.get("duel.attack-context-window")).isEqualTo("45s");
+
+        // Edit honor.multipliers
+        configManager.set("honor.multipliers", "[1.0, 2.0, 4.0]");
+        assertThat(configManager.config().honor().multipliers()).containsExactly(1.0, 2.0, 4.0);
+        assertThat(configManager.get("honor.multipliers")).isEqualTo("[1.0, 2.0, 4.0]");
+
+        // Verify disk file reloads cleanly
+        ConfigManager freshManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
+        freshManager.initialize();
+        assertThat(freshManager.config().duel().attackContextWindow()).isEqualTo(java.time.Duration.ofSeconds(45));
+        assertThat(freshManager.config().honor().multipliers()).containsExactly(1.0, 2.0, 4.0);
     }
 
     private String readConfigFile() {

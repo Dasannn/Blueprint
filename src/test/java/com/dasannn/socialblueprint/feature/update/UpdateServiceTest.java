@@ -4,9 +4,15 @@ import com.dasannn.socialblueprint.config.ConfigManager;
 import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.config.UpdateConfig;
+import com.dasannn.socialblueprint.domain.AuditEvent;
+import com.dasannn.socialblueprint.domain.NonPlayerTarget;
+import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.storage.AuditRepository;
+import com.dasannn.socialblueprint.storage.StorageEngine;
 import com.sun.net.httpserver.HttpServer;
 import net.kyori.adventure.text.Component;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -199,6 +205,28 @@ class UpdateServiceTest {
         return (CommandSender) Proxy.newProxyInstance(
                 CommandSender.class.getClassLoader(),
                 new Class<?>[]{CommandSender.class},
+                handler
+        );
+    }
+
+    private Player mockPlayer(java.util.UUID uuid, List<String> messagesOut) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            String mName = method.getName();
+            if ("getUniqueId".equals(mName)) return uuid;
+            if ("getName".equals(mName)) return "TestPlayer";
+            if ("hasPermission".equals(mName)) return true;
+            if ("sendMessage".equals(mName)) {
+                if (args != null && args.length > 0) {
+                    messagesOut.add(args[0].toString());
+                }
+                return null;
+            }
+            return null;
+        };
+
+        return (Player) Proxy.newProxyInstance(
+                Player.class.getClassLoader(),
+                new Class<?>[]{Player.class},
                 handler
         );
     }
@@ -1071,6 +1099,263 @@ class UpdateServiceTest {
         // Version check works properly with plain values passed during construction
         VersionCheckResult result = plainService.checkForUpdateAsync().join();
         assertThat(result).isNotNull();
+    }
+
+    // =========================================================================
+    // Finding 7: Administrative Audit Logging on Staged Update
+    // =========================================================================
+
+    @Test
+    @DisplayName("Finding 7: Staging an update writes an audit record for player actor")
+    void stagedUpdateWritesAuditRecordForPlayerActor() throws Exception {
+        byte[] jarContent = createValidPluginJarBytes("SocialBlueprint", "1.2");
+        String expectedHash = ChecksumVerifier.computeSha256(jarContent);
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.2",
+                  "name": "SocialBlueprint 1.2",
+                  "body": "Release 1.2\\nSHA256: %s",
+                  "prerelease": false,
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint-1.2.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint-1.2.jar",
+                      "size": %d,
+                      "content_type": "application/java-archive"
+                    }
+                  ]
+                }
+                """.formatted(expectedHash, serverBaseUrl, jarContent.length);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        mockServer.createContext("/download/SocialBlueprint-1.2.jar", exchange -> {
+            exchange.sendResponseHeaders(200, jarContent.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(jarContent); }
+        });
+
+        try (StorageEngine storage = StorageEngine.inMemory()) {
+            storage.runMigrations();
+            AuditRepository auditRepo = new AuditRepository(storage);
+
+            UpdateService updateService = new UpdateService(
+                    configManager,
+                    messageRegistry,
+                    asyncExecutor,
+                    mainThreadQueue::add,
+                    () -> updateFolder,
+                    () -> "1.0",
+                    () -> currentJarFile,
+                    httpClient,
+                    testLogger,
+                    auditRepo
+            );
+
+            java.util.UUID playerUuid = java.util.UUID.randomUUID();
+            List<String> messages = new ArrayList<>();
+            Player player = mockPlayer(playerUuid, messages);
+
+            boolean success = updateService.downloadUpdateAsync(player, configManager.snapshot()).join();
+            drainMainThread();
+
+            assertThat(success).isTrue();
+
+            List<AuditEvent> audits = auditRepo.findByTarget(NonPlayerTarget.of("update"));
+            assertThat(audits).hasSize(1);
+
+            AuditEvent audit = audits.getFirst();
+            assertThat(audit.actor()).isEqualTo(PlayerId.of(playerUuid));
+            assertThat(audit.operation()).isEqualTo("update");
+            assertThat(audit.target()).isEqualTo("update");
+            assertThat(audit.before()).isEqualTo("1.0");
+            assertThat(audit.after()).isEqualTo("v1.2");
+            assertThat(audit.createdAt()).isNotNull();
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 7: Staging an update writes an audit record for console actor")
+    void stagedUpdateWritesAuditRecordForConsoleActor() throws Exception {
+        byte[] jarContent = createValidPluginJarBytes("SocialBlueprint", "1.2");
+        String expectedHash = ChecksumVerifier.computeSha256(jarContent);
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.2",
+                  "name": "SocialBlueprint 1.2",
+                  "body": "Release 1.2\\nSHA256: %s",
+                  "prerelease": false,
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint-1.2.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint-1.2.jar",
+                      "size": %d,
+                      "content_type": "application/java-archive"
+                    }
+                  ]
+                }
+                """.formatted(expectedHash, serverBaseUrl, jarContent.length);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        mockServer.createContext("/download/SocialBlueprint-1.2.jar", exchange -> {
+            exchange.sendResponseHeaders(200, jarContent.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(jarContent); }
+        });
+
+        try (StorageEngine storage = StorageEngine.inMemory()) {
+            storage.runMigrations();
+            AuditRepository auditRepo = new AuditRepository(storage);
+
+            UpdateService updateService = new UpdateService(
+                    configManager,
+                    messageRegistry,
+                    asyncExecutor,
+                    mainThreadQueue::add,
+                    () -> updateFolder,
+                    () -> "1.0",
+                    () -> currentJarFile,
+                    httpClient,
+                    testLogger,
+                    auditRepo
+            );
+
+            List<String> messages = new ArrayList<>();
+            CommandSender sender = mockSender(messages);
+
+            boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+            drainMainThread();
+
+            assertThat(success).isTrue();
+
+            List<AuditEvent> audits = auditRepo.findByTarget(NonPlayerTarget.of("update"));
+            assertThat(audits).hasSize(1);
+
+            AuditEvent audit = audits.getFirst();
+            assertThat(audit.actor()).isEqualTo(PlayerId.CONSOLE);
+            assertThat(audit.actor().isConsole()).isTrue();
+            assertThat(audit.operation()).isEqualTo("update");
+            assertThat(audit.target()).isEqualTo("update");
+            assertThat(audit.before()).isEqualTo("1.0");
+            assertThat(audit.after()).isEqualTo("v1.2");
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 7: Failed download / checksum mismatch writes NO audit record")
+    void failedOrMismatchedUpdateWritesNoAuditRecord() throws Exception {
+        byte[] jarContent = createValidPluginJarBytes("SocialBlueprint", "1.2");
+        String mismatchedSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
+
+        String releaseJson = """
+                {
+                  "tag_name": "v1.2",
+                  "name": "SocialBlueprint 1.2",
+                  "body": "Release 1.2\\nSHA256: %s",
+                  "prerelease": false,
+                  "assets": [
+                    {
+                      "name": "SocialBlueprint-1.2.jar",
+                      "browser_download_url": "%s/download/SocialBlueprint-1.2.jar",
+                      "size": %d,
+                      "content_type": "application/java-archive"
+                    }
+                  ]
+                }
+                """.formatted(mismatchedSha256, serverBaseUrl, jarContent.length);
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        mockServer.createContext("/download/SocialBlueprint-1.2.jar", exchange -> {
+            exchange.sendResponseHeaders(200, jarContent.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(jarContent); }
+        });
+
+        try (StorageEngine storage = StorageEngine.inMemory()) {
+            storage.runMigrations();
+            AuditRepository auditRepo = new AuditRepository(storage);
+
+            UpdateService updateService = new UpdateService(
+                    configManager,
+                    messageRegistry,
+                    asyncExecutor,
+                    mainThreadQueue::add,
+                    () -> updateFolder,
+                    () -> "1.0",
+                    () -> currentJarFile,
+                    httpClient,
+                    testLogger,
+                    auditRepo
+            );
+
+            List<String> messages = new ArrayList<>();
+            CommandSender sender = mockSender(messages);
+
+            boolean success = updateService.downloadUpdateAsync(sender, configManager.snapshot()).join();
+            drainMainThread();
+
+            assertThat(success).isFalse();
+
+            List<AuditEvent> audits = auditRepo.findByTarget(NonPlayerTarget.of("update"));
+            assertThat(audits).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("Finding 7: Version check alone writes NO audit record")
+    void checkOnlyWritesNoAuditRecord() throws Exception {
+        String releaseJson = """
+                {
+                  "tag_name": "v1.2",
+                  "name": "SocialBlueprint 1.2",
+                  "body": "Release 1.2",
+                  "prerelease": false,
+                  "assets": []
+                }
+                """;
+
+        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
+        });
+
+        try (StorageEngine storage = StorageEngine.inMemory()) {
+            storage.runMigrations();
+            AuditRepository auditRepo = new AuditRepository(storage);
+
+            UpdateService updateService = new UpdateService(
+                    configManager,
+                    messageRegistry,
+                    asyncExecutor,
+                    mainThreadQueue::add,
+                    () -> updateFolder,
+                    () -> "1.0",
+                    () -> currentJarFile,
+                    httpClient,
+                    testLogger,
+                    auditRepo
+            );
+
+            VersionCheckResult res = updateService.checkForUpdateAsync().join();
+            assertThat(res).isNotNull();
+
+            List<AuditEvent> audits = auditRepo.findByTarget(NonPlayerTarget.of("update"));
+            assertThat(audits).isEmpty();
+        }
     }
 }
 

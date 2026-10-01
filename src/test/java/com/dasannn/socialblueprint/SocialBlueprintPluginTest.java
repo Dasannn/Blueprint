@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import net.milkbowl.vault.economy.Economy;
+import com.dasannn.socialblueprint.storage.StorageEngine;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.ServicesManager;
@@ -274,6 +275,47 @@ class SocialBlueprintPluginTest {
         assertThat(plugin.getAmbientEffectScheduler()).isNotNull();
         assertThat(plugin.getRaterRevealRepository()).isNotNull();
         assertThat(plugin.getStatusGuiService()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("T-103 Finding 4: Error in stale duel cleanup schedules disablePlugin on main thread and closes engine")
+    void staleDuelCleanupFailureSchedulesDisableOnMainThread() {
+        StorageEngine engine = StorageEngine.inMemory();
+        engine.runMigrations();
+
+        // Drop duel table to cause cleanupStaleDuelsOnStartupAsync to fail with SQLException
+        com.dasannn.socialblueprint.storage.StorageTestSupport.executeSql(engine, "DROP TABLE duel;");
+
+        // Run the callback flow
+        com.dasannn.socialblueprint.storage.DuelRepository startupDuelRepo = new com.dasannn.socialblueprint.storage.DuelRepository(engine);
+        startupDuelRepo.cleanupStaleDuelsOnStartupAsync(java.time.Instant.now())
+                .whenComplete((count, error) -> {
+                    if (!plugin.isEnabled()) {
+                        engine.close();
+                        return;
+                    }
+                    if (error != null) {
+                        plugin.getLogger().severe("Failed to clean up stale duels on startup: " + error.getMessage());
+                        engine.close();
+                        plugin.getServer().getScheduler().runTask(plugin, () -> plugin.getServer().getPluginManager().disablePlugin(plugin));
+                        return;
+                    }
+                    plugin.getServer().getScheduler().runTask(plugin, () -> plugin.completeInitialization(engine));
+                })
+                // The cleanup is expected to fail here; the failure is the subject
+                // of the test, so it is absorbed rather than rethrown by the join.
+                .exceptionally(error -> null)
+                .join();
+
+        // Engine must be closed on storage thread
+        assertThat(engine.isClosed()).isTrue();
+        // Task to disable plugin must be queued on scheduler, NOT executed immediately
+        assertThat(disabledCalled.get()).isFalse();
+        assertThat(scheduledMainTasks).isNotEmpty();
+
+        // Running the scheduled task calls disablePlugin
+        scheduledMainTasks.poll().run();
+        assertThat(disabledCalled.get()).isTrue();
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

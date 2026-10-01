@@ -1,5 +1,6 @@
 package com.dasannn.socialblueprint.feature.effects;
 
+import com.dasannn.socialblueprint.config.ColorParser;
 import com.dasannn.socialblueprint.config.ConfigManager;
 import com.dasannn.socialblueprint.config.EffectsConfigSection;
 import com.dasannn.socialblueprint.config.MessageRegistry;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -42,12 +44,11 @@ public class AmbientEffectDispatcher {
     }
 
     private final Plugin plugin;
-    private final MessageRegistry messageRegistry;
-    private final ConfigManager configManager;
     private final FakeSilverfishService silverfishService;
     private final SoundScheduler scheduler;
     private final SoundPlayer soundPlayer;
     private final Map<UUID, List<SoundScheduler.TaskHandle>> pendingTasks = new ConcurrentHashMap<>();
+    private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
     private final Random random = new Random();
 
     public AmbientEffectDispatcher(
@@ -78,8 +79,6 @@ public class AmbientEffectDispatcher {
             SoundPlayer soundPlayer
     ) {
         this.plugin = plugin;
-        this.messageRegistry = Objects.requireNonNull(messageRegistry, "MessageRegistry must not be null");
-        this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
         this.silverfishService = Objects.requireNonNull(silverfishService, "FakeSilverfishService must not be null");
         this.scheduler = scheduler != null ? scheduler : defaultScheduler(plugin);
         this.soundPlayer = soundPlayer != null ? soundPlayer : defaultSoundPlayer();
@@ -111,7 +110,7 @@ public class AmbientEffectDispatcher {
         return switch (type) {
             case SILVERFISH -> dispatchSilverfish(player, config);
             case WHISPER -> {
-                dispatchWhisper(player);
+                dispatchWhisper(player, snapshot);
                 yield true;
             }
             case CREEPER_SOUND -> {
@@ -119,7 +118,7 @@ public class AmbientEffectDispatcher {
                 yield true;
             }
             case FAKE_ANNOUNCEMENT -> {
-                dispatchFakeAnnouncement(player, config);
+                dispatchFakeAnnouncement(player, config, snapshot);
                 yield true;
             }
         };
@@ -136,14 +135,13 @@ public class AmbientEffectDispatcher {
         return entry != null;
     }
 
-    private void dispatchWhisper(Player player) {
+    private void dispatchWhisper(Player player, RuntimeSnapshot snapshot) {
         int idx = random.nextInt(3) + 1;
-        Component whisper = switch (idx) {
-            case 1 -> messageRegistry.render("effects.whisper-1");
-            case 2 -> messageRegistry.render("effects.whisper-2");
-            default -> messageRegistry.render("effects.whisper-3");
-        };
-        player.sendMessage(whisper);
+        String key = "effects.whisper-" + idx;
+        String raw = (snapshot != null && snapshot.messages() != null)
+                ? snapshot.messages().resolveRaw(key, warnedKeys, null)
+                : "";
+        player.sendMessage(ColorParser.parse(raw));
     }
 
     private void dispatchCreeperSound(Player player, RuntimeSnapshot snapshot) {
@@ -254,14 +252,16 @@ public class AmbientEffectDispatcher {
         }
     }
 
-    private void dispatchFakeAnnouncement(Player player, EffectsConfigSection config) {
+    private void dispatchFakeAnnouncement(Player player, EffectsConfigSection config, RuntimeSnapshot snapshot) {
         List<String> names = config.fakeAnnouncement().fakeNames();
         String fakeName = (!names.isEmpty()) ? names.get(random.nextInt(names.size())) : "Herobrine";
 
         boolean isJoin = random.nextBoolean();
-        Component announcement = isJoin
-                ? messageRegistry.render("effects.fake-join", Map.of("player", fakeName))
-                : messageRegistry.render("effects.fake-leave", Map.of("player", fakeName));
+        String key = isJoin ? "effects.fake-join" : "effects.fake-leave";
+        String raw = (snapshot != null && snapshot.messages() != null)
+                ? snapshot.messages().resolveRaw(key, warnedKeys, null)
+                : "";
+        Component announcement = ColorParser.renderTemplate(raw, Map.of("player", fakeName));
 
         // Send privately to the affected player alone - never broadcasted or logged
         player.sendMessage(announcement);

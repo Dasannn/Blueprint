@@ -127,7 +127,31 @@ public final class YamlFileUpdater {
         String newLine = matchedIndent + matchedKey + ": " + formattedValue + inlineComment;
         lines.set(matchedLineIndex, newLine);
 
+        // Remove any block child lines (e.g. list items or map entries) that followed this key
+        int nextIdx = matchedLineIndex + 1;
+        while (nextIdx < lines.size()) {
+            String nextLine = lines.get(nextIdx);
+            String trimmedNext = nextLine.trim();
+            if (trimmedNext.isEmpty()) {
+                break;
+            }
+            int nextIndent = getLineIndent(nextLine);
+            if (nextIndent > matchedIndent.length()) {
+                lines.remove(nextIdx);
+            } else {
+                break;
+            }
+        }
+
         return String.join(lineSeparator, lines);
+    }
+
+    private static int getLineIndent(String line) {
+        int i = 0;
+        while (i < line.length() && (line.charAt(i) == ' ' || line.charAt(i) == '\t')) {
+            i++;
+        }
+        return i;
     }
 
     private static int findCommentStart(String text) {

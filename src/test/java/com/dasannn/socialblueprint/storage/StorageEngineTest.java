@@ -50,21 +50,21 @@ class StorageEngineTest {
 
         // 2. Run migrations
         int newVersion = storage.runMigrations(runner);
-        assertThat(newVersion).isEqualTo(2);
+        assertThat(newVersion).isEqualTo(3);
 
-        // 3. Verify schema_version table contains exactly 1 row with version 2
+        // 3. Verify schema_version table contains exactly 1 row with version 3
         storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT version, applied_at FROM schema_version")) {
                 assertThat(rs.next()).isTrue();
-                assertThat(rs.getInt("version")).isEqualTo(2);
+                assertThat(rs.getInt("version")).isEqualTo(3);
                 assertThat(rs.getString("applied_at")).isNotBlank();
                 assertThat(rs.next()).isFalse(); // Exactly single row per ARCHITECTURE.md §4
             }
             return null;
         });
 
-        // 4. Verify all tables per ARCHITECTURE.md §4 and SB-084 exist in sqlite_master
+        // 4. Verify all tables per ARCHITECTURE.md §4, SB-084, and T-103 exist in sqlite_master
         List<String> tables = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")) {
@@ -80,6 +80,7 @@ class StorageEngineTest {
                 "player_profile",
                 "reputation_event",
                 "psychosis_event",
+                "kill_penalty_claim",
                 "honor_allowance",
                 "duel",
                 "duel_participant",
@@ -90,7 +91,7 @@ class StorageEngineTest {
 
         // 5. Rerunning migration is idempotent
         int secondRunVersion = storage.runMigrations(runner);
-        assertThat(secondRunVersion).isEqualTo(2);
+        assertThat(secondRunVersion).isEqualTo(3);
     }
 
     @Test
@@ -198,7 +199,7 @@ class StorageEngineTest {
     @Test
     @DisplayName("Finding 9: Failed migration rolls back both DDL changes and schema_version entry")
     void failedMigrationRollsBackTableAndVersion() {
-        // Run migration 1 and 2
+        // Run migration 1, 2, and 3
         storage.runMigrations();
         int versionBefore = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
@@ -207,12 +208,12 @@ class StorageEngineTest {
                 return rs.getInt(1);
             }
         });
-        assertThat(versionBefore).isEqualTo(2);
+        assertThat(versionBefore).isEqualTo(3);
 
-        // Define a failing migration 3 that creates a table and then throws
+        // Define a failing migration 4 that creates a table and then throws
         Migration failingMigration = new Migration() {
             @Override
-            public int version() { return 3; }
+            public int version() { return 4; }
             @Override
             public String description() { return "Failing migration test"; }
             @Override
@@ -220,19 +221,20 @@ class StorageEngineTest {
                 try (Statement stmt = conn.createStatement()) {
                     stmt.execute("CREATE TABLE rolled_back_table (id INTEGER PRIMARY KEY);");
                 }
-                throw new SQLException("Simulated failure during migration 3");
+                throw new SQLException("Simulated failure during migration 4");
             }
         };
 
         MigrationRunner runner = new MigrationRunner(List.of(
                 new Migration_1_InitialSchema(),
                 new Migration_2_RaterReveal(),
+                new Migration_3_KillPenaltyClaim(),
                 failingMigration
         ));
 
         assertThatThrownBy(() -> storage.runMigrations(runner))
                 .isInstanceOf(StorageException.class)
-                .hasMessageContaining("Failed applying migration 3");
+                .hasMessageContaining("Failed applying migration 4");
 
         // Verify rolled_back_table was rolled back and does not exist
         boolean tableExists = storage.execute(conn -> {
@@ -244,7 +246,7 @@ class StorageEngineTest {
         });
         assertThat(tableExists).isFalse();
 
-        // Verify schema_version remains 2
+        // Verify schema_version remains 3
         int versionAfter = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT version FROM schema_version")) {
@@ -252,7 +254,56 @@ class StorageEngineTest {
                 return rs.getInt(1);
             }
         });
-        assertThat(versionAfter).isEqualTo(2);
+        assertThat(versionAfter).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("T-103 Finding 1: Database stamped at version 2 upgrades to version 3 and creates kill_penalty_claim")
+    void upgradingFromVersion2CreatesKillPenaltyClaim() {
+        MigrationRunner v2Runner = new MigrationRunner(List.of(
+                new Migration_1_InitialSchema(),
+                new Migration_2_RaterReveal()
+        ));
+        int v2 = storage.runMigrations(v2Runner);
+        assertThat(v2).isEqualTo(2);
+
+        // Drop table to simulate an upgraded database that never had migration 1 run
+        storage.run(conn -> {
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("DROP TABLE IF EXISTS kill_penalty_claim;");
+            }
+        });
+
+        boolean tableExistsBefore = storage.execute(conn -> {
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='kill_penalty_claim'")) {
+                assertThat(rs.next()).isTrue();
+                return rs.getInt(1) > 0;
+            }
+        });
+        assertThat(tableExistsBefore).isFalse();
+
+        MigrationRunner defaultRunner = MigrationRunner.withDefaultMigrations();
+        int v3 = storage.runMigrations(defaultRunner);
+        assertThat(v3).isEqualTo(3);
+
+        boolean tableExistsAfter = storage.execute(conn -> {
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='kill_penalty_claim'")) {
+                assertThat(rs.next()).isTrue();
+                return rs.getInt(1) > 0;
+            }
+        });
+        assertThat(tableExistsAfter).isTrue();
+
+        boolean indexExists = storage.execute(conn -> {
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_kill_penalty_claim_pair'")) {
+                assertThat(rs.next()).isTrue();
+                return rs.getInt(1) > 0;
+            }
+        });
+        assertThat(indexExists).isTrue();
     }
 
     @Test

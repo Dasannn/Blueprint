@@ -222,18 +222,56 @@ class AmbientPrivacyTest {
         messageRegistry.clearCalls();
         dispatcher.dispatch(targetPlayer.proxy, AmbientEffectType.WHISPER, effectsConfig, snapshot);
 
-        // Affected player receives the whisper message
+        // Affected player receives the whisper message. The expected text comes
+        // from the same snapshot the dispatcher was handed, not from a literal:
+        // the whispers are translated, and a pinned English string would only
+        // pass while the fixture happened to be English.
         assertThat(targetPlayer.receivedMessages).hasSize(1);
-        assertThat(
-                messageRegistry.hasCall("effects.whisper-1") ||
-                messageRegistry.hasCall("effects.whisper-2") ||
-                messageRegistry.hasCall("effects.whisper-3")
-        ).isTrue();
+        String msg = ColorParser.serialize(targetPlayer.receivedMessages.get(0));
+        java.util.List<String> expectedWhispers = java.util.stream.IntStream.rangeClosed(1, 3)
+                .mapToObj(i -> snapshot.messages().resolveRaw("effects.whisper-" + i, new java.util.HashSet<>(), null))
+                .map(raw -> ColorParser.serialize(ColorParser.parse(raw)))
+                .toList();
+        assertThat(msg).isIn(expectedWhispers);
 
         // Observing player receives NOTHING
         assertThat(observingPlayer.receivedMessages).isEmpty();
         assertThat(observingPlayer.playedSounds).isEmpty();
         assertThat(observingPlayer.shownEntities).isEmpty();
+    }
+
+    @Test
+    @DisplayName("T-100 Preflight Finding 5: Whisper renders strictly from the snapshot handed to dispatch, not construction-time registry")
+    void whisperRendersFromDispatchSnapshot() {
+        AmbientEntityRegistry registry = new AmbientEntityRegistry();
+        FakeSilverfishService silverfishService = new FakeSilverfishService(null, registry, null);
+        AmbientEffectDispatcher dispatcher = new AmbientEffectDispatcher(
+                null, messageRegistry, configManager, silverfishService
+        );
+
+        Map<String, String> spanishMessages = Map.of(
+                "effects.whisper-1", "&#202020... (es)",
+                "effects.whisper-2", "&#202020¿Escuchaste eso?",
+                "effects.whisper-3", "&#202020Mira detrás de ti."
+        );
+        com.dasannn.socialblueprint.config.MessagesSnapshot esMessagesSnapshot = new com.dasannn.socialblueprint.config.MessagesSnapshot(
+                "es", "en", spanishMessages, Map.of(), Map.of(), Map.of()
+        );
+        RuntimeSnapshot spanishSnapshot = new RuntimeSnapshot(snapshot.config(), esMessagesSnapshot);
+
+        targetPlayer.receivedMessages.clear();
+        dispatcher.dispatch(targetPlayer.proxy, AmbientEffectType.WHISPER, effectsConfig, spanishSnapshot);
+
+        assertThat(targetPlayer.receivedMessages).hasSize(1);
+        String received = ColorParser.serialize(targetPlayer.receivedMessages.get(0));
+        assertThat(
+                received.contains("(es)") ||
+                received.contains("¿Escuchaste eso?") ||
+                received.contains("Mira detrás de ti.")
+        ).isTrue();
+
+        assertThat(received).doesNotContain("Did you hear that?");
+        assertThat(received).doesNotContain("Look behind you.");
     }
 
     @Test
@@ -271,13 +309,18 @@ class AmbientPrivacyTest {
         messageRegistry.clearCalls();
         dispatcher.dispatch(targetPlayer.proxy, AmbientEffectType.FAKE_ANNOUNCEMENT, effectsConfig, snapshot);
 
-        // Affected player receives the fake join/leave message
+        // Affected player receives the fake join or leave message, rendered from
+        // the dispatch snapshot with the configured fake name substituted in.
         assertThat(targetPlayer.receivedMessages).hasSize(1);
-        boolean isJoinOrLeave = messageRegistry.hasCall("effects.fake-join") || messageRegistry.hasCall("effects.fake-leave");
-        assertThat(isJoinOrLeave).isTrue();
-
-        RenderCall call = messageRegistry.renderedCalls.get(0);
-        assertThat(call.placeholders()).containsEntry("player", "GhostPlayer");
+        String announcement = ColorParser.serialize(targetPlayer.receivedMessages.get(0));
+        java.util.List<String> expectedAnnouncements = java.util.stream.Stream.of("effects.fake-join", "effects.fake-leave")
+                .map(key -> snapshot.messages().resolveRaw(key, new java.util.HashSet<>(), null))
+                .map(raw -> ColorParser.serialize(
+                        ColorParser.renderTemplate(raw, java.util.Map.of("player", "GhostPlayer"))))
+                .toList();
+        assertThat(announcement).isIn(expectedAnnouncements);
+        // The substitution itself, so a template that lost its placeholder fails here
+        assertThat(announcement).contains("GhostPlayer");
 
         // Observing player receives NOTHING
         assertThat(observingPlayer.receivedMessages).isEmpty();

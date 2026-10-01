@@ -142,7 +142,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                         }
                         if (error != null) {
                             getLogger().severe("Failed to clean up stale duels on startup: " + error.getMessage());
-                            getServer().getPluginManager().disablePlugin(this);
+                            engine.close();
+                            getServer().getScheduler().runTask(this, () -> getServer().getPluginManager().disablePlugin(this));
                             return;
                         }
                         getServer().getScheduler().runTask(this, () -> completeInitialization(engine));
@@ -360,7 +361,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 java.net.http.HttpClient.newBuilder()
                         .connectTimeout(java.time.Duration.ofSeconds(10))
                         .build(),
-                getLogger()
+                getLogger(),
+                auditRepository
         );
 
         this.legacyImportService = new LegacyImportService(

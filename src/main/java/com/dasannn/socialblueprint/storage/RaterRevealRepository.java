@@ -12,12 +12,17 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 /**
  * Repository for managing persisted rater reveals per T-124:
  * "Revealing one name charges a configurable amount through Vault and is remembered per viewer, persisted."
  * All operations execute on the single-threaded storage executor.
  */
 public final class RaterRevealRepository {
+
+    private static final Logger LOGGER = Logger.getLogger(RaterRevealRepository.class.getName());
 
     private final StorageEngine engine;
 
@@ -27,6 +32,48 @@ public final class RaterRevealRepository {
 
     public StorageEngine engine() {
         return engine;
+    }
+
+    /**
+     * Persists a reveal record and transitions the associated compensation row to EVENT_WRITTEN
+     * within the same database transaction, then asynchronously triggers compensation deletion.
+     * Returns true if a new reveal row was inserted, or false if already present (conflict do nothing).
+     */
+    public CompletableFuture<Boolean> commitRevealAsync(
+            UUID viewerUuid,
+            long eventId,
+            UUID raterUuid,
+            double cost,
+            Instant createdAt,
+            Long compensationId,
+            CompensationRepository compensationRepository
+    ) {
+        Objects.requireNonNull(viewerUuid, "viewerUuid must not be null");
+        Objects.requireNonNull(createdAt, "createdAt must not be null");
+        return engine.executeAsync(conn -> {
+            boolean initialAutoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                boolean inserted = saveRevealInternal(conn, viewerUuid, eventId, raterUuid, cost, createdAt);
+                if (inserted && compensationId != null && compensationRepository != null) {
+                    compensationRepository.markEventWrittenInternal(conn, compensationId);
+                }
+                conn.commit();
+                if (inserted && compensationId != null && compensationRepository != null) {
+                    compensationRepository.deleteCompensationAsync(compensationId)
+                            .exceptionally(error -> {
+                                LOGGER.log(Level.WARNING, "Failed to delete compensation row " + compensationId + " after reveal commit", error);
+                                return null;
+                            });
+                }
+                return inserted;
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(initialAutoCommit);
+            }
+        });
     }
 
     /**

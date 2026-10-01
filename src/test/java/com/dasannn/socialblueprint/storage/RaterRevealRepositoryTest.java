@@ -118,4 +118,23 @@ class RaterRevealRepositoryTest {
 
         assertThat(reveals).containsExactly(eventId);
     }
+
+    @Test
+    @DisplayName("T-103 Finding 2: commitRevealAsync transitions compensation to EVENT_WRITTEN and inserts reveal row")
+    void commitRevealTransitionsCompensationToEventWritten() {
+        CompensationRepository compRepo = new CompensationRepository(storageEngine);
+        UUID viewer = UUID.randomUUID();
+        UUID rater = UUID.randomUUID();
+        long eventId = 777L;
+        Instant now = Instant.now();
+
+        long compId = compRepo.saveCompensationAsync(viewer, 100.0, "rater_reveal", now).join();
+
+        Boolean inserted = repository.commitRevealAsync(viewer, eventId, rater, 100.0, now, compId, compRepo).join();
+        assertThat(inserted).isTrue();
+
+        // Reveal row exists
+        Set<Long> reveals = repository.findRevealedEventsByViewerAsync(viewer).join();
+        assertThat(reveals).containsExactly(eventId);
+    }
 }

@@ -288,7 +288,7 @@ public class StatusGuiService {
                                 Set<Long> reveals = new HashSet<>(revealsFuture.join());
 
                                 List<ReputationEvent> ratings = allEvents.stream()
-                                        .filter(e -> e.actor() != null && e.kind().isPlayerHonor())
+                                        .filter(e -> (e.actor() != null && e.kind().isPlayerHonor()) || e.kind() == HonorKind.SYSTEM_KILL)
                                         .sorted(Comparator.comparing(ReputationEvent::createdAt).reversed())
                                         .toList();
 
@@ -534,26 +534,33 @@ public class StatusGuiService {
                 // Deliberate product decision (SB-082): Anonymity covers the name only;
                 // the rater's head carries their real skin so the player sees who rated them as a face.
                 UUID raterUuid = event.actor() != null ? event.actor().uuid() : null;
-                boolean revealed = isRaterRevealedStatic(viewer, event.id(), raterUuid, snapshot, reveals);
+                boolean isSystem = (event.actor() == null || event.kind() == HonorKind.SYSTEM_KILL);
 
                 String raterTitleKey;
                 Map<String, String> raterTitlePlaceholders;
                 List<GuiLoreLine> raterLore;
-                if (revealed) {
-                    String raterName = (raterNameResolver != null && raterUuid != null)
-                            ? raterNameResolver.apply(raterUuid, snapshot)
-                            : (raterUuid != null ? raterUuid.toString() : "Anonymous");
-                    raterTitleKey = "gui.history.revealed-rater";
-                    raterTitlePlaceholders = Map.of("player", raterName);
-                    raterLore = List.of(GuiLoreLine.ofKey("gui.history.revealed-info"));
-                } else {
-                    raterTitleKey = "gui.history.anonymous-rater";
+                if (isSystem) {
+                    raterTitleKey = "status.system-actor";
                     raterTitlePlaceholders = Map.of();
-                    double cost = (snapshot != null && snapshot.config() != null && snapshot.config().history() != null)
-                            ? snapshot.config().history().revealCost()
-                            : 0.0;
-                    raterLore = List.of(GuiLoreLine.ofKey("gui.history.click-to-reveal",
-                            Map.of("cost", HonorService.formatCost(cost))));
+                    raterLore = List.of();
+                } else {
+                    boolean revealed = isRaterRevealedStatic(viewer, event.id(), raterUuid, snapshot, reveals);
+                    if (revealed) {
+                        String raterName = (raterNameResolver != null && raterUuid != null)
+                                ? raterNameResolver.apply(raterUuid, snapshot)
+                                : (raterUuid != null ? raterUuid.toString() : "Anonymous");
+                        raterTitleKey = "gui.history.revealed-rater";
+                        raterTitlePlaceholders = Map.of("player", raterName);
+                        raterLore = List.of(GuiLoreLine.ofKey("gui.history.revealed-info"));
+                    } else {
+                        raterTitleKey = "gui.history.anonymous-rater";
+                        raterTitlePlaceholders = Map.of();
+                        double cost = (snapshot != null && snapshot.config() != null && snapshot.config().history() != null)
+                                ? snapshot.config().history().revealCost()
+                                : 0.0;
+                        raterLore = List.of(GuiLoreLine.ofKey("gui.history.click-to-reveal",
+                                Map.of("cost", HonorService.formatCost(cost))));
+                    }
                 }
                 slots.put(9 + col, new GuiSlot(
                         9 + col,
@@ -568,12 +575,20 @@ public class StatusGuiService {
                 ));
 
                 // 2. Paper whose lore holds the written reason (Row 2: slot 18 + col, T-125, Finding 5)
-                String plainTextReason = event.reason() != null ? CommentSanitizer.toPlainText(event.reason()) : "";
                 List<GuiLoreLine> paperLore;
-                if (plainTextReason.isBlank()) {
+                String rawReason = event.reason();
+                if (rawReason == null || rawReason.isBlank()) {
                     paperLore = List.of(GuiLoreLine.ofKey("gui.history.no-reason"));
+                } else if (snapshot != null && snapshot.messages() != null && snapshot.messages().isKnownKey(rawReason)) {
+                    paperLore = List.of(GuiLoreLine.ofKey(rawReason));
                 } else {
-                    paperLore = List.of(GuiLoreLine.ofPlain(plainTextReason));
+                    // Blankness is decided after sanitizing, not before: a reason
+                    // that is nothing but colour codes and spaces survives isBlank
+                    // and would otherwise render as an empty line on the paper.
+                    String plain = CommentSanitizer.toPlainText(rawReason);
+                    paperLore = plain.isBlank()
+                            ? List.of(GuiLoreLine.ofKey("gui.history.no-reason"))
+                            : List.of(GuiLoreLine.ofPlain(plain));
                 }
                 slots.put(18 + col, new GuiSlot(
                         18 + col,
@@ -627,6 +642,9 @@ public class StatusGuiService {
         for (Map.Entry<Integer, GuiSlot> entry : baseLayout.slots().entrySet()) {
             GuiSlot slot = entry.getValue();
             if (slot.iconKind() == GuiIconKind.RATER_HEAD && slot.eventId() != null) {
+                if (slot.owningPlayerId() == null || "status.system-actor".equals(slot.titleKey())) {
+                    continue;
+                }
                 boolean revealed = isRaterRevealed(viewer, slot.eventId(), slot.owningPlayerId(), holder.snapshot(), holder.revealedEventIds());
                 if (revealed && "gui.history.anonymous-rater".equals(slot.titleKey())) {
                     String raterName = resolveRaterName(slot.owningPlayerId(), holder.snapshot());
@@ -692,8 +710,8 @@ public class StatusGuiService {
      * Administrators always see the rater's name without paying (T-126).
      */
     public boolean isRaterRevealed(Player viewer, ReputationEvent event, StatusGuiHolder holder) {
-        if (event == null || event.actor() == null) {
-            return true;
+        if (event == null || event.actor() == null || event.kind() == HonorKind.SYSTEM_KILL) {
+            return false;
         }
         return isRaterRevealed(viewer, event.id(), event.actor().uuid(), holder.snapshot(), holder.revealedEventIds());
     }
@@ -704,7 +722,7 @@ public class StatusGuiService {
 
     private static boolean isRaterRevealedStatic(Player viewer, long eventId, UUID raterUuid, RuntimeSnapshot snapshot, Set<Long> revealedEventIds) {
         if (raterUuid == null) {
-            return true;
+            return false;
         }
         if (viewer != null) {
             // The rater viewing their own rating sees their own name
@@ -841,14 +859,15 @@ public class StatusGuiService {
      * Handles rater name reveal: charges Vault reveal-cost, persists to SQLite, and updates GUI (T-124, Finding 2).
      */
     public void handleRevealClick(Player viewer, StatusGuiHolder holder, ReputationEvent event) {
-        if (event == null || event.actor() == null) {
+        if (event == null || event.actor() == null || event.kind() == HonorKind.SYSTEM_KILL) {
             return;
         }
         handleRevealWithIds(viewer, holder, event.id(), event.actor().uuid());
     }
 
     public void handleRevealClick(Player viewer, StatusGuiHolder holder, GuiSlot clickedSlot) {
-        if (clickedSlot == null || clickedSlot.eventId() == null || clickedSlot.owningPlayerId() == null) {
+        if (clickedSlot == null || clickedSlot.eventId() == null || clickedSlot.owningPlayerId() == null
+                || "status.system-actor".equals(clickedSlot.titleKey())) {
             return;
         }
         handleRevealWithIds(viewer, holder, clickedSlot.eventId(), clickedSlot.owningPlayerId());
@@ -938,7 +957,7 @@ public class StatusGuiService {
                     ? compensationRepository.markChargedAsync(compId)
                     : CompletableFuture.completedFuture(true);
 
-            markChargedFuture.thenCompose(ok -> raterRevealRepository.saveRevealAsync(viewerUuid, eventId, raterUuid, exactCost, now))
+            markChargedFuture.thenCompose(ok -> raterRevealRepository.commitRevealAsync(viewerUuid, eventId, raterUuid, exactCost, now, compId, compensationRepository))
                     .thenAccept(inserted -> {
                         if (inserted) {
                             deleteCompensationWithLogging(compId, "reveal success");

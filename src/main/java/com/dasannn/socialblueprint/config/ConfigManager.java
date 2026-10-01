@@ -356,6 +356,9 @@ public class ConfigManager {
     }
 
     private Object parseValueForPath(String path, String raw) {
+        if ("honor.multipliers".equals(path)) {
+            return parseDoubleList(raw);
+        }
         if ("kill-penalty.exempt-worlds".equals(path) || "effects.fake-announcement.fake-names".equals(path)) {
             return parseStringList(raw);
         }
@@ -363,11 +366,34 @@ public class ConfigManager {
     }
 
     private String formatRawValueForPath(String path, String raw) {
+        if ("honor.multipliers".equals(path)) {
+            List<Double> list = parseDoubleList(raw);
+            return list.toString();
+        }
         if ("kill-penalty.exempt-worlds".equals(path) || "effects.fake-announcement.fake-names".equals(path)) {
             List<String> list = parseStringList(raw);
             return "[" + String.join(", ", list) + "]";
         }
         return raw;
+    }
+
+    static List<Double> parseDoubleList(String raw) {
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
+        }
+        if (trimmed.isEmpty()) {
+            return new ArrayList<>();
+        }
+        String[] parts = trimmed.split(",");
+        List<Double> result = new ArrayList<>();
+        for (String part : parts) {
+            String item = part.trim();
+            if (!item.isEmpty()) {
+                result.add(Double.parseDouble(item));
+            }
+        }
+        return result;
     }
 
     static List<String> parseStringList(String raw) {
@@ -467,6 +493,7 @@ public class ConfigManager {
         set.add("psychosis.extreme-threshold");
 
         set.add("honor.cost");
+        set.add("honor.multipliers");
         set.add("honor.multiplier-window");
         set.add("honor.cap-window");
         set.add("honor.cooldown-per-pair");
@@ -489,6 +516,7 @@ public class ConfigManager {
         set.add("duel.disconnect.combat-log-window");
         set.add("duel.disconnect.reconnect-grace-period");
         set.add("duel.disconnect.action");
+        set.add("duel.attack-context-window");
 
         set.add("effects.threshold");
         set.add("effects.check-interval");
@@ -580,6 +608,7 @@ public class ConfigManager {
         if ("psychosis.extreme-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().extremeThreshold());
 
         if ("honor.cost".equals(path) && config.honor() != null) return String.valueOf(config.honor().cost());
+        if ("honor.multipliers".equals(path) && config.honor() != null) return config.honor().multipliers().toString();
         if ("honor.multiplier-window".equals(path) && config.honor() != null) return formatDuration(config.honor().multiplierWindow());
         if ("honor.cap-window".equals(path) && config.honor() != null) return formatDuration(config.honor().capWindow());
         if ("honor.cooldown-per-pair".equals(path) && config.honor() != null) return formatDuration(config.honor().cooldownPerPair());
@@ -600,6 +629,7 @@ public class ConfigManager {
             if ("duel.disconnect.combat-log-window".equals(path)) return formatDuration(config.duel().disconnect().combatLogWindow());
             if ("duel.disconnect.reconnect-grace-period".equals(path)) return formatDuration(config.duel().disconnect().reconnectGracePeriod());
             if ("duel.disconnect.action".equals(path)) return config.duel().disconnect().action();
+            if ("duel.attack-context-window".equals(path)) return formatDuration(config.duel().attackContextWindow());
         }
 
         if (config.effects() != null) {
