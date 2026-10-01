@@ -75,8 +75,13 @@ worktree.
 agy -p "<prompt>" --model gemini-3.8-flash-high
 
 # Codex
-codex exec -m gpt-6-sol -c model_reasoning_effort="medium" --sandbox workspace-write < prompt.md
+codex exec -m gpt-6.1-sol -c model_reasoning_effort="medium" --sandbox workspace-write < prompt.md
 ```
+
+A model the API rejects with *"not supported when using Codex with a ChatGPT
+account"* may simply need `codex update`: the CLI refreshes the model list
+even when the published version number does not change. `gpt-6.1-sol` was
+rejected before an update and accepted after one, at the same version.
 
 Task briefs go in `.agent/prompts/`, reports in `.agent/reports/`. Neither is
 committed. A report with durable value is moved into `docs/reference/` instead.

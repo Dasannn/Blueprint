@@ -108,11 +108,17 @@ path (`saveConfig()` on the main thread at `main.java:144,218-278,341-375`).
 - **All Bukkit API access runs on the main thread.** A feature that reads from
   the database and then touches a player hops: main → executor → main, via the
   Paper scheduler.
-- `AsyncChatEvent` is async. Chat colouring reads an immutable snapshot of the
-  cached profile and touches nothing else.
-- Ambient effects (SB-040) schedule on the main thread and hold an explicit
-  registry of spawned entities, cleaned on despawn timer, quit, world change and
-  disable. An entity leak here is a server bug, not a cosmetic one.
+- `AsyncChatEvent` is async. The tier prefix and Psychosis chat corruption
+  (SB-094, SB-095) read immutable profile and configuration snapshots. Compute
+  the corrupted text once per message and reuse it for every viewer; rendering
+  must not reroll it. This path performs no database or Bukkit access.
+- Psychosis ambient effects (SB-096 through SB-099) reuse the main-thread
+  scheduler, per-player cooldowns and session caps, managed-entity registry and
+  configurable layered sounds. Phantom mobs are packet-only fakes, removed
+  immediately and cleaned on quit, world change and disable; no real server
+  entity is spawned. An interrupted effect must leave no fake behind. Quiet
+  intervals include delayed sound layers, so overlapping layers cannot turn
+  episodes into a constant effect.
 
 ## 6. Configuration
 
