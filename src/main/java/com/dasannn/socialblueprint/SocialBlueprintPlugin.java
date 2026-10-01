@@ -61,6 +61,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private FakeSilverfishService fakeSilverfishService;
     private AmbientEffectDispatcher ambientEffectDispatcher;
     private AmbientEffectScheduler ambientEffectScheduler;
+    private com.dasannn.socialblueprint.platform.listener.DuelCombatListener duelCombatListener;
 
     @Override
     public void onEnable() {
@@ -291,13 +292,14 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 new PlayerLifecycleListener(profileService, configManager),
                 this
         );
+        this.duelCombatListener = new com.dasannn.socialblueprint.platform.listener.DuelCombatListener(
+                duelService,
+                psychosisRepository,
+                configManager,
+                reputationRepository
+        );
         getServer().getPluginManager().registerEvents(
-                new com.dasannn.socialblueprint.platform.listener.DuelCombatListener(
-                        duelService,
-                        psychosisRepository,
-                        configManager,
-                        reputationRepository
-                ),
+                this.duelCombatListener,
                 this
         );
 
@@ -393,10 +395,17 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         if (ambientEntityRegistry != null) {
             ambientEntityRegistry.cleanAll();
         }
+        if (duelCombatListener != null) {
+            duelCombatListener.clear();
+        }
         if (storageEngine != null) {
             storageEngine.close();
         }
         getLogger().info("SocialBlueprint disabled.");
+    }
+
+    public com.dasannn.socialblueprint.platform.listener.DuelCombatListener getDuelCombatListener() {
+        return duelCombatListener;
     }
 
     public AmbientEntityRegistry getAmbientEntityRegistry() {

@@ -119,6 +119,9 @@ class DuelCombatListenerTest {
 
     @AfterEach
     void tearDown() {
+        if (listener != null) {
+            listener.clear();
+        }
         if (duelService != null) {
             duelService.shutdown();
         }
@@ -149,6 +152,19 @@ class DuelCombatListenerTest {
         knownPlayers.put(name.toLowerCase(), new PlayerLookup.KnownPlayer(pid, name, true));
         knownPlayers.put(uuid.toString(), new PlayerLookup.KnownPlayer(pid, name, true));
         return player;
+    }
+
+    private Arrow createMockArrow(Player shooter) {
+        InvocationHandler arrowHandler = (proxy, method, args) -> {
+            String mName = method.getName();
+            if ("getShooter".equals(mName)) return shooter;
+            return defaultValue(method.getReturnType());
+        };
+        return (Arrow) Proxy.newProxyInstance(
+                Arrow.class.getClassLoader(),
+                new Class<?>[]{Arrow.class},
+                arrowHandler
+        );
     }
 
     @Test
@@ -444,6 +460,237 @@ class DuelCombatListenerTest {
         // equals, so two references to the same proxy still compare unequal.
         assertThat(resolved).isNotNull();
         assertThat(resolved.getUniqueId()).isEqualTo(attacker.getUniqueId());
+    }
+
+    @Test
+    @DisplayName("T-139: An arrow fired before a duel and landing after it starts is an open-world kill: Psychosis rises and status penalty is written")
+    void arrowFiredBeforeDuelAndLandingAfterStartsIsOpenWorldKill() {
+        Player archer = createMockPlayer("Shooter");
+        Player target = createMockPlayer("Target");
+        PlayerId archerId = PlayerId.of(archer.getUniqueId());
+        PlayerId targetId = PlayerId.of(target.getUniqueId());
+
+        // Establish initial status for both players via a distinct third-party rater
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+        reputationRepo.save(new ReputationEvent(rater, archerId, 10, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+        reputationRepo.save(new ReputationEvent(rater, targetId, 5, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+
+        assertThat(psychosisRepo.countOpenKillsSince(archerId, baseTime.minusSeconds(200))).isZero();
+
+        // 1. Arrow is loosed before any duel exists (launchTime = baseTime)
+        Arrow arrow = createMockArrow(archer);
+        listener.handleProjectileLaunch(arrow, baseTime);
+
+        // 2. Consensual duel starts between archer and target at baseTime + 1s
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        duelService.challenge(archerId, Map.of("s1", Set.of(archerId), "s2", Set.of(targetId)), snapshot);
+        duelService.accept(targetId, null, snapshot);
+        assertThat(duelService.areInSameActiveDuel(archerId, targetId)).isTrue();
+
+        // 3. Arrow lands after duel starts (landingTime = baseTime + 2s)
+        listener.handleDamage(arrow, target, baseTime.plusSeconds(2));
+
+        // 4. Target dies (deathTime = baseTime + 3s)
+        listener.handleDeath(targetId, archerId, "world", baseTime.plusSeconds(3), snapshot).join();
+
+        // 5. Assert: Open-world kill! Psychosis rises, status penalty is written
+        List<PsychosisEvent> kills = psychosisRepo.findKillsByKillerSince(archerId, baseTime.minusSeconds(200));
+        assertThat(kills).hasSize(1);
+        assertThat(kills.getFirst().context()).isEqualTo(CombatContext.OPEN);
+        assertThat(psychosisRepo.countOpenKillsSince(archerId, baseTime.minusSeconds(200))).isEqualTo(1);
+
+        Status archerStatus = reputationRepo.getStatus(archerId);
+        assertThat(archerStatus.value()).isEqualTo(9); // dropped by 1
+
+        List<ReputationEvent> archerEvents = reputationRepo.findByTarget(archerId);
+        assertThat(archerEvents).hasSize(2);
+        assertThat(archerEvents.get(1).kind()).isEqualTo(HonorKind.SYSTEM_KILL);
+    }
+
+    @Test
+    @DisplayName("T-139: An arrow fired during a duel and landing after it ends is a duel kill: neither metric moves")
+    void arrowFiredDuringDuelAndLandingAfterEndsIsDuelKill() {
+        Player archer = createMockPlayer("GladiatorArcher");
+        Player target = createMockPlayer("GladiatorTarget");
+        PlayerId archerId = PlayerId.of(archer.getUniqueId());
+        PlayerId targetId = PlayerId.of(target.getUniqueId());
+
+        // Establish initial status for both players via a distinct third-party rater
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+        reputationRepo.save(new ReputationEvent(rater, archerId, 10, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+        reputationRepo.save(new ReputationEvent(rater, targetId, 5, HonorKind.POSITIVE, 500.0, null, baseTime.minusSeconds(100)));
+
+        assertThat(psychosisRepo.countOpenKillsSince(archerId, baseTime.minusSeconds(200))).isZero();
+
+        // 1. Duel starts between archer and target
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        duelService.challenge(archerId, Map.of("s1", Set.of(archerId), "s2", Set.of(targetId)), snapshot);
+        duelService.accept(targetId, null, snapshot);
+        assertThat(duelService.areInSameActiveDuel(archerId, targetId)).isTrue();
+
+        // 2. Arrow is loosed during the duel (launchTime = baseTime)
+        Arrow arrow = createMockArrow(archer);
+        listener.handleProjectileLaunch(arrow, baseTime);
+
+        // 3. Duel ends (target surrenders/leaves or duel ends at baseTime + 1s)
+        duelService.leave(targetId, snapshot);
+        assertThat(duelService.areInSameActiveDuel(archerId, targetId)).isFalse();
+
+        // 4. Arrow lands after duel ends (landingTime = baseTime + 2s)
+        listener.handleDamage(arrow, target, baseTime.plusSeconds(2));
+
+        // 5. Target dies (deathTime = baseTime + 3s)
+        listener.handleDeath(targetId, archerId, "world", baseTime.plusSeconds(3), snapshot).join();
+
+        // 6. Assert: Duel kill! Neither status nor Psychosis moves
+        List<PsychosisEvent> kills = psychosisRepo.findKillsByKillerSince(archerId, baseTime.minusSeconds(200));
+        assertThat(kills).hasSize(1);
+        assertThat(kills.getFirst().context()).isEqualTo(CombatContext.DUEL);
+        assertThat(psychosisRepo.countOpenKillsSince(archerId, baseTime.minusSeconds(200))).isZero();
+
+        Status archerStatus = reputationRepo.getStatus(archerId);
+        assertThat(archerStatus.value()).isEqualTo(10); // unchanged
+
+        Status targetStatus = reputationRepo.getStatus(targetId);
+        assertThat(targetStatus.value()).isEqualTo(5); // unchanged
+    }
+
+    @Test
+    @DisplayName("T-139: A melee kill with no prior recorded hit behaves exactly as it does today")
+    void meleeKillWithNoPriorRecordedHitFallsBackToMembershipAtDeath() {
+        Player fighterA = createMockPlayer("MeleeA");
+        Player fighterB = createMockPlayer("MeleeB");
+        PlayerId fighterAId = PlayerId.of(fighterA.getUniqueId());
+        PlayerId fighterBId = PlayerId.of(fighterB.getUniqueId());
+
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // Subcase 3a: No prior hit, players NOT in a duel -> open-world kill
+        listener.handleDeath(fighterBId, fighterAId, "world", baseTime, snapshot).join();
+        assertThat(psychosisRepo.countOpenKillsSince(fighterAId, baseTime.minusSeconds(200))).isEqualTo(1);
+
+        // Subcase 3b: No prior hit, players ARE in an active duel -> duel kill
+        Player gladiatorA = createMockPlayer("GladMeleeA");
+        Player gladiatorB = createMockPlayer("GladMeleeB");
+        PlayerId gladAId = PlayerId.of(gladiatorA.getUniqueId());
+        PlayerId gladBId = PlayerId.of(gladiatorB.getUniqueId());
+
+        duelService.challenge(gladAId, Map.of("s1", Set.of(gladAId), "s2", Set.of(gladBId)), snapshot);
+        duelService.accept(gladBId, null, snapshot);
+        assertThat(duelService.areInSameActiveDuel(gladAId, gladBId)).isTrue();
+
+        listener.handleDeath(gladBId, gladAId, "world", baseTime, snapshot).join();
+        assertThat(psychosisRepo.countOpenKillsSince(gladAId, baseTime.minusSeconds(200))).isZero();
+    }
+
+    @Test
+    @DisplayName("T-139: The attack context record expires on configurable window and falls back to membership at death")
+    void attackContextRecordExpiresAfterConfiguredWindow() {
+        Player attacker = createMockPlayer("ExpiringAttacker");
+        Player victim = createMockPlayer("ExpiringVictim");
+        PlayerId attackerId = PlayerId.of(attacker.getUniqueId());
+        PlayerId victimId = PlayerId.of(victim.getUniqueId());
+
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // Attacker hits victim outside duel at baseTime
+        listener.handleDamage(attacker, victim, baseTime);
+
+        // Players start a duel at baseTime + 5s
+        duelService.challenge(attackerId, Map.of("s1", Set.of(attackerId), "s2", Set.of(victimId)), snapshot);
+        duelService.accept(victimId, null, snapshot);
+        assertThat(duelService.areInSameActiveDuel(attackerId, victimId)).isTrue();
+
+        // Victim dies at baseTime + 35s (> 30s attack-context-window)
+        // Record has expired, so fallback to membership at death applies (in duel -> DUEL kill)
+        listener.handleDeath(victimId, attackerId, "world", baseTime.plusSeconds(35), snapshot).join();
+
+        assertThat(psychosisRepo.countOpenKillsSince(attackerId, baseTime.minusSeconds(200))).isZero();
+    }
+
+    @Test
+    @DisplayName("T-139: The attack context record is cleared on player quit")
+    void attackContextRecordClearedOnQuit() {
+        Player attacker = createMockPlayer("QuitAttacker");
+        Player victim = createMockPlayer("QuitVictim");
+        PlayerId attackerId = PlayerId.of(attacker.getUniqueId());
+        PlayerId victimId = PlayerId.of(victim.getUniqueId());
+
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        // Attacker hits victim outside duel at baseTime
+        listener.handleDamage(attacker, victim, baseTime);
+
+        // Victim quits at baseTime + 2s -> clears recorded context
+        PlayerQuitEvent quitEvent = new PlayerQuitEvent(victim, "quit");
+        listener.onPlayerQuit(quitEvent);
+
+        // Victim reconnects and starts a duel with attacker at baseTime + 5s
+        PlayerJoinEvent joinEvent = new PlayerJoinEvent(victim, "join");
+        listener.onPlayerJoin(joinEvent);
+        duelService.challenge(attackerId, Map.of("s1", Set.of(attackerId), "s2", Set.of(victimId)), snapshot);
+        duelService.accept(victimId, null, snapshot);
+        assertThat(duelService.areInSameActiveDuel(attackerId, victimId)).isTrue();
+
+        // Victim dies at baseTime + 10s (within 30s)
+        // Because record was cleared on quit, fallback to membership at death applies (in duel -> DUEL kill)
+        listener.handleDeath(victimId, attackerId, "world", baseTime.plusSeconds(10), snapshot).join();
+
+        assertThat(psychosisRepo.countOpenKillsSince(attackerId, baseTime.minusSeconds(200))).isZero();
+    }
+
+    @Test
+    @DisplayName("T-139: Arrow fired during duel hitting an uninvolved bystander is an open-world kill")
+    void arrowFiredDuringDuelHittingBystanderIsOpenWorldKill() {
+        Player archer = createMockPlayer("DuelArcher");
+        Player opponent = createMockPlayer("DuelOpponent");
+        Player bystander = createMockPlayer("Bystander");
+        PlayerId archerId = PlayerId.of(archer.getUniqueId());
+        PlayerId opponentId = PlayerId.of(opponent.getUniqueId());
+        PlayerId bystanderId = PlayerId.of(bystander.getUniqueId());
+
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        duelService.challenge(archerId, Map.of("s1", Set.of(archerId), "s2", Set.of(opponentId)), snapshot);
+        duelService.accept(opponentId, null, snapshot);
+        assertThat(duelService.areInSameActiveDuel(archerId, opponentId)).isTrue();
+
+        // Archer fires arrow during duel
+        Arrow arrow = createMockArrow(archer);
+        listener.handleProjectileLaunch(arrow, baseTime);
+
+        // Arrow hits bystander (not in the duel!)
+        listener.handleDamage(arrow, bystander, baseTime.plusSeconds(1));
+
+        // Bystander dies
+        listener.handleDeath(bystanderId, archerId, "world", baseTime.plusSeconds(2), snapshot).join();
+
+        // Open-world kill on bystander
+        assertThat(psychosisRepo.countOpenKillsSince(archerId, baseTime.minusSeconds(200))).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("T-139: clear() empties all attack records and projectile tracking")
+    void clearEmptiesAllRecords() {
+        Player attacker = createMockPlayer("ClearAttacker");
+        Player victim = createMockPlayer("ClearVictim");
+        PlayerId attackerId = PlayerId.of(attacker.getUniqueId());
+        PlayerId victimId = PlayerId.of(victim.getUniqueId());
+
+        RuntimeSnapshot snapshot = configManager.snapshot();
+
+        Arrow arrow = createMockArrow(attacker);
+        listener.handleProjectileLaunch(arrow, baseTime);
+        listener.handleDamage(attacker, victim, baseTime);
+
+        listener.clear();
+
+        // Enter duel after clear
+        duelService.challenge(attackerId, Map.of("s1", Set.of(attackerId), "s2", Set.of(victimId)), snapshot);
+        duelService.accept(victimId, null, snapshot);
+
+        // Death falls back to membership at death because records were cleared
+        listener.handleDeath(victimId, attackerId, "world", baseTime.plusSeconds(5), snapshot).join();
+        assertThat(psychosisRepo.countOpenKillsSince(attackerId, baseTime.minusSeconds(200))).isZero();
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

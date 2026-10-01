@@ -1,12 +1,13 @@
 package com.dasannn.socialblueprint.platform.listener;
 
 import com.dasannn.socialblueprint.config.ConfigManager;
+import com.dasannn.socialblueprint.config.DuelConfigSection;
 import com.dasannn.socialblueprint.config.KillPenaltyConfigSection;
+import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.CombatContext;
-import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.PsychosisEvent;
-import com.dasannn.socialblueprint.domain.ReputationEvent;
+import com.dasannn.socialblueprint.domain.duel.ActiveDuelSession;
 import com.dasannn.socialblueprint.feature.duel.DuelService;
 import com.dasannn.socialblueprint.storage.KillPenaltyResult;
 import com.dasannn.socialblueprint.storage.KillPenaltySettings;
@@ -21,30 +22,79 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.projectiles.ProjectileSource;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Platform combat listener per T-061, T-062, T-063, T-130 to T-133 and ARCHITECTURE.md §5:
+ * Platform combat listener per T-061, T-062, T-063, T-130 to T-133, T-139 and ARCHITECTURE.md §5:
  * - A kill inside an active duel affects neither status nor Psychosis (SB-031).
  * - A kill outside a duel raises Psychosis and applies a status penalty if eligible (SB-032, T-130).
  * - Tracks recent combat damage to distinguish combat logs on quit (SB-033).
  * - Survives disconnects long enough to allow reconnect grace periods.
+ * - An attack's duel context is decided when it lands, not when the victim dies (T-139).
  */
 public class DuelCombatListener implements Listener {
 
     private static final Logger LOGGER = Logger.getLogger(DuelCombatListener.class.getName());
+    private static final int MAX_MAP_SIZE = 1000;
+    private static final Duration PROJECTILE_EXPIRATION = Duration.ofSeconds(60);
 
     private final DuelService duelService;
     private final PsychosisRepository psychosisRepository;
     private final ConfigManager configManager;
     private final ReputationRepository reputationRepository;
+
+    private final Map<PlayerId, AttackRecord> victimAttackRecords = new ConcurrentHashMap<>();
+    private final Map<Projectile, ProjectileLaunchRecord> projectileLaunches = Collections.synchronizedMap(new IdentityHashMap<>());
+    private final Map<UUID, ProjectileLaunchRecord> projectileLaunchesByUuid = new ConcurrentHashMap<>();
+
+    record AttackRecord(
+            PlayerId attackerId,
+            CombatContext context,
+            Instant timestamp
+    ) {
+        AttackRecord {
+            Objects.requireNonNull(attackerId, "attackerId must not be null");
+            Objects.requireNonNull(context, "context must not be null");
+            Objects.requireNonNull(timestamp, "timestamp must not be null");
+        }
+
+        boolean isExpired(Instant now, Duration window) {
+            if (window == null) {
+                return false;
+            }
+            return timestamp.plus(window).isBefore(now);
+        }
+    }
+
+    record ProjectileLaunchRecord(
+            PlayerId shooterId,
+            String duelId,
+            Set<PlayerId> participants,
+            Instant launchedAt
+    ) {
+        ProjectileLaunchRecord {
+            Objects.requireNonNull(shooterId, "shooterId must not be null");
+            Objects.requireNonNull(participants, "participants must not be null");
+            Objects.requireNonNull(launchedAt, "launchedAt must not be null");
+        }
+    }
 
     public DuelCombatListener(
             DuelService duelService,
@@ -67,6 +117,43 @@ public class DuelCombatListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onProjectileLaunch(ProjectileLaunchEvent event) {
+        handleProjectileLaunch(event.getEntity());
+    }
+
+    void handleProjectileLaunch(Projectile projectile) {
+        handleProjectileLaunch(projectile, Instant.now());
+    }
+
+    void handleProjectileLaunch(Projectile projectile, Instant now) {
+        if (projectile == null) {
+            return;
+        }
+        ProjectileSource shooter = projectile.getShooter();
+        if (!(shooter instanceof Player player)) {
+            return;
+        }
+
+        PlayerId shooterId = PlayerId.of(player.getUniqueId());
+        ActiveDuelSession session = duelService.getActiveDuel(shooterId);
+        String duelId = session != null ? session.id() : null;
+        Set<PlayerId> participants = session != null
+                ? new HashSet<>(session.allParticipants())
+                : Collections.emptySet();
+
+        ProjectileLaunchRecord record = new ProjectileLaunchRecord(shooterId, duelId, participants, now);
+        projectileLaunches.put(projectile, record);
+        try {
+            UUID uuid = projectile.getUniqueId();
+            if (uuid != null) {
+                projectileLaunchesByUuid.put(uuid, record);
+            }
+        } catch (Throwable ignored) {
+        }
+        pruneExpiredProjectiles(now);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
         handleDamage(event.getDamager(), event.getEntity());
     }
@@ -78,18 +165,130 @@ public class DuelCombatListener implements Listener {
      * through the handler; it calls this instead.
      */
     void handleDamage(Entity damager, Entity damaged) {
+        handleDamage(damager, damaged, Instant.now());
+    }
+
+    void handleDamage(Entity damager, Entity damaged, Instant now) {
         if (!(damaged instanceof Player victim)) {
             return;
         }
 
         Player attacker = resolvePlayerAttacker(damager);
         if (attacker != null && !attacker.getUniqueId().equals(victim.getUniqueId())) {
+            PlayerId victimId = PlayerId.of(victim.getUniqueId());
+            PlayerId attackerId = PlayerId.of(attacker.getUniqueId());
+
             duelService.recordCombatDamage(
-                    PlayerId.of(victim.getUniqueId()),
-                    PlayerId.of(attacker.getUniqueId()),
-                    Instant.now()
+                    victimId,
+                    attackerId,
+                    now
             );
+
+            // T-139: Record duel context against attacker and victim when qualifying hit lands
+            CombatContext context = resolveAttackContext(damager, attackerId, victimId);
+            recordAttackContext(victimId, attackerId, context, now);
         }
+    }
+
+    CombatContext resolveAttackContext(Entity damager, PlayerId attackerId, PlayerId victimId) {
+        if (damager instanceof Projectile projectile) {
+            ProjectileLaunchRecord launch = removeProjectileLaunch(projectile);
+            if (launch != null) {
+                if (launch.duelId() != null && launch.participants().contains(victimId)) {
+                    return CombatContext.DUEL;
+                }
+                return CombatContext.OPEN;
+            }
+        }
+
+        // Melee or unrecorded projectile hit: evaluate against active duel membership when it lands
+        boolean inSameDuel = duelService.areInSameActiveDuel(attackerId, victimId);
+        return inSameDuel ? CombatContext.DUEL : CombatContext.OPEN;
+    }
+
+    private ProjectileLaunchRecord removeProjectileLaunch(Projectile projectile) {
+        if (projectile == null) {
+            return null;
+        }
+        ProjectileLaunchRecord record = projectileLaunches.remove(projectile);
+        if (record == null) {
+            try {
+                UUID uuid = projectile.getUniqueId();
+                if (uuid != null) {
+                    record = projectileLaunchesByUuid.remove(uuid);
+                }
+            } catch (Throwable ignored) {
+            }
+        } else {
+            try {
+                UUID uuid = projectile.getUniqueId();
+                if (uuid != null) {
+                    projectileLaunchesByUuid.remove(uuid);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return record;
+    }
+
+    private void recordAttackContext(PlayerId victimId, PlayerId attackerId, CombatContext context, Instant now) {
+        victimAttackRecords.put(victimId, new AttackRecord(attackerId, context, now));
+        pruneExpiredVictimRecords(now);
+    }
+
+    private Duration getAttackContextWindow(RuntimeSnapshot snapshot) {
+        if (snapshot != null && snapshot.config() != null && snapshot.config().duel() != null) {
+            Duration custom = snapshot.config().duel().attackContextWindow();
+            if (custom != null) {
+                return custom;
+            }
+        }
+        return DuelConfigSection.DEFAULT_ATTACK_CONTEXT_WINDOW;
+    }
+
+    private void pruneExpiredVictimRecords(Instant now) {
+        Duration window = getAttackContextWindow(configManager.snapshot());
+        victimAttackRecords.values().removeIf(rec -> rec.isExpired(now, window));
+        if (victimAttackRecords.size() > MAX_MAP_SIZE) {
+            var it = victimAttackRecords.entrySet().iterator();
+            while (it.hasNext() && victimAttackRecords.size() > MAX_MAP_SIZE) {
+                it.next();
+                it.remove();
+            }
+        }
+    }
+
+    private void pruneExpiredProjectiles(Instant now) {
+        synchronized (projectileLaunches) {
+            projectileLaunches.values().removeIf(rec ->
+                    rec.launchedAt().plus(PROJECTILE_EXPIRATION).isBefore(now)
+            );
+            if (projectileLaunches.size() > MAX_MAP_SIZE) {
+                var it = projectileLaunches.entrySet().iterator();
+                while (it.hasNext() && projectileLaunches.size() > MAX_MAP_SIZE) {
+                    it.next();
+                    it.remove();
+                }
+            }
+        }
+        projectileLaunchesByUuid.values().removeIf(rec ->
+                rec.launchedAt().plus(PROJECTILE_EXPIRATION).isBefore(now)
+        );
+        if (projectileLaunchesByUuid.size() > MAX_MAP_SIZE) {
+            var it = projectileLaunchesByUuid.entrySet().iterator();
+            while (it.hasNext() && projectileLaunchesByUuid.size() > MAX_MAP_SIZE) {
+                it.next();
+                it.remove();
+            }
+        }
+    }
+
+    public void clear() {
+        victimAttackRecords.clear();
+        synchronized (projectileLaunches) {
+            projectileLaunches.clear();
+        }
+        projectileLaunchesByUuid.clear();
     }
 
     Player resolveKiller(Player victim, DamageSource damageSource) {
@@ -141,7 +340,7 @@ public class DuelCombatListener implements Listener {
     }
 
     /**
-     * Decides combat outcomes and persistence for player deaths per T-061, T-062, T-130 to T-133.
+     * Decides combat outcomes and persistence for player deaths per T-061, T-062, T-130 to T-133, T-139.
      * Separated from Bukkit event unwrapping so that decision logic can be tested
      * purely through domain facts without instantiating server-bound Bukkit classes.
      *
@@ -162,8 +361,27 @@ public class DuelCombatListener implements Listener {
         Objects.requireNonNull(now, "now must not be null");
         Objects.requireNonNull(snapshot, "snapshot must not be null");
 
+        // T-139: The context belongs to the attack, not to the death.
+        // Cleared on death per rule.
+        AttackRecord attackRecord = victimAttackRecords.remove(victimId);
+
         if (killerId != null && !killerId.equals(victimId)) {
-            if (duelService.areInSameActiveDuel(killerId, victimId)) {
+            Duration window = getAttackContextWindow(snapshot);
+            CombatContext context = null;
+
+            if (attackRecord != null && attackRecord.attackerId().equals(killerId)) {
+                if (!attackRecord.isExpired(now, window)) {
+                    context = attackRecord.context();
+                }
+            }
+
+            if (context == null) {
+                // Fall back to membership at death (today's behaviour, right for instantaneous kill)
+                boolean inSameDuel = duelService.areInSameActiveDuel(killerId, victimId);
+                context = inSameDuel ? CombatContext.DUEL : CombatContext.OPEN;
+            }
+
+            if (context == CombatContext.DUEL) {
                 // T-061 / SB-031: Kill inside active duel is free!
                 // Neither social status nor Killing Psychosis moves.
                 duelService.handleDeath(victimId, killerId, now, snapshot);
@@ -225,7 +443,13 @@ public class DuelCombatListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        duelService.handlePlayerQuit(PlayerId.of(player.getUniqueId()), Instant.now(), configManager.snapshot());
+        PlayerId playerId = PlayerId.of(player.getUniqueId());
+        victimAttackRecords.remove(playerId);
+        synchronized (projectileLaunches) {
+            projectileLaunches.values().removeIf(rec -> rec.shooterId().equals(playerId));
+        }
+        projectileLaunchesByUuid.values().removeIf(rec -> rec.shooterId().equals(playerId));
+        duelService.handlePlayerQuit(playerId, Instant.now(), configManager.snapshot());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
