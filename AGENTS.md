@@ -66,8 +66,9 @@ Target platform is fixed in `docs/constitution.md` §3. Practical notes:
 
 ## Agent Pipeline
 
-Claude orchestrates and owns git. Antigravity writes production code. Codex
-reviews it and issues corrections. One task per worktree.
+Claude orchestrates, owns git and runs the build. Antigravity writes
+production code. Codex reviews it and issues corrections. One task per
+worktree.
 
 ```bash
 # Antigravity
@@ -90,12 +91,43 @@ hard-won details:
   `workspace-write` sandbox blocks outbound sockets unless
   `sandbox_workspace_write.network_access=true` is set. It also cannot run
   `javac` on this machine — the sandbox denies closing cached jars — so **Codex
-  reads and finds, Antigravity builds and runs**.
+  reads and finds, Antigravity writes, Claude builds**.
 * The wrappers retry on a usage limit with backoff and append the raw failure
   to `.agent/limit-samples.log`, because neither CLI's exhaustion wording is
   known yet.
 * `agy` prints nothing until it finishes, so its output file is no liveness
   signal. Watch the process and the worktree's file mtimes instead.
+* **Claude runs the build. Agents do not.** `agy` backgrounds a long build and
+  then idles waiting for it until its own 30 minute timeout kills the round
+  with no report — twice, including once after a brief told it to run the build
+  in the foreground. Codex cannot compile here at all. So briefs say *do not
+  run Maven*, and Claude runs `mvnw clean verify` and feeds the real compiler
+  output back. A cycle then costs minutes instead of half an hour.
+* Because it never compiles, `agy` invents method signatures that look right:
+  `oldValue()` for `before()`, a `findRecentAsync` that does not exist, an
+  accessor a decision record had just removed. **Before calling a method, grep
+  its declaration.** A brief that introduces a new type should quote its real
+  signature.
+* Trivial compile errors — a missing import, the wrong constructor overload, a
+  lambda capturing a branch-assigned local — are faster for Claude to fix than
+  to send back. Only structural errors earn a round trip.
+* Codex writes its report to stdout as well as the file it was asked for, and
+  sometimes only to stdout. Check the task output before concluding it produced
+  nothing.
+* **Bukkit's registry needs a live server, and it reaches further than it
+  looks.** `Sound`, `EntityDamageEvent`, `Material.asItemType` and therefore
+  `ItemStack.of(...)` all initialise `org.bukkit.Registry`, which throws
+  `NoClassDefFoundError` in a unit test. Three phases have hit this. The
+  remedy each time: **separate the decision from the Bukkit object**. Compute
+  a plain-data description — a sound key as a `String`, a damage decision
+  extracted from the event, a GUI layout as slot records — and keep a thin
+  renderer that touches Bukkit and is verified on the running server instead.
+  Tests assert the description.
+* Build with `-Dmaven.compiler.fork=true`. The in-process javac on this
+  machine crashes with `NullPointerException` in
+  `UnsharedNameTable.fromValidUtf` and reports only "Fatal error compiling",
+  hiding every real error behind it. Forking javac into its own process prints
+  them normally. This cost a round of blind guessing once.
 
 ## Progress
 

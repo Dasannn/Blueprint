@@ -34,6 +34,16 @@ is never reduced by, and never reduces, social status.
 **SB-005.** A player with no record reads as status `0`, Confidence `Unknown`,
 Psychosis at its lowest level. Never as negative or suspect.
 
+**SB-006.** A reputation event's contribution to social status **decays with
+its age**, on a curve configured in YAML. Nothing is deleted: the event stays in
+the history at full fidelity and only its weight in the current status falls.
+This is what makes constitution §2.6 real — a player who stops behaving badly
+recovers as their old events fade, without needing anyone to forgive them.
+
+This decay is **separate from Confidence's** age weighting (SB-003) and has its
+own configuration. Confidence answers "how much evidence is there"; this answers
+"how much does an old opinion still count". Moving one must not move the other.
+
 ## 3. Status, tiers and prefixes
 
 **SB-010.** Nine tiers, keeping the existing visual tokens and Spanish names:
@@ -45,6 +55,13 @@ positive `repRequired` values on negative tiers are a defect
 (`config.yml:1-16`) and are corrected. The ladder is validated on load; an
 invalid ladder is a startup error with a message naming the offending key, never
 a silent fallback.
+
+**SB-011a.** The ladder is **symmetric**: the negative thresholds mirror the
+positive ones at `-5`, `-15`, `-30`, `-50`. The baseline's inherited values
+(`-1`, `-10`, `-20`, `-30`) gave the first negative tier a range of exactly one
+point, so a single negative rating from neutral dropped a player two tiers while
+the positive side allowed five points of movement before the first promotion.
+Falling must not be cheaper than rising.
 
 **SB-012.** A player at exactly `0` resolves to the neutral tier `Particular`.
 
@@ -75,9 +92,30 @@ all sides) must accept; an unaccepted challenge expires.
 **SB-031.** A kill inside an active duel affects **neither** social status
 **nor** Killing Psychosis. Consented combat is not evidence of anything.
 
-**SB-032.** Outside a duel, a player kill raises Killing Psychosis and **never**
-changes social status. This reverses the baseline behaviour at
-`EventManager.java:24-29`.
+**SB-032.** Outside a duel, a player kill raises Killing Psychosis **and**
+lowers social status. Governed by
+`docs/decisions/0004-a-non-duel-kill-costs-status.md`. The status change is a
+**system-authored reputation event**: actor `SYSTEM`, no cost, a message-key
+reason, a delta configured in YAML (default `-1`). It is stored like every other
+event (constitution §2.5), decays like every other event (SB-006), and is
+visible in the history GUI (§11).
+
+The two metrics stay separate (constitution §2.3, SB-004): Psychosis still never
+reduces status and status never reduces Psychosis. It is the *kill* that feeds
+both, each by its own rule.
+
+**SB-034.** The automatic status penalty never counts towards Reputation
+Confidence. `SYSTEM` is not a distinct player under SB-003.
+
+**SB-035.** Repeat kills of the same victim by the same killer inside a
+configurable cooldown apply the penalty **once**. A configurable per-window cap
+bounds how much status one player can lose automatically, so a single evening of
+PvP cannot bottom out a record that peers must otherwise vote down.
+
+**SB-036.** The penalty is skipped entirely when the kill is ambiguous or
+consented (constitution §2.7): inside a duel (SB-031), by a killer the plugin
+cannot identify, and in any world listed as exempt in YAML. Setting the delta to
+`0` disables the whole behaviour.
 
 **SB-033.** Duel state survives a player disconnect long enough to distinguish a
 combat log from a normal quit; the handling is configurable.
@@ -178,6 +216,29 @@ Editing a name in either language file is the supported way to rename a tier.
 **SB-063.** Colours accept Essentials-style `&` codes, including hex, in every
 configurable string.
 
+**SB-090.** **Every sound the plugin plays is configurable.** Each sound is a
+named slot in `config.yml` carrying the Minecraft sound key, volume, pitch and
+category — for example `entity.creeper.primed, 1.0, 0.5, HOSTILE`. No sound key
+is written in Java source. An empty or absent slot plays nothing, which is how
+an owner silences one. An unrecognised key logs a warning naming the slot once
+and plays nothing; it never throws and never blocks the action the sound
+accompanied.
+
+**SB-091.** Sound slots are addressed by name, so an owner can retarget an
+existing slot to a different Minecraft sound, and new slots added by later
+features need no code change beyond playing them. Sounds obey SB-041 where they
+belong to a private ambient effect: they reach only the affected player.
+
+**SB-092.** A slot may hold **several layers**, each with its own key, volume,
+pitch, category and a delay in ticks. They play in order from one trigger, so an
+owner can build a chord (every layer at delay `0`), a sequence, or a quiet
+texture under a main sound, without touching code. The single-mapping form of
+SB-090 stays valid and means one layer at delay `0`.
+
+A delay is scheduled on the server tick, so it is precise to 50 ms and no
+finer. A key from a resource pack is played like any other: the plugin sends
+the key it was given, and a client without that sound hears nothing.
+
 **SB-064.** Administrative actions — manual adjustments, hiding comments,
 reverting events, bypassing cooldowns — require explicit permission and write an
 audit record.
@@ -194,8 +255,8 @@ removed.
 | Command | Purpose |
 |---|---|
 | `/status [player]` | Show a social profile |
-| `/status trust <player>` | Give honor |
-| `/status distrust <player>` | Remove honor, with a reason |
+| `/status give <player>` | Give honor |
+| `/status take <player>` | Remove honor, with a reason |
 | `/status psychosis [player]` | Show Killing Psychosis detail |
 | `/status duel <player>` / `accept` / `deny` / `leave` | Duels |
 | `/status effects` | Toggle one's own ambient effects |
@@ -233,7 +294,36 @@ automatic *downloading* defaults to off.
 **SB-076.** The repository and release channel are configurable, so a fork or a
 private build can be pointed somewhere else.
 
-## 11. Later releases
+## 11. Rating history and anonymity
+
+**SB-080.** A player's rating history is browsable in a double chest GUI,
+opened by `/status [player]`. The top row shows the subject: their head, a dye
+whose colour follows their tier, and a green and a red banner for giving and
+removing honor. Below it, one column per rating: the rater's head, a paper
+holding their written reason, and a green or red banner for its direction.
+Banners at the edges page through the history.
+
+**SB-081.** The GUI is a **view**. It opens from cached data or a completed
+asynchronous load, never a blocking read, and a rating made through it goes
+through the same honor path as the command — same cost, same cooldown, same
+cap, same audit. A second surface must not become a second set of rules.
+
+**SB-082.** A rater's **identity is hidden by default**: the history shows their
+head and their reason, not their name. Revealing one name costs a configurable
+amount, charged through Vault, and the reveal is remembered for that viewer.
+The reason text is always visible; only the name is paid for.
+
+**SB-083.** A rater's comment is length-bounded, stored as written, and rendered
+as plain text. It never carries colour codes, formatting or click actions,
+whatever the rater typed: an item name is not a place where one player styles
+another player's screen.
+
+**SB-084.** Hiding a name changes nothing about accountability behind the
+scenes. The cap of SB-054 is still counted per actor-target pair, an
+administrator still sees who rated whom, and the audit trail is unaffected.
+
+
+## 12. Later releases
 
 In order. Each becomes its own specification section when it is reached.
 
@@ -243,7 +333,7 @@ In order. Each becomes its own specification section when it is reached.
 4. Vouching with a monetary guarantee.
 5. Integrations: trade warnings, CoreProtect, land claims, reputation event API.
 
-## 12. Removed from the baseline
+## 13. Removed from the baseline
 
 Deliberate deletions, so no agent restores them as "missing functionality".
 
@@ -258,7 +348,7 @@ Deliberate deletions, so no agent restores them as "missing functionality".
   `JavaPlugin`.
 - **`/utils`** — declared and registered with no handler.
 
-## 13. Acceptance criteria for release 1
+## 14. Acceptance criteria for release 1
 
 - [ ] A fresh install enables with no configuration present, and with a
       configuration file from the old plugin.
@@ -269,8 +359,12 @@ Deliberate deletions, so no agent restores them as "missing functionality".
       restart.
 - [ ] Status, Confidence and Psychosis are stored and displayed as three
       separate values.
-- [ ] A duel kill changes neither status nor Psychosis; a non-duel kill changes
-      only Psychosis.
+- [ ] A duel kill changes neither status nor Psychosis; a non-duel kill raises
+      Psychosis and lowers status by the configured delta, once per pair
+      cooldown, bounded by the per-window cap, and never touches Confidence.
+- [ ] Every sound the plugin plays can be retuned, silenced or replaced from
+      `config.yml` without recompiling, and an unknown sound key logs a warning
+      instead of throwing.
 - [ ] Ambient effects reach only the affected player, respect their cooldowns,
       and leave no entity behind after quit or restart.
 - [ ] A player can disable ambient effects for themselves.
