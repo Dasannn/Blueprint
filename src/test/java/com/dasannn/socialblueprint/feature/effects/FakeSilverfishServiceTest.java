@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.feature.effects;
 
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
@@ -12,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -93,6 +96,60 @@ class FakeSilverfishServiceTest {
                     return defaultValue(method.getReturnType());
                 }
         );
+    }
+
+    @Test
+    void entityResolutionUsesSilverfishKeyAndNoNamedNmsField() throws Exception {
+        List<NamespacedKey> attemptedKeys = new ArrayList<>();
+        service = new FakeSilverfishService(null, registry, logger) {
+            @Override
+            Object resolveEntityType(NamespacedKey key) {
+                attemptedKeys.add(key);
+                return null;
+            }
+        };
+
+        assertThat(service.spawnSilverfish(mockPlayer, mockLocation, 40)).isNull();
+        assertThat(attemptedKeys).containsExactly(NamespacedKey.minecraft("silverfish"));
+
+        String source = Files.readString(Path.of("src/main/java/com/dasannn/socialblueprint/feature/effects/FakeSilverfishService.java"));
+        assertThat(source).contains("EntityType.SILVERFISH.getKey()", "Registry.ENTITY_TYPE.get(key)",
+                "getMethod(\"bukkitToMinecraft\", EntityType.class)");
+        assertThat(source.replaceAll("\\s+", "")).doesNotContain(".getField(", ".getDeclaredField(");
+    }
+
+    @Test
+    void missingEntityResolutionDisablesEffectAndLogsOnce() {
+        assertResolutionFailureDisablesEffect(false);
+    }
+
+    @Test
+    void throwingEntityResolutionDisablesEffectAndLogsOnce() {
+        assertResolutionFailureDisablesEffect(true);
+    }
+
+    private void assertResolutionFailureDisablesEffect(boolean throwsFailure) {
+        AtomicInteger attempts = new AtomicInteger();
+        service = new FakeSilverfishService(null, registry, logger) {
+            @Override
+            Object resolveEntityType(NamespacedKey key) throws ReflectiveOperationException {
+                attempts.incrementAndGet();
+                if (throwsFailure) {
+                    throw new ReflectiveOperationException("registry resolution failed");
+                }
+                return null;
+            }
+        };
+
+        assertThat(service.spawnSilverfish(mockPlayer, mockLocation, 40)).isNull();
+        assertThat(service.spawnSilverfish(mockPlayer, mockLocation, 40)).isNull();
+        assertThat(attempts.get()).isEqualTo(1);
+        assertThat(logRecords).hasSize(1);
+        assertThat(logRecords.get(0).getLevel()).isEqualTo(Level.WARNING);
+        assertThat(logRecords.get(0).getMessage()).contains("effect disabled",
+                throwsFailure ? "registry resolution failed" : "minecraft:silverfish");
+        assertThat(registry.getActiveCount()).isZero();
+        assertThat(worldSpawnCount.get()).isZero();
     }
 
     @Test

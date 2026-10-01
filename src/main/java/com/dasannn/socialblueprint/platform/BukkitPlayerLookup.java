@@ -50,9 +50,12 @@ public final class BukkitPlayerLookup implements PlayerLookup {
             return Optional.of(new KnownPlayer(PlayerId.of(online.getUniqueId()), online.getName(), true));
         }
 
-        // 3. Fallback to Bukkit's offline lookup
+        // 3. A player the server has actually seen. Not getName() != null:
+        // in offline mode getOfflinePlayer hands back an object whose name is
+        // whatever string was passed, so that test is always true and every
+        // typo resolved to an invented player (SB-087).
         OfflinePlayer offline = server.getOfflinePlayer(trimmed);
-        if (offline != null && (offline.hasPlayedBefore() || offline.getName() != null)) {
+        if (offline != null && offline.hasPlayedBefore()) {
             String name = offline.getName() != null ? offline.getName() : trimmed;
             return Optional.of(new KnownPlayer(PlayerId.of(offline.getUniqueId()), name, false));
         }

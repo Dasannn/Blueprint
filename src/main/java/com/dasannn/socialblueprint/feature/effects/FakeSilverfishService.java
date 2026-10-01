@@ -2,6 +2,9 @@ package com.dasannn.socialblueprint.feature.effects;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -19,6 +22,8 @@ import java.util.logging.Logger;
  * Service for spawning private, cosmetic silverfish per SB-040, SB-042, and Decision 0002.
  * - Decision 0002: Packet-only fake entity strictly enforced; no real entity is ever spawned in the world.
  * - If packet construction fails, the effect is skipped and a warning is logged once per server run.
+ * - Paper 26.3 has no NMS EntityType.SILVERFISH field: resolve minecraft:silverfish by registry key
+ *   through Paper's CraftEntityType bridge, never by a version-dependent NMS constant name.
  * - Client-side movement packets are sent across its short lifetime; if movement packets cannot be built,
  *   the effect degrades gracefully (remains stationary) without ever falling back to a real mob.
  * - Registered in {@link AmbientEntityRegistry} and removal packet constructed before sending spawn packet,
@@ -38,6 +43,7 @@ public class FakeSilverfishService {
     private final AmbientEntityRegistry registry;
     private final Logger logger;
     private volatile Mode mode = Mode.PACKET_ONLY;
+    private boolean packetUnavailable;
 
     public FakeSilverfishService(Plugin plugin, AmbientEntityRegistry registry, Logger logger) {
         this.plugin = plugin;
@@ -67,6 +73,9 @@ public class FakeSilverfishService {
     public ActiveEntityEntry spawnSilverfish(Player player, Location location, int durationTicks) {
         Objects.requireNonNull(player, "player must not be null");
         Objects.requireNonNull(location, "location must not be null");
+        if (packetUnavailable) {
+            return null;
+        }
         long delayTicks = Math.max(1L, durationTicks);
 
         return trySpawnPacketSilverfish(player, location, delayTicks);
@@ -74,6 +83,13 @@ public class FakeSilverfishService {
 
     private ActiveEntityEntry trySpawnPacketSilverfish(Player player, Location location, long delayTicks) {
         try {
+            NamespacedKey entityKey = EntityType.SILVERFISH.getKey();
+            Object silverfishType = resolveEntityType(entityKey);
+            if (silverfishType == null) {
+                warnOnce("Entity type not found for " + entityKey, null);
+                return null;
+            }
+
             // Reflectively access CraftPlayer -> ServerPlayer -> connection
             Method getHandleMethod = player.getClass().getMethod("getHandle");
             Object serverPlayer = getHandleMethod.invoke(player);
@@ -114,8 +130,6 @@ public class FakeSilverfishService {
 
             // Create fake Silverfish entity without adding to level (net.minecraft.world.entity.monster.Silverfish)
             Class<?> entityTypeClass = Class.forName("net.minecraft.world.entity.EntityType");
-            Field silverfishField = entityTypeClass.getField("SILVERFISH");
-            Object silverfishType = silverfishField.get(null);
 
             Class<?> levelClass = Class.forName("net.minecraft.world.level.Level");
             Method getLevelMethod = null;
@@ -224,6 +238,17 @@ public class FakeSilverfishService {
             warnOnce(t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName(), t);
             return null;
         }
+    }
+
+    // Package-private seam: tests can exercise resolution failures without a live Bukkit registry.
+    Object resolveEntityType(NamespacedKey key) throws ReflectiveOperationException {
+        EntityType bukkitType = Registry.ENTITY_TYPE.get(key);
+        if (bukkitType == null) {
+            return null;
+        }
+        Class<?> craftEntityType = Class.forName("org.bukkit.craftbukkit.entity.CraftEntityType");
+        // Paper's bridge resolves the NMS registry entry using bukkitType.getKey().
+        return craftEntityType.getMethod("bukkitToMinecraft", EntityType.class).invoke(null, bukkitType);
     }
 
     private void scheduleMovement(
@@ -342,6 +367,7 @@ public class FakeSilverfishService {
     }
 
     private void warnOnce(String reason, Throwable cause) {
+        packetUnavailable = true;
         if (WARNED_PACKET_FAILURE.compareAndSet(false, true)) {
             if (cause != null) {
                 logger.log(Level.WARNING, "Packet-only fake silverfish unavailable (" + reason + "); effect disabled", cause);
