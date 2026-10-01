@@ -234,7 +234,7 @@ codes renders as literal text.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-100 | Walk every acceptance criterion in `docs/spec.md` §14 on a running Paper 26.3 server; record evidence per box. | §14 | todo — pre-flight sheet being prepared on `review/r1-acceptance` so the live run confirms rather than explores |
+| T-100 | Walk every acceptance criterion in `docs/spec.md` §14 on a running Paper 26.3 server; record evidence per box. | §14 | in progress — console boxes done on a clean server: migration 3 applies to a database stamped at 2 (`kill_penalty_claim` created, 16 profiles intact); the nine tiers resolve; six distinct raters give Confianza Establecida while eight ratings from one give Desconocida; Psicosis Media from two open-world kills with the duel kill not counted; fifteen console branches with zero exceptions; config read, write and persistence with no restart, including the two leaves added by T-103; every administrative action audited with before and after; the language switch changes every console surface live. Remaining: two live clients (duels, kill penalty, sounds, GUI, hover, chat gradient), a real name change, the update handoff, and a profiler for the main-thread I/O box |
 | T-101 | Confirm no file or database I/O happens on the main thread. | §14 | done |
 | T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §14 | todo |
 | T-103 | Codex reviews the full release diff, not phase by phase. | — | in progress — `review/r1-final` |
