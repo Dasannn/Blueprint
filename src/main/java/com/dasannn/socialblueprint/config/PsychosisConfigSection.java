@@ -15,14 +15,19 @@ public record PsychosisConfigSection(
         int mediumThreshold,
         int highThreshold,
         int extremeThreshold,
-        ChatCorruptionConfig chat
+        ChatCorruptionConfig chat,
+        com.dasannn.socialblueprint.domain.SerenityConfig serenity
 ) {
+    public PsychosisConfigSection(Duration window, int mediumThreshold, int highThreshold, int extremeThreshold, ChatCorruptionConfig chat) {
+        this(window, mediumThreshold, highThreshold, extremeThreshold, chat, com.dasannn.socialblueprint.domain.SerenityConfig.DEFAULT);
+    }
     public PsychosisConfigSection(Duration window, int mediumThreshold, int highThreshold, int extremeThreshold) {
         this(window, mediumThreshold, highThreshold, extremeThreshold, ChatCorruptionConfig.DEFAULT);
     }
 
     public PsychosisConfigSection {
         Objects.requireNonNull(chat, "Chat configuration must not be null");
+        Objects.requireNonNull(serenity, "Serenity configuration must not be null");
         Objects.requireNonNull(window, "Window duration must not be null");
     }
 
@@ -72,7 +77,34 @@ public record PsychosisConfigSection(
                     + high + "), got " + extreme);
         }
 
-        return new PsychosisConfigSection(window, medium, high, extreme, loadChat(root));
+        return new PsychosisConfigSection(window, medium, high, extreme, loadChat(root),
+                new com.dasannn.socialblueprint.domain.SerenityConfig(
+                        serenityNumber(root, "ceiling", 100),
+                        serenityNumber(root, "active-hours-to-ceiling", 100),
+                        serenityNumber(root, "idle-timeout-seconds", 300)));
+    }
+
+    private static double serenityNumber(ConfigurationSection root, String leaf, double fallback) {
+        String key = "psychosis.serenity." + leaf;
+        Object raw = root.get(key);
+        if (raw == null) return fallback;
+        double value;
+        try { value = Double.parseDouble(raw.toString()); }
+        catch (NumberFormatException ex) { throw new ConfigValidationException(key, "Must be a positive finite number"); }
+        double scaled = value * (leaf.equals("active-hours-to-ceiling") ? 3_600_000
+                : leaf.equals("idle-timeout-seconds") ? 1000 : 1);
+        if (!Double.isFinite(value) || value <= 0 || !Double.isFinite(scaled) || scaled == 0) {
+            throw new ConfigValidationException(key, "Must be a positive finite number");
+        }
+
+        if (root.contains("psychosis.serenity") && !root.isConfigurationSection("psychosis.serenity"))
+            throw new ConfigValidationException("psychosis.serenity", "Must be a mapping");
+        ConfigurationSection serenitySection = root.getConfigurationSection("psychosis.serenity");
+        if (serenitySection != null) for (String child : serenitySection.getKeys(false)) {
+            if (!java.util.Set.of("ceiling", "active-hours-to-ceiling", "idle-timeout-seconds").contains(child))
+                throw new ConfigValidationException("psychosis.serenity." + child, "Unknown key");
+        }
+        return value;
     }
 
     private static ChatCorruptionConfig loadChat(ConfigurationSection root) {

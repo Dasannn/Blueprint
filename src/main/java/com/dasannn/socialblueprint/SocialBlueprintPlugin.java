@@ -52,6 +52,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private com.dasannn.socialblueprint.storage.DuelRepository duelRepository;
     private com.dasannn.socialblueprint.feature.duel.DuelService duelService;
     private ProfileService profileService;
+    private org.bukkit.scheduler.BukkitTask serenityTask;
     private HonorService honorService;
     private com.dasannn.socialblueprint.feature.update.UpdateService updateService;
     private LegacyImportService legacyImportService;
@@ -199,6 +200,15 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 playerLookup,
                 getLogger()
         );
+        var serenityActivity = new com.dasannn.socialblueprint.platform.listener.SerenityActivityListener(profileService.serenity());
+        getServer().getPluginManager().registerEvents(serenityActivity, this);
+        this.serenityTask = getServer().getScheduler().runTaskTimer(this, () -> {
+            for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) serenityActivity.refreshAfk(player);
+            profileService.serenity().tick();
+        }, 20L, 20L);
+        for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
+            profileService.warmUp(com.dasannn.socialblueprint.domain.PlayerId.of(player.getUniqueId()), player.getName(), configManager.snapshot());
+        }
 
         this.configManager.addSnapshotListener(snapshot -> {
             if (this.statusCache != null) {
@@ -407,6 +417,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (serenityTask != null) serenityTask.cancel();
+        if (profileService != null) profileService.serenity().shutdown();
         if (honorService != null) {
             honorService.shutdown();
         }

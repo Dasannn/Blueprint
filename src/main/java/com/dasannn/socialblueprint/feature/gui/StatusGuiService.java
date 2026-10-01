@@ -407,7 +407,7 @@ public class StatusGuiService {
         String localizedConfidence = view != null
                 ? messageRegistry.getRaw(snapshot, "confidence." + view.confidence().name().toLowerCase(Locale.ROOT)) : "";
         String localizedPsychosis = view != null
-                ? messageRegistry.getRaw(snapshot, "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT)) : "";
+                ? messageRegistry.psychosisLabel(snapshot, view) : "";
         String targetName = view != null ? view.name() : "Player";
         UUID targetUuid = view != null ? view.playerId().uuid() : null;
 

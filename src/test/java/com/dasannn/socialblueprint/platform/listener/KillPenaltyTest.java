@@ -203,7 +203,7 @@ class KillPenaltyTest {
         // 1. Initial state: no events
         assertThat(confidenceCalculator.calculate(List.of(), baseTime)).isEqualTo(ConfidenceLevel.UNKNOWN);
         assertThat(confidenceCalculator.calculateScore(List.of(), baseTime)).isEqualTo(0.0);
-        assertThat(psychosisCalculator.calculate(killerId, List.of(), baseTime)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(psychosisCalculator.calculate(killerId, List.of(), baseTime)).isEqualTo(PsychosisLevel.NEUTRAL);
 
         // 2. Add 5 SYSTEM_KILL events
         List<ReputationEvent> repEvents = List.of(
@@ -224,7 +224,7 @@ class KillPenaltyTest {
         Status statusWithPenalties = Status.fromEvents(repEvents);
         assertThat(statusWithPenalties.value()).isEqualTo(-5);
         // But psychosis derived from 0 open kills is still LOW
-        assertThat(psychosisCalculator.calculate(killerId, List.of(), baseTime)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(psychosisCalculator.calculate(killerId, List.of(), baseTime)).isEqualTo(PsychosisLevel.NEUTRAL);
 
         // Assert Psychosis does NOT derive from or affect status score
         // High open kills (e.g. 10 kills) results in EXTREME Psychosis

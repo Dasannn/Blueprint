@@ -21,12 +21,18 @@ confidence:
   high: 'High'
 
 psychosis:
+  neutral:
+    name: 'Neutral'
+  serenity:
+    name: 'Serenity'
+    detail: '{name}: {value} / {ceiling}'
   low: 'Low'
   medium: 'Medium'
   high: 'High'
   extreme: 'Extreme'
 
 commands:
+  psychosis-usage: '&eUsage: &f/status psychosis [player]'
   no-permission: '&cYou do not have permission to execute this command.'
   player-only: '&cThis command can only be executed by players.'
   invalid-integer: '&cInvalid number: &f{value}'

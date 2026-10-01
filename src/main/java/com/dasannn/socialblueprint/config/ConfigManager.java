@@ -459,6 +459,17 @@ public class ConfigManager {
     }
 
     private Object parseValueForPath(String path, String raw) {
+        if ("sounds.serenity-clean".equals(path)) {
+            if (raw.contains("\n") || raw.contains("\r"))
+                throw new ConfigValidationException(path, "Use an inline YAML list of sound layers");
+            YamlConfiguration parsed = YamlConfiguration.loadConfiguration(new java.io.StringReader("value: " + raw));
+            if (!parsed.isList("value") || parsed.getKeys(false).size() != 1)
+                throw new ConfigValidationException(path, "Must be a YAML list of sound layers");
+            List<?> layers = parsed.getList("value");
+            if (layers.stream().anyMatch(layer -> !(layer instanceof Map<?, ?>)))
+                throw new ConfigValidationException(path, "Each sound layer must be a mapping");
+            return layers;
+        }
         if (path.startsWith("effects.episodes.")) {
             try { return Long.parseLong(raw.trim()); }
             catch (NumberFormatException error) { throw new ConfigValidationException(path, "Expected integer ticks"); }
@@ -602,6 +613,9 @@ public class ConfigManager {
         set.add("psychosis.chat.high-rate");
         set.add("psychosis.chat.extreme-rate");
         set.add("psychosis.chat.extent");
+        set.add("psychosis.serenity.ceiling");
+        set.add("psychosis.serenity.active-hours-to-ceiling");
+        set.add("psychosis.serenity.idle-timeout-seconds");
 
         set.add("honor.cost");
         set.add("honor.multipliers");
@@ -645,6 +659,7 @@ public class ConfigManager {
                 "boss-bar.style", "boss-bar.progress", "boss-bar.duration-ticks", "false-death.range-blocks", "private-chat.max-visible-length"))
             set.add("effects." + key);
         set.add("effects.check-interval");
+        set.addAll(SerenityEffectsConfig.defaults().leafValues().keySet());
         set.add("effects.quiet-interval.medium");
         set.add("effects.quiet-interval.high");
         set.add("effects.quiet-interval.extreme");
@@ -678,6 +693,7 @@ public class ConfigManager {
         set.add("sounds.creeper-fuse.pitch");
         set.add("sounds.creeper-fuse.category");
         set.add("sounds.creeper-fuse.delay");
+        set.add("sounds.serenity-clean");
         set.add("history.reveal-cost");
 
         return Collections.unmodifiableSet(set);
@@ -701,6 +717,7 @@ public class ConfigManager {
 
     static String getLeafFromConfig(PluginConfig config, String path) {
         if (config == null || path == null) return null;
+        if (path.startsWith("effects.serenity.")) return config.effects().serenity().leafValues().get(path);
         if ("language".equals(path)) return config.language();
         if ("chat-prefix".equals(path)) return config.chatPrefix();
 
@@ -737,6 +754,9 @@ public class ConfigManager {
         if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());
         if ("psychosis.chat.extreme-rate".equals(path)) return String.valueOf(config.psychosis().chat().extremeRate());
         if ("psychosis.chat.extent".equals(path)) return String.valueOf(config.psychosis().chat().extent());
+        if ("psychosis.serenity.ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().ceiling());
+        if ("psychosis.serenity.active-hours-to-ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().activeHoursToCeiling());
+        if ("psychosis.serenity.idle-timeout-seconds".equals(path)) return String.valueOf(config.psychosis().serenity().idleTimeoutSeconds());
 
         if ("honor.cost".equals(path) && config.honor() != null) return String.valueOf(config.honor().cost());
         if ("honor.multipliers".equals(path) && config.honor() != null) return config.honor().multipliers().toString();

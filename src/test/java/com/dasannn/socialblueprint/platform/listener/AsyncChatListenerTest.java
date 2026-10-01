@@ -354,7 +354,7 @@ class AsyncChatListenerTest {
                     assertThat(event.isCancelled()).isFalse();
                 }
                 assertThat(profileService.getViewCached(PlayerId.of(UUID.randomUUID()), snapshot).psychosis())
-                        .isEqualTo(PsychosisLevel.LOW); // cold read also submits no storage work
+                        .isEqualTo(PsychosisLevel.NEUTRAL); // cold read also submits no storage work
             } catch (Throwable ex) { failure.set(ex); }
         }, "AsyncChatThread");
         async.start();

@@ -14,7 +14,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                                  Flash flash, Sounds sounds, Episodes episodes, Toast toast, Bar bar, double deathRange, int maxVisibleLength) {
     public record Rule(boolean enabled, PsychosisLevel minimumLevel, SingleEffectConfig limits) {
         public boolean allows(PsychosisLevel level) {
-            return enabled && level != PsychosisLevel.LOW && level.ordinal() >= minimumLevel.ordinal();
+            return enabled && level.hasMadnessEffects() && level.ordinal() >= minimumLevel.ordinal();
         }
     }
     public record Episodes(long mediumTicks, long highTicks, long extremeTicks, long quietTicks) {
@@ -23,7 +23,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                 case MEDIUM -> mediumTicks;
                 case HIGH -> highTicks;
                 case EXTREME -> extremeTicks;
-                case LOW -> throw new IllegalArgumentException("Low has no episodes");
+                case LOW, NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
             };
         }
     }

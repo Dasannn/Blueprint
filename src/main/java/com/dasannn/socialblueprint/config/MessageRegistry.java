@@ -177,6 +177,18 @@ public class MessageRegistry {
         return tierName(snapshot(), tier);
     }
 
+    /** Direction and magnitude of the same Psychosis metric, reused by every display. */
+    public String psychosisLabel(RuntimeSnapshot snapshot, com.dasannn.socialblueprint.domain.PlayerSocialView view) {
+        return switch (view.psychosis()) {
+            case NEUTRAL -> getRaw(snapshot, "psychosis.neutral.name");
+            case SERENITY -> getRaw(snapshot, "psychosis.serenity.detail")
+                    .replace("{name}", getRaw(snapshot, "psychosis.serenity.name"))
+                    .replace("{value}", String.format(Locale.ROOT, "%.2f", view.psychosisMagnitude()))
+                    .replace("{ceiling}", String.format(Locale.ROOT, "%.2f", snapshot.config().psychosis().serenity().ceiling()));
+            default -> getRaw(snapshot, "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT));
+        };
+    }
+
     /**
      * Test seam hook called between prefix rendering and body rendering in {@link #renderWithPrefix}.
      */

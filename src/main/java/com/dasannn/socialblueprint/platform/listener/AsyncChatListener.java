@@ -219,7 +219,7 @@ public class AsyncChatListener implements Listener {
                 Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence." + view.confidence().name().toLowerCase(Locale.ROOT))));
 
         Component line4 = messageRegistry.render(snapshot, "chat.hover-psychosis",
-                Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT))));
+                Map.of("psychosis", messageRegistry.psychosisLabel(snapshot, view)));
 
         Component line5 = messageRegistry.render(snapshot, "chat.hover-contributors",
                 Map.of("contributors", String.valueOf(view.contributors())));

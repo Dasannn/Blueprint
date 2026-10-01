@@ -72,6 +72,8 @@ class ValueTypesTest {
     @DisplayName("T-010: PsychosisLevel contains 4 levels with LOW as lowest")
     void psychosisLevels() {
         assertThat(PsychosisLevel.values()).containsExactly(
+                PsychosisLevel.SERENITY,
+                PsychosisLevel.NEUTRAL,
                 PsychosisLevel.LOW,
                 PsychosisLevel.MEDIUM,
                 PsychosisLevel.HIGH,

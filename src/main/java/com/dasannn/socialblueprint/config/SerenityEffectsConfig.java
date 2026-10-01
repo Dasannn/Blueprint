@@ -1,0 +1,108 @@
+package com.dasannn.socialblueprint.config;
+
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.MemoryConfiguration;
+import java.util.Map;
+import java.util.Set;
+import java.util.Locale;
+
+/** SB-125 settings only. T-172 owns delivery through the existing renderers. */
+public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double observerRange,
+                                    Map<String, Rule> rules, int dawnTime, int dawnDuration,
+                                    PresentationConfig.Sounds sounds, PresentationConfig.Particles particles,
+                                    String animal, double animalRange, int animalDuration) {
+    public static final Set<String> EFFECTS = Set.of("dawn", "source-less-sounds", "particles", "apparition");
+    public record Rule(boolean enabled, double minimumSerenity, long cooldownTicks, int sessionCap) {}
+    public SerenityEffectsConfig { rules = Map.copyOf(rules); }
+    public static SerenityEffectsConfig defaults() { return load(new MemoryConfiguration()); }
+
+    public void validateCeiling(double ceiling) {
+        rules.forEach((id, rule) -> {
+            if (rule.minimumSerenity() > ceiling) fail(id + ".minimum-serenity", "Must not exceed serenity ceiling");
+        });
+    }
+
+    public void validateSounds(SoundsConfigSection slots) {
+        if (!rules.get("source-less-sounds").enabled()) return;
+        if (!slots.slots().containsKey(sounds.slot())) fail("source-less-sounds.sound-slot", "Must name an existing sounds slot");
+        if (slots.get(sounds.slot()).layers().stream().filter(layer -> !layer.isSilent())
+                .anyMatch(layer -> layer.delay() > 100L - sounds.playbackTicks()))
+            fail("source-less-sounds.playback-ticks", "Final sound delay plus playback must not exceed 100 ticks");
+    }
+
+    public static SerenityEffectsConfig load(ConfigurationSection root) {
+        if (root.contains("effects.serenity") && !root.isConfigurationSection("effects.serenity"))
+            throw new ConfigValidationException("effects.serenity", "Must be a mapping");
+        Map<String, Rule> rules = new java.util.HashMap<>();
+        for (String id : EFFECTS) {
+            String key = id + ".enabled";
+            if (root.contains(path(key)) && !root.isBoolean(path(key))) fail(key, "Must be boolean");
+            rules.put(id, new Rule(root.getBoolean(path(key), true), number(root, id + ".minimum-serenity", 1, true),
+                    integer(root, id + ".cooldown-ticks", 6000, 1, Integer.MAX_VALUE),
+                    integer(root, id + ".session-cap", 12, 0, Integer.MAX_VALUE)));
+        }
+        SerenityEffectsConfig result = new SerenityEffectsConfig(integer(root, "episodes.interval-ticks", 6000, 1, Integer.MAX_VALUE),
+                integer(root, "episodes.quiet-ticks", 200, 1, Integer.MAX_VALUE),
+                number(root, "observer-range-blocks", 16, true), rules,
+                integer(root, "dawn.time-ticks", 23000, 0, 23999), integer(root, "dawn.duration-ticks", 60, 1, 100),
+                new PresentationConfig.Sounds(choice(root, "source-less-sounds.sound-slot", "serenity-clean", null),
+                        number(root, "source-less-sounds.offset.forward-blocks", 0, false),
+                        number(root, "source-less-sounds.offset.right-blocks", 0, false),
+                        number(root, "source-less-sounds.offset.up-blocks", 0, false),
+                        integer(root, "source-less-sounds.playback-ticks", 60, 1, 100)),
+                new PresentationConfig.Particles(choice(root, "particles.type", "end_rod", Set.of("end_rod", "smoke")),
+                        choice(root, "particles.placement", "around", Set.of("around", "beneath")),
+                        integer(root, "particles.count", 8, 1, Integer.MAX_VALUE), number(root, "particles.radius-blocks", 1, true), integer(root, "particles.duration-ticks", 40, 1, 100)),
+                choice(root, "apparition.kind", "cat", Set.of("cat", "fox", "wolf")),
+                number(root, "apparition.range-blocks", 3, true), integer(root, "apparition.duration-ticks", 60, 1, 100));
+        ConfigurationSection section = root.getConfigurationSection("effects.serenity");
+        if (section != null) for (String key : section.getKeys(true)) {
+            if (!section.isConfigurationSection(key) && !result.leafValues().containsKey(path(key))) fail(key, "Unknown key");
+        }
+        return result;
+    }
+
+    public Map<String, String> leafValues() {
+        Map<String, String> values = new java.util.HashMap<>();
+        rules.forEach((id, rule) -> {
+            values.put(path(id + ".enabled"), String.valueOf(rule.enabled()));
+            values.put(path(id + ".minimum-serenity"), String.valueOf(rule.minimumSerenity()));
+            values.put(path(id + ".cooldown-ticks"), String.valueOf(rule.cooldownTicks()));
+            values.put(path(id + ".session-cap"), String.valueOf(rule.sessionCap()));
+        });
+        Map<String, Object> details = Map.ofEntries(
+                Map.entry("episodes.interval-ticks", intervalTicks), Map.entry("episodes.quiet-ticks", quietTicks),
+                Map.entry("observer-range-blocks", observerRange), Map.entry("dawn.time-ticks", dawnTime),
+                Map.entry("dawn.duration-ticks", dawnDuration), Map.entry("source-less-sounds.sound-slot", sounds.slot()),
+                Map.entry("source-less-sounds.offset.forward-blocks", sounds.forward()),
+                Map.entry("source-less-sounds.offset.right-blocks", sounds.right()),
+                Map.entry("source-less-sounds.offset.up-blocks", sounds.up()),
+                Map.entry("source-less-sounds.playback-ticks", sounds.playbackTicks()),
+                Map.entry("particles.type", particles.type()), Map.entry("particles.placement", particles.placement()),
+                Map.entry("particles.count", particles.count()), Map.entry("particles.radius-blocks", particles.radius()),
+                Map.entry("particles.duration-ticks", particles.durationTicks()), Map.entry("apparition.kind", animal),
+                Map.entry("apparition.range-blocks", animalRange), Map.entry("apparition.duration-ticks", animalDuration));
+        details.forEach((key, value) -> values.put(path(key), value.toString()));
+        return Map.copyOf(values);
+    }
+    private static String path(String key) { return "effects.serenity." + key; }
+    private static int integer(ConfigurationSection root, String key, int fallback, int min, int max) {
+        if (root.contains(path(key)) && !root.isInt(path(key))) fail(key, "Must be an integer");
+        int value = root.getInt(path(key), fallback);
+        if (value < min || value > max) fail(key, "Out of bounds");
+        return value;
+    }
+    private static double number(ConfigurationSection root, String key, double fallback, boolean positive) {
+        if (root.contains(path(key)) && !(root.get(path(key)) instanceof Number)) fail(key, "Must be numeric");
+        double value = root.getDouble(path(key), fallback);
+        if (!Double.isFinite(value) || positive && value <= 0) fail(key, "Must be finite" + (positive ? " and positive" : ""));
+        return value;
+    }
+    private static String choice(ConfigurationSection root, String key, String fallback, Set<String> choices) {
+        if (root.contains(path(key)) && !root.isString(path(key))) fail(key, "Must be text");
+        String value = root.getString(path(key), fallback).toLowerCase(Locale.ROOT);
+        if (value.isBlank() || choices != null && !choices.contains(value)) fail(key, "Invalid choice");
+        return value;
+    }
+    private static void fail(String key, String reason) { throw new ConfigValidationException(path(key), reason); }
+}
