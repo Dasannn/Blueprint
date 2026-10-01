@@ -309,7 +309,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         this.ambientEffectScheduler.start();
 
         getServer().getPluginManager().registerEvents(
-                new AmbientEffectsListener(ambientEntityRegistry, ambientEffectScheduler),
+                new AmbientEffectsListener(ambientEntityRegistry, ambientEffectScheduler, ambientEffectDispatcher),
                 this
         );
         getServer().getPluginManager().registerEvents(

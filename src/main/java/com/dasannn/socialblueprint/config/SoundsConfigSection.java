@@ -3,7 +3,9 @@ package com.dasannn.socialblueprint.config;
 import org.bukkit.SoundCategory;
 import org.bukkit.configuration.ConfigurationSection;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -61,55 +63,97 @@ public record SoundsConfigSection(
                 ConfigurationSection slotSec = section.getConfigurationSection(slotName);
                 if (slotSec != null) {
                     String key = slotSec.getString("key", "");
-
-                    double rawVolume = 1.0;
-                    if (slotSec.contains("volume")) {
-                        Object obj = slotSec.get("volume");
-                        if (obj instanceof Number num) {
-                            rawVolume = num.doubleValue();
-                        } else {
-                            try {
-                                rawVolume = Double.parseDouble(String.valueOf(obj));
-                            } catch (NumberFormatException e) {
-                                throw new ConfigValidationException("sounds." + slotName + ".volume",
-                                        "Volume for sound slot '" + slotName + "' must be a valid number, got: " + obj);
-                            }
-                        }
-                    }
-                    float volume = (float) rawVolume;
-                    if (!Float.isFinite(volume) || volume < 0.0f) {
-                        throw new ConfigValidationException("sounds." + slotName + ".volume",
-                                "Volume for sound slot '" + slotName + "' must be a non-negative finite number, got: " + rawVolume);
-                    }
-
-                    double rawPitch = 1.0;
-                    if (slotSec.contains("pitch")) {
-                        Object obj = slotSec.get("pitch");
-                        if (obj instanceof Number num) {
-                            rawPitch = num.doubleValue();
-                        } else {
-                            try {
-                                rawPitch = Double.parseDouble(String.valueOf(obj));
-                            } catch (NumberFormatException e) {
-                                throw new ConfigValidationException("sounds." + slotName + ".pitch",
-                                        "Pitch for sound slot '" + slotName + "' must be a valid number, got: " + obj);
-                            }
-                        }
-                    }
-                    float pitch = (float) rawPitch;
-                    if (!Float.isFinite(pitch) || pitch < 0.0f || pitch > 2.0f) {
-                        throw new ConfigValidationException("sounds." + slotName + ".pitch",
-                                "Pitch for sound slot '" + slotName + "' must be a finite number between 0.0 and 2.0, got: " + rawPitch);
-                    }
-
+                    float volume = parseVolume(slotSec.contains("volume") ? slotSec.get("volume") : null,
+                            "sounds." + slotName + ".volume", slotName);
+                    float pitch = parsePitch(slotSec.contains("pitch") ? slotSec.get("pitch") : null,
+                            "sounds." + slotName + ".pitch", slotName);
                     String rawCat = slotSec.getString("category", "MASTER");
                     SoundCategory category = parseCategory(rawCat, slotName, log);
-                    slots.put(slotName.toLowerCase(Locale.ROOT), new SoundSlotConfig(key, volume, pitch, category));
+                    long delay = parseDelay(slotSec.contains("delay") ? slotSec.get("delay") : null,
+                            "sounds." + slotName + ".delay");
+
+                    slots.put(slotName.toLowerCase(Locale.ROOT),
+                            new SoundSlotConfig(List.of(new SoundLayerConfig(key, volume, pitch, category, delay))));
                 }
+            } else if (section.isList(slotName)) {
+                List<?> list = section.getList(slotName);
+                List<SoundLayerConfig> layers = new ArrayList<>();
+                if (list != null) {
+                    for (int i = 0; i < list.size(); i++) {
+                        Object item = list.get(i);
+                        if (item instanceof Map<?, ?> map) {
+                            String key = map.containsKey("key") ? String.valueOf(map.get("key")) : "";
+                            float volume = parseVolume(map.get("volume"),
+                                    "sounds." + slotName + "[" + i + "].volume", slotName);
+                            float pitch = parsePitch(map.get("pitch"),
+                                    "sounds." + slotName + "[" + i + "].pitch", slotName);
+                            String rawCat = map.containsKey("category") ? String.valueOf(map.get("category")) : "MASTER";
+                            SoundCategory category = parseCategory(rawCat, slotName, log);
+                            long delay = parseDelay(map.get("delay"),
+                                    "sounds." + slotName + "[" + i + "].delay");
+
+                            layers.add(new SoundLayerConfig(key, volume, pitch, category, delay));
+                        }
+                    }
+                }
+                slots.put(slotName.toLowerCase(Locale.ROOT), new SoundSlotConfig(layers));
             }
         }
 
         return new SoundsConfigSection(slots);
+    }
+
+    private static float parseVolume(Object obj, String path, String slotName) {
+        if (obj == null) {
+            return 1.0f;
+        }
+        double rawVolume;
+        if (obj instanceof Number num) {
+            rawVolume = num.doubleValue();
+        } else {
+            try {
+                rawVolume = Double.parseDouble(String.valueOf(obj));
+            } catch (NumberFormatException e) {
+                throw new ConfigValidationException(path,
+                        "Volume for sound slot '" + slotName + "' must be a valid number, got: " + obj);
+            }
+        }
+        float volume = (float) rawVolume;
+        if (!Float.isFinite(volume) || volume < 0.0f) {
+            throw new ConfigValidationException(path,
+                    "Volume for sound slot '" + slotName + "' must be a non-negative finite number, got: " + rawVolume);
+        }
+        return volume;
+    }
+
+    private static float parsePitch(Object obj, String path, String slotName) {
+        if (obj == null) {
+            return 1.0f;
+        }
+        double rawPitch;
+        if (obj instanceof Number num) {
+            rawPitch = num.doubleValue();
+        } else {
+            try {
+                rawPitch = Double.parseDouble(String.valueOf(obj));
+            } catch (NumberFormatException e) {
+                throw new ConfigValidationException(path,
+                        "Pitch for sound slot '" + slotName + "' must be a valid number, got: " + obj);
+            }
+        }
+        float pitch = (float) rawPitch;
+        if (!Float.isFinite(pitch) || pitch < 0.0f || pitch > 2.0f) {
+            throw new ConfigValidationException(path,
+                    "Pitch for sound slot '" + slotName + "' must be a finite number between 0.0 and 2.0, got: " + rawPitch);
+        }
+        return pitch;
+    }
+
+    private static long parseDelay(Object obj, String path) {
+        if (obj == null) {
+            return 0L;
+        }
+        return DurationParser.parseTicks(obj, path);
     }
 
     public static SoundCategory parseCategory(String raw, String slotName, Logger logger) {
