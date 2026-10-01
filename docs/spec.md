@@ -219,6 +219,15 @@ changing what other players see.
 
 ## 7. Honor economy
 
+**SB-101.** There is no opt-out. `/status effects` existed because the
+effects were something low status did **to** a player, and a player could
+refuse them. Psychosis is earned by killing, so switching the effects off
+would be switching off a consequence the player chose to incur, and the
+mechanic would be decorative. The command and its stored flag are removed.
+The effects stay private, cosmetic and incapable of touching status,
+Confidence or money (SB-100), which is what keeps this fair without an
+escape hatch.
+
 Governed by `docs/decisions/0001-honor-cost-is-a-fixed-yaml-amount.md`.
 
 **SB-050.** Giving or removing honor charges the actor a fixed amount configured
