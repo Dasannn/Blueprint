@@ -238,6 +238,7 @@ codes renders as literal text.
 | T-101 | Confirm no file or database I/O happens on the main thread. | §14 | todo |
 | T-102 | Fresh install with no configuration, and install over an old PlayerStatus configuration. | §14 | todo |
 | T-103 | Codex reviews the full release diff, not phase by phase. | — | todo |
+| T-104 | Upgrading merges new configuration sections and new message keys into the server's existing files, keeping every stored value. Found on a live upgrade: the new sections load from defaults but cannot be read or edited in game, which breaks constitution §2.8 on the upgrade path, and a missing message key warns on every run. | §2.8, SB-062, SB-068 | todo |
 
 **Gate:** every box in §14 ticked with evidence.
 
