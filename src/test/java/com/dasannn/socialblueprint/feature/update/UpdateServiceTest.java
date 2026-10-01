@@ -100,6 +100,12 @@ class UpdateServiceTest {
         }
 
         @Override
+        public Component render(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+            calls.add(new MessageCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), false));
+            return super.render(snapshot, key, placeholders);
+        }
+
+        @Override
         public Component renderWithPrefix(RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
             calls.add(new MessageCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), true));
             return super.renderWithPrefix(snapshot, key, placeholders);
@@ -264,7 +270,7 @@ class UpdateServiceTest {
         CountDownLatch requestStarted = new CountDownLatch(1);
         CountDownLatch allowResponse = new CountDownLatch(1);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             requestStarted.countDown();
             try {
                 // Stall handler until test allows it to proceed
@@ -354,7 +360,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(serverBaseUrl, actualJarBytes.length, serverBaseUrl);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -417,7 +423,7 @@ class UpdateServiceTest {
     @Test
     @DisplayName("DoD 3 / T-085: Rate-limited GitHub (HTTP 403 / 429) logs a warning and changes nothing")
     void rateLimitedGitHubLogsWarningQuietly() {
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = "{\"message\": \"API rate limit exceeded\"}".getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("X-RateLimit-Remaining", "0");
             exchange.sendResponseHeaders(403, resp.length);
@@ -485,6 +491,27 @@ class UpdateServiceTest {
         }
     }
 
+    @Test
+    void repository404ReportsConfiguredRepositoryByMessageKey() {
+        String repository = "ConfiguredOwner/PrivateOrMissingRepo";
+        configManager.set("update.repository", repository);
+        mockServer.createContext("/repos/" + repository + "/releases/latest", exchange -> {
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        UpdateService updateService = new UpdateService(
+                configManager, messageRegistry, asyncExecutor, mainThreadQueue::add,
+                () -> updateFolder, () -> "1.0", () -> currentJarFile, httpClient, testLogger);
+
+        VersionCheckResult result = updateService.checkForUpdateAsync().join();
+
+        assertThat(result.comparison()).isEqualTo(VersionComparison.UNKNOWN);
+        assertThat(messageRegistry.lastCall()).isEqualTo(new TestRecordingMessageRegistry.MessageCall(
+                "updater.repository-not-found", Map.of("repository", repository), false));
+        assertThat(logRecords).anyMatch(r -> r.getLevel() == Level.WARNING);
+        assertThat(updateFolder).doesNotExist();
+    }
+
     // =========================================================================
     // DoD 4 & T-084: Defaults are Check-On, Download-Off
     // =========================================================================
@@ -495,11 +522,13 @@ class UpdateServiceTest {
         UpdateConfig defaults = UpdateConfig.defaults();
         assertThat(defaults.checkOnStartup()).isTrue();
         assertThat(defaults.autoDownload()).isFalse();
+        assertThat(defaults.repository()).isEqualTo("Dasannn/Blueprint");
 
         // Shipped config.yml also respects this
         UpdateConfig loaded = configManager.config().update();
         assertThat(loaded.checkOnStartup()).isTrue();
         assertThat(loaded.autoDownload()).isFalse();
+        assertThat(loaded.repository()).isEqualTo("Dasannn/Blueprint");
     }
 
     // =========================================================================
@@ -562,7 +591,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -626,7 +655,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -714,7 +743,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -776,7 +805,7 @@ class UpdateServiceTest {
                 """.formatted(serverBaseUrl);
 
         AtomicBoolean downloadRequested = new AtomicBoolean(false);
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -862,7 +891,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(hash, validJar.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -915,7 +944,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(serverBaseUrl);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -983,7 +1012,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(hash, serverBaseUrl, newJarBytes.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -1043,7 +1072,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, nonJarContent.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -1128,7 +1157,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -1201,7 +1230,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -1273,7 +1302,7 @@ class UpdateServiceTest {
                 }
                 """.formatted(mismatchedSha256, serverBaseUrl, jarContent.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -1327,7 +1356,7 @@ class UpdateServiceTest {
                 }
                 """;
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }

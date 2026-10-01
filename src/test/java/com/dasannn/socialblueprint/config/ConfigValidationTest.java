@@ -117,7 +117,7 @@ class ConfigValidationTest {
         // Verify Update settings (T-084, SB-075, SB-076)
         assertThat(config.update().checkOnStartup()).isTrue();
         assertThat(config.update().autoDownload()).isFalse();
-        assertThat(config.update().repository()).isEqualTo("Dasannn/SocialBlueprint");
+        assertThat(config.update().repository()).isEqualTo("Dasannn/Blueprint");
         assertThat(config.update().channel()).isEqualTo("stable");
         assertThat(config.update().apiUrl()).isEqualTo("https://api.github.com");
         assertThat(config.update().maxDownloadBytes()).isEqualTo(10485760L);

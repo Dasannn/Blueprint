@@ -297,7 +297,7 @@ class StatusCommandUpdateTest {
                   "assets": []
                 }
                 """;
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -328,7 +328,7 @@ class StatusCommandUpdateTest {
                   "assets": []
                 }
                 """;
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -413,7 +413,7 @@ class StatusCommandUpdateTest {
                 }
                 """.formatted(hash, serverBaseUrl, jarBytes.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
@@ -465,7 +465,7 @@ class StatusCommandUpdateTest {
                 }
                 """.formatted(hash, serverBaseUrl, jarBytes.length);
 
-        mockServer.createContext("/repos/Dasannn/SocialBlueprint/releases/latest", exchange -> {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
             byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }

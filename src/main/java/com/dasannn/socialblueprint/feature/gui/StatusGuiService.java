@@ -465,9 +465,9 @@ public class StatusGuiService {
                 "total", String.valueOf(totalPages)
         );
 
-        GuiSlot prevBannerSlotRow2 = new GuiSlot(
+        GuiSlot prevStarSlotRow2 = new GuiSlot(
                 SLOT_PAGE_PREV_ROW2,
-                GuiIconKind.PAGE_PREVIOUS,
+                GuiIconKind.PAGE_PREVIOUS_STAR,
                 null,
                 null,
                 null,
@@ -476,11 +476,11 @@ public class StatusGuiService {
                 Map.of(),
                 List.of(GuiLoreLine.ofKey("gui.history.page-info", pageInfoPlaceholders))
         );
-        slots.put(SLOT_PAGE_PREV_ROW2, prevBannerSlotRow2);
+        slots.put(SLOT_PAGE_PREV_ROW2, prevStarSlotRow2);
 
-        GuiSlot nextBannerSlotRow2 = new GuiSlot(
+        GuiSlot nextStarSlotRow2 = new GuiSlot(
                 SLOT_PAGE_NEXT_ROW2,
-                GuiIconKind.PAGE_NEXT,
+                GuiIconKind.PAGE_NEXT_STAR,
                 null,
                 null,
                 null,
@@ -489,7 +489,7 @@ public class StatusGuiService {
                 Map.of(),
                 List.of(GuiLoreLine.ofKey("gui.history.page-info", pageInfoPlaceholders))
         );
-        slots.put(SLOT_PAGE_NEXT_ROW2, nextBannerSlotRow2);
+        slots.put(SLOT_PAGE_NEXT_ROW2, nextStarSlotRow2);
 
         slots.put(SLOT_PAGE_INFO, new GuiSlot(
                 SLOT_PAGE_INFO,
@@ -801,7 +801,7 @@ public class StatusGuiService {
             }
 
             // 3. Edge slot: Page Back (T-121, Finding 7)
-            case PAGE_PREVIOUS -> {
+            case PAGE_PREVIOUS_STAR -> {
                 if (holder.currentPage() > 0) {
                     holder.setCurrentPage(holder.currentPage() - 1);
                     renderGui(holder, viewer);
@@ -810,7 +810,7 @@ public class StatusGuiService {
             }
 
             // 4. Edge slot: Page Forward (T-121, Finding 7)
-            case PAGE_NEXT -> {
+            case PAGE_NEXT_STAR -> {
                 if (holder.currentPage() < holder.totalPages() - 1) {
                     holder.setCurrentPage(holder.currentPage() + 1);
                     renderGui(holder, viewer);

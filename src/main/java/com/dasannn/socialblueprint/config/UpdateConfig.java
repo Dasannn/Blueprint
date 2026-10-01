@@ -21,7 +21,7 @@ public record UpdateConfig(
         String apiUrl,
         long maxDownloadBytes
 ) {
-    public static final String DEFAULT_REPOSITORY = "Dasannn/SocialBlueprint";
+    public static final String DEFAULT_REPOSITORY = "Dasannn/Blueprint";
     public static final String DEFAULT_CHANNEL = "stable";
     public static final String DEFAULT_API_URL = "https://api.github.com";
     public static final long DEFAULT_MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024L; // 10 MiB

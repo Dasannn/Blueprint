@@ -230,7 +230,7 @@ update:
   auto-download: false
 
   # GitHub repository in <owner>/<repo> format (SB-076, T-080).
-  repository: "Dasannn/SocialBlueprint"
+  repository: "Dasannn/Blueprint"
 
   # Release channel: 'stable' or 'beta' (SB-076, T-080). Default: stable.
   channel: "stable"

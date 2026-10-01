@@ -82,8 +82,9 @@ public class GuiRenderer {
         return switch (slot.iconKind()) {
             case SUBJECT_HEAD, RATER_HEAD -> Material.PLAYER_HEAD;
             case TIER_DYE -> slot.dyeKind() != null ? mapDyeMaterial(slot.dyeKind()) : Material.WHITE_DYE;
-            case GIVE_BANNER, PAGE_NEXT, DIRECTION_BANNER_POSITIVE -> Material.GREEN_BANNER;
-            case TAKE_BANNER, PAGE_PREVIOUS, DIRECTION_BANNER_NEGATIVE -> Material.RED_BANNER;
+            case GIVE_BANNER, DIRECTION_BANNER_POSITIVE -> Material.GREEN_BANNER;
+            case TAKE_BANNER, DIRECTION_BANNER_NEGATIVE -> Material.RED_BANNER;
+            case PAGE_NEXT_STAR, PAGE_PREVIOUS_STAR -> Material.NETHER_STAR;
             case REASON_PAPER, PAGE_INFO -> Material.PAPER;
         };
     }

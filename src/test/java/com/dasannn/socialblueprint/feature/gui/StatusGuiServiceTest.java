@@ -397,6 +397,25 @@ public class StatusGuiServiceTest {
         }
     }
 
+    @Test
+    void pagingUsesStarsWhileRatingDirectionsRemainBanners() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+        PlayerSocialView view = new PlayerSocialView(target, "Target", 0, Tier.PARTICULAR,
+                ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 1);
+        List<ReputationEvent> ratings = List.of(
+                new ReputationEvent(1L, rater, target, 1, HonorKind.POSITIVE, 500, null, Instant.now()),
+                new ReputationEvent(2L, rater, target, -1, HonorKind.NEGATIVE, 500, "Reason", Instant.now()));
+
+        GuiLayout layout = guiService.computeAllPages(view, ratings, Set.of(), null,
+                configManager.snapshot()).getFirst();
+
+        assertThat(layout.get(18).iconKind()).isEqualTo(GuiIconKind.PAGE_PREVIOUS_STAR);
+        assertThat(layout.get(26).iconKind()).isEqualTo(GuiIconKind.PAGE_NEXT_STAR);
+        assertThat(layout.get(45).iconKind()).isEqualTo(GuiIconKind.DIRECTION_BANNER_POSITIVE);
+        assertThat(layout.get(46).iconKind()).isEqualTo(GuiIconKind.DIRECTION_BANNER_NEGATIVE);
+    }
+
     private static void assertSlotMap(GuiLayout layout, int ratingCount) {
         Map<Integer, GuiIconKind> expected = new HashMap<>(Map.of(
                 22, GuiIconKind.TIER_DYE,
@@ -404,8 +423,8 @@ public class StatusGuiServiceTest {
                 13, GuiIconKind.SUBJECT_HEAD,
                 14, GuiIconKind.TAKE_BANNER,
                 4, GuiIconKind.PAGE_INFO,
-                18, GuiIconKind.PAGE_PREVIOUS,
-                26, GuiIconKind.PAGE_NEXT));
+                18, GuiIconKind.PAGE_PREVIOUS_STAR,
+                26, GuiIconKind.PAGE_NEXT_STAR));
         for (int n = 0; n < ratingCount; n++) {
             expected.put(27 + n, GuiIconKind.RATER_HEAD);
             expected.put(36 + n, GuiIconKind.REASON_PAPER);
@@ -557,13 +576,13 @@ public class StatusGuiServiceTest {
         assertThat(countRaterHeads(holder.layout())).isEqualTo(9);
 
         GuiLayout page0Layout = holder.layout();
-        assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_PREV_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_PREVIOUS);
-        assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_NEXT_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_NEXT);
+        assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_PREV_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_PREVIOUS_STAR);
+        assertThat(page0Layout.get(StatusGuiService.SLOT_PAGE_NEXT_ROW2).iconKind()).isEqualTo(GuiIconKind.PAGE_NEXT_STAR);
         assertThat(page0Layout.get(27).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertThat(page0Layout.get(35).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertSlotMap(page0Layout, 9);
 
-        // Click next banner at slot 26
+        // Click next star at slot 26
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_NEXT_ROW2);
         assertThat(holder.currentPage()).isEqualTo(1);
         assertThat(countRaterHeads(holder.layout())).isEqualTo(1);
@@ -572,7 +591,7 @@ public class StatusGuiServiceTest {
         assertThat(page1Layout.get(27).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertSlotMap(page1Layout, 1);
 
-        // Click previous banner at slot 18
+        // Click previous star at slot 18
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_PREV_ROW2);
         assertThat(holder.currentPage()).isEqualTo(0);
         assertThat(countRaterHeads(holder.layout())).isEqualTo(9);

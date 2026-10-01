@@ -6,6 +6,7 @@ import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.config.UpdateConfig;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonParser;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.command.CommandSender;
 
 import com.dasannn.socialblueprint.domain.AuditEvent;
@@ -332,7 +333,8 @@ public class UpdateService {
                 return res;
             }
             if (status == 404) {
-                logger.warning("Could not check for updates from GitHub: repository or release not found (HTTP 404)");
+                logger.warning(PlainTextComponentSerializer.plainText().serialize(messageRegistry.render(
+                        snapshot, "updater.repository-not-found", Map.of("repository", repo))));
                 VersionCheckResult res = VersionCheckResult.unknown(runningVersion, "Not found (HTTP 404)");
                 lastResult.set(res);
                 return res;

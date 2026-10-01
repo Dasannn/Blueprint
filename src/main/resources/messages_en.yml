@@ -132,6 +132,7 @@ effects:
   whisper-3: '&#202020Look behind you.'
 
 updater:
+  repository-not-found: 'GitHub returned HTTP 404 for update repository {repository}. Check update.repository: a private repository returns the same response as a missing repository; a repository without a release also returns 404.'
   update-available: '&aNew version available: &f{version}'
   downloading: '&7Downloading update...'
   restart-required: '&aUpdate completed. Restart the server to apply.'

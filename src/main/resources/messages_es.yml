@@ -132,6 +132,7 @@ effects:
   whisper-3: '&#202020Mira detrás de ti.'
 
 updater:
+  repository-not-found: 'GitHub devolvió HTTP 404 para el repositorio de actualizaciones {repository}. Revisa update.repository: un repositorio privado devuelve la misma respuesta que uno inexistente; un repositorio sin un lanzamiento también devuelve 404.'
   update-available: '&aNueva versión disponible: &f{version}'
   downloading: '&7Descargando actualización...'
   restart-required: '&aActualización completada. Reinicia el servidor para aplicarla.'
