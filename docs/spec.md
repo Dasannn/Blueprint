@@ -28,8 +28,10 @@ a standalone authoritative integer.
 player, weighted by the age of those ratings. Repeated ratings from one actor do
 not raise Confidence.
 
-**SB-004.** Killing Psychosis measures PvP frequency over a rolling window. It
-is never reduced by, and never reduces, social status.
+**SB-004.** Killing Psychosis is one metric with a neutral point: its madness
+side measures PvP frequency over a rolling window, and its serenity side
+measures peaceful active play (SB-117/SB-118). It is never reduced by, and never
+reduces, social status; serenity is not a fourth metric.
 
 **SB-093.** The Psychosis rolling window defaults to **72 hours**, replacing
 the previous 24-hour default, and remains configurable in YAML and in-game.
@@ -40,7 +42,8 @@ This changes neither the duel exemption (SB-031) nor the independent status
 penalty (SB-032).
 
 **SB-005.** A player with no record reads as status `0`, Confidence `Unknown`,
-Psychosis at its lowest level. Never as negative or suspect.
+Psychosis at its neutral point, with no accumulated serenity. Never as
+negative-status or suspect. Serenity must be earned through play (SB-118).
 
 **SB-087.** SB-005 answers for a **player**. A name that belongs to nobody
 is not a player with no record: `/status asdkjhasd` must say the player was
@@ -199,9 +202,10 @@ after relog or restart. Their independent cooldown and session cap obey
 SB-043/SB-097, with silence after disappearance; they change no status,
 Confidence or money.
 
-**SB-041.** Every ambient hallucination in this section is visible or audible
+**SB-041.** Every madness hallucination in this section is visible or audible
 **only** to the affected player. SB-095 separately governs the speaker's chat,
-whose corrupted text is shared by all readers.
+whose corrupted text is shared by all readers. Serenity follows SB-120: its
+social signals reach nearby players, but its dawn remains private.
 
 **SB-042.** Superseded by SB-099. Harmlessness and cleanup remain required;
 the timed silverfish encounter is replaced by an immediate glimpse.
@@ -211,24 +215,24 @@ configurable.
 
 **SB-044.** Superseded by SB-101. The ambient opt-out is removed.
 
-**SB-100.** Psychosis causes cosmetic effects, with the narrowly bounded nausea
-exception of SB-112; it still neither derives from
-nor alters status, as required by constitution §2.3 and SB-001/SB-004. Ambient
-effects and chat corruption cannot change status, Reputation Confidence or
-money, nor grant or remove a mechanical advantage except for that brief nausea.
-A kill may feed Psychosis
-and the separate status event of SB-032, but an effect never writes either
-metric. SB-101 removes the former ambient opt-out; it does not change the text
-shared under SB-095.
+**SB-100.** Psychosis and serenity cause cosmetic effects only; neither
+derives from nor alters status, as required by constitution §2.3 and
+SB-001/SB-004. Ambient effects and chat corruption cannot change status,
+Reputation Confidence or money, nor grant or remove any mechanical advantage.
+They never change damage, health, absorption, invulnerability, combat state,
+movement, collision, reach, mining, drops or what a player can survive or do.
+A kill may feed Psychosis and the separate status event of SB-032, but an
+effect never writes either metric. SB-101 removes the former ambient opt-out;
+it does not change the text shared under SB-095. SB-112 was withdrawn because
+an impairment cannot be exempted from constitution §2.1.
 
 **SB-101.** There is no opt-out. `/status effects` existed because the
 effects were something low status did **to** a player, and a player could
 refuse them. Psychosis is earned by killing, so switching the effects off
 would be switching off a consequence the player chose to incur, and the
 mechanic would be decorative. The command and its stored flag are removed.
-The effects stay private and incapable of touching status, Confidence or money
-(SB-100). They are cosmetic except for the short, rare nausea explicitly
-bounded by SB-112.
+Madness effects stay private; serenity uses SB-120 visibility. All are
+cosmetic and incapable of touching status, Confidence or money (SB-100).
 
 **SB-102.** From **High**, the player sees a private night or storm for a few
 seconds, then their previous time and weather presentation returns. Use
@@ -269,7 +273,10 @@ with a short hallucination line, then the true block returns. Only the affected
 player receives `sendBlockChange` and, for a sign, `sendSignChange`; no other
 player sees either. The world and its sign data are never modified. The fake
 does not replace a block the player is using, standing on or holding, and must
-not create a client-side obstruction to movement. Restore the **current** true
+not change client collision, selection shape, targeting, reach or interaction
+behaviour, including by removing an obstruction or support. A fake sign cannot
+add a selectable or collidable shape. Skip any replacement whose equivalence
+cannot be guaranteed; appearance alone may change. Restore the **current** true
 block and sign data, not a stale snapshot; cancel pending fakes on quit, world
 change and stop. Relog or restart shows the true block and leaves no trace.
 The bounded duration and range, independent cooldown and session cap obey
@@ -329,21 +336,14 @@ leaves no trace in game state. Its single-line delivery, independent cooldown
 and session cap obey SB-043/SB-097, leaving silence between messages. It changes
 no status, Confidence or money; its template lives in the message files.
 
-**SB-112.** At **Extreme only**, brief nausea distorts the afflicted player's
-view. No other player sees the distortion or receives the effect. This is
-**not cosmetic: it impairs play**. It is justified as a bounded consequence the
-player chose to earn by killing, not as a penalty for low social status. It is
-the sole exception to SB-100's cosmetic-only rule: at most **40 ticks**, at
-most **twice per login session**, with at least **6,000 ticks** between uses.
-Configuration may shorten it or make it rarer, never exceed these ceilings or
-lower that cooldown. It never occurs at lower levels, stacks, refreshes an
-active nausea effect, or overwrites nausea from another source; skip if nausea
-is already present. Remove only this plugin's application at expiry, quit,
-world change, level dropping below Extreme or stop, preserving unrelated
-effects. Relog or restart leaves no nausea behind. Reuse SB-043's independent
-cooldown and session counter; SB-097 still requires silence after it ends,
-including when another effect's layers are pending. It changes no status,
-Confidence or money, and causes no damage, knockback or inventory change.
+**SB-112.** **Withdrawn: Extreme-only nausea.** It was approved and then
+withdrawn because it impaired play and contradicted constitution §2.1,
+which forbids mechanical consequences. The owner declined an amendment to
+§2.1; the constitution stands as written. Even a short, rare impairment is
+not a cosmetic effect and cannot be justified by the player earning it through
+kills. There is no eligible level, application, configuration switch or task
+for nausea. This records a considered and refused mechanical consequence,
+not a deferred catalogue entry.
 
 **SB-113.** **Rejected: inventory shuffling and any hallucination that changes
 what the client believes it is holding.** There is no eligible level, cadence
@@ -380,6 +380,102 @@ session cap, rather than adding a second cadence. SB-097 leaves silence between
 lines even at Extreme. Session scrollback aside, no line is stored or replayed
 and relog or restart leaves no game-state trace. They change no status,
 Confidence or money.
+
+**SB-117.** Serenity is the other direction of Killing Psychosis, not a new
+metric. Neutral means no eligible kills still contributing to the rolling
+window and no earned peaceful-play streak. While any eligible kill contributes,
+the madness side and its existing thresholds apply; serenity does not offset
+or accelerate kill expiry. After the final contribution expires under SB-093,
+active peaceful play moves the same metric past neutral into serenity. Madness
+and serenity are mutually exclusive. Neutral and serenity trigger neither
+madness hallucinations nor chat corruption. Existing profile, hover, GUI and
+`/status psychosis` detail display serenity as the direction and magnitude of
+this same metric, separately from status and Confidence, with translated text.
+A low-status player can be serene; a high-status player can be mad.
+
+**SB-118.** Serenity accrues only with **time actually played** without an
+eligible kill, after the madness window has emptied. Offline time, server
+downtime and idle/AFK time earn nothing; the wall-clock expiry of kills is not
+serenity credit. Active play requires player-originated movement or gameplay
+interaction, such as building, mining or using an object; passive transport,
+automated world activity and chat alone are not activity. After the configurable idle
+timeout since the last qualifying action, accumulation pauses until another
+qualifying action; explicitly AFK players accrue nothing. No separate rewards
+or activity score are introduced. Persist credited active duration across
+logout/restart; do not reconstruct it from elapsed wall-clock timestamps.
+An upgrade starts every player with zero credited duration; it invents no
+historical playtime. Cap credited duration at `H`; time at the ceiling is not
+banked for future recovery.
+
+Growth has **diminishing returns and a reachable ceiling**. Let `t` be credited
+active hours, `H` the active hours to the ceiling and `C` the ceiling. Set
+`x = min(t / H, 1)` and serenity `S = C * (2*x - x*x)`, in `[0, C]`.
+Each equal interval adds less than the preceding interval before the ceiling;
+at `H` the ceiling is reached exactly. Defaults are `H = 100` active hours and
+`C = 100`: 25 hours gives 43.75, 50 gives 75, and 100 gives 100. Display rounding
+never changes eligibility or the calculation. All players on the same server
+use the same curve and ceiling, so the top is reachable and comparable.
+
+**SB-119.** **One eligible kill resets all accumulated serenity to neutral
+immediately**, including its credited active duration, then contributes to the
+madness side under the existing rolling-window rule. It does not merely remove
+a step or get outweighed by stored calm: serenity describes an uninterrupted
+peaceful streak, and one eligible kill breaks that streak. Accumulation resumes
+from zero only after all eligible kill contributions expire. Duel-exempt or
+otherwise ineligible kills do not reset serenity; use exactly the eligibility
+of Psychosis events, not the independent status-penalty cooldown, cap or delta.
+A status penalty suppressed by those limits does not protect serenity. This
+reset changes neither status nor Confidence; any SB-032 event is independent.
+
+**SB-120.** Serenity grants **no mechanical advantage of any kind**. It mirrors
+the perceptual madness effects through the existing scheduler, layered sound
+slots, visual renderers and managed-fake lifecycle: private dawn, clean
+sourceless sounds, gentle particles and a kindly apparition (SB-121 through
+SB-124). There is **no serene title or action-bar line**, no chat corruption,
+and no additional catalogue. Calm is social: nearby players in the same world
+who can normally see the subject see its particles and apparition, and hear
+its sounds within the configured local range. Respect visibility/vanish and
+world boundaries; do not reveal a hidden player's presence. **Dawn alone stays
+private**: changing another person's sky would confuse rather than signal calm.
+No server-wide broadcast or persistent real entity is created.
+
+Each serenity effect obeys SB-043's independent cooldown and per-login-session
+cap and the existing episode lifecycle of SB-097/SB-116, including positive
+quiet intervals after restoration and the final sound tail. Caps belong to the
+subject, not each observer, and cannot reset on reload or direction change.
+Observer joins add no new episode; observers leaving visibility/range or the
+world lose owned visuals and pending sound layers. Direction changes cancel
+pending serenity delivery and clean up before madness can begin, and vice
+versa; they cannot bypass quiet intervals. Quit, world change, disable, relog
+and restart leave no fake or override, and no episode resumes. Neither the
+subject nor observers receive buffs, healing, protection, mob calming, loot,
+collision, targets, companions or altered game capabilities (SB-100).
+
+**SB-121.** A serene subject briefly sees a **private dawn**, after which their
+prior time presentation returns, or normal world tracking if there was no
+override. Reuse SB-102's private-time renderer and ownership/restoration rules;
+never change world time/weather, clear an unrelated weather override or
+overwrite a newer external override. Every observer keeps their own sky.
+
+**SB-122.** Clean **sourceless sounds** evoke birds, a distant bell, water or a
+village murmur. Reuse SB-090 through SB-092 named layered slots and relative
+placement with finite audible tails. The subject and eligible nearby observers
+hear the same episode; no bird, bell, water flow, villager or actionable source
+exists. Cleanup cancels undelivered layers for departed observers. Sound keys,
+volume, pitch, category and tick delays remain configurable.
+
+**SB-123.** **Gentle particles** briefly appear around or beneath the serene
+subject, visible to the subject and eligible nearby observers. Reuse SB-103's
+bounded visual delivery with the SB-120 audience; no entity, collision or
+world state is created. They neither illuminate blocks nor change light levels.
+
+**SB-124.** A **kindly apparition** of a cat, fox or wolf briefly looks at the
+serene subject and goes. It is a packet-only visual fake, visible to the subject
+and eligible nearby observers. Reuse managed-fake cleanup and the phantom
+renderer; this is no real, tamed or summoned animal. It never collides, targets,
+follows, attacks, scares mobs, takes damage, responds to interaction, can be
+bred/tamed, drops items/XP or affects spawning. The look and departure are
+bounded visual animation only; they cannot obstruct movement or interaction.
 
 ## 7. Honor economy
 
@@ -494,13 +590,14 @@ effects engine. In `config.yml`, every effect under `effects.<id>` has
 `enabled`, `minimum-level`, `cooldown-ticks` and `session-cap`. The ids are
 `sky`, `particles`, `screen-flash`, `source-less-sounds`, `block-change`,
 `sign`, `hurt-flash`, `victim-ghost`, `advancement-toast`, `boss-bar`,
-`false-death`, `nausea`, `fake-connection`, `private-chat` and `phantom-mob`.
+`false-death`, `fake-connection`, `private-chat` and `phantom-mob`.
 Reuse existing cooldown and cap settings when adopting these names on upgrade;
 preserve owner overrides. Caps count deliveries per login session and are not
 reset by reload or changing level. A skipped effect consumes no delivery.
 Minimum levels may be raised, never lowered below their catalogue floor:
 Medium for the mild effects, High for sky, block/sign, hurt flash, victim ghost,
-false death and the instant phantom of SB-099, Extreme for nausea.
+false death and the instant phantom of SB-099. Nausea has no keys (SB-112);
+retire any legacy nausea settings on upgrade without enabling an effect.
 
 `effects.episodes.<medium|high|extreme>.interval-ticks` and
 `effects.episodes.quiet-ticks` bound the existing scheduler. Quiet ticks must
@@ -528,7 +625,6 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 | Advancement toast / SB-109 | `icon`, `duration-ticks`; icon is visual only, not an item grant |
 | Boss bar / SB-110 | `colour`, `style`, `progress`, `duration-ticks`; progress lies in `[0, 1]` |
 | False death / SB-111 | `range-blocks`; positive finite range and a living, visible nearby subject required |
-| Nausea / SB-112 | `duration-ticks` from 1 to 40, `cooldown-ticks` at least 6,000, `session-cap` from 0 to 2; no stacking or amplifier setting |
 | Custom/private chat / SB-115 | `max-visible-length` from 1 to 160; no custom-line list here |
 
 Cosmetic `duration-ticks` values are positive and at most 100 ticks (five
@@ -561,6 +657,42 @@ has no click actions; only the specifically approved built-in templates may
 represent false events. Sign lines use their tighter bounds. Behaviour stays
 in `config.yml`, all text and its colours stay in the message files, and both
 remain editable in-game under SB-062. Inventory deception has no keys (SB-113).
+
+**SB-125.** Serenity configuration uses the existing typed, validated,
+live-editable snapshots, upgrade merging and bilingual message layer. It adds
+no second effects engine. These keys belong in `config.yml`:
+
+| Key | Default / bounds |
+|---|---|
+| `psychosis.serenity.ceiling` | `100`; positive finite `C` |
+| `psychosis.serenity.active-hours-to-ceiling` | `100`; positive finite `H`, with SB-118's fixed diminishing-return curve |
+| `psychosis.serenity.idle-timeout-seconds` | `300`; positive finite active-play timeout, never offline or AFK credit |
+| `effects.serenity.episodes.interval-ticks` | `6000`; positive; no constant delivery |
+| `effects.serenity.episodes.quiet-ticks` | `200`; positive and begins after final cleanup/sound tail |
+| `effects.serenity.observer-range-blocks` | `16`; positive finite local range, subject to SB-120 visibility |
+
+For each `effects.serenity.<dawn|source-less-sounds|particles|apparition>`, keys
+are `enabled` (default `true`), `minimum-serenity` (default `1`, positive and
+at most `C`), `cooldown-ticks` (default `6000`, positive) and `session-cap`
+(default `12`, nonnegative; `0` disables delivery). These use serenity magnitude,
+never the madness `minimum-level`. Additional behaviour keys reuse SB-116:
+
+| Effect / clause | Keys and bounds |
+|---|---|
+| Dawn / SB-121 | `time-ticks` (default `23000`, integer from 0 to 23999), `duration-ticks` (default `60`) |
+| Source-less sounds / SB-122 | `sound-slot` (default `serenity-clean`), finite `offset.forward-blocks`, `offset.right-blocks`, `offset.up-blocks` (default `0` each), `playback-ticks` (default `60`); slot uses SB-092 layers with clean bird/bell/water/murmur defaults |
+| Particles / SB-123 | `type` (default `end_rod`), `placement` (default `around`), `count` (default `8`), `radius-blocks` (default `1`), `duration-ticks` (default `40`); SB-116 bounds apply |
+| Apparition / SB-124 | `kind` (`cat`, `fox` or `wolf`, default `cat`), `range-blocks` (default `3`, positive finite), `duration-ticks` (default `60`); no real-entity, taming or combat settings |
+
+Durations and total sound delays plus playback obey SB-116's 100-tick ceiling.
+Reload validates all values atomically, including thresholds against `C`, and
+cannot reset credited duration, session caps or cooldowns. Changing `H` or `C`
+recomputes serenity from already credited duration, clamped to the new `H`;
+it never grants wall-clock credit. Both language files add
+`psychosis.serenity.name`, `psychosis.serenity.detail` (magnitude `{value}` and
+ceiling `{ceiling}`), and `psychosis.neutral.name`, through SB-062/SB-063/SB-068.
+These are profile/detail labels, not episode messages. There are no serene
+title/action-bar keys and no nausea keys.
 
 ## 9. Commands
 
@@ -706,7 +838,7 @@ Deliberate deletions, so no agent restores them as "missing functionality".
 - [ ] Every sound the plugin plays can be retuned, silenced or replaced from
       `config.yml` without recompiling, and an unknown sound key logs a warning
       instead of throwing.
-- [ ] Ambient effects reach only the affected player, respect their cooldowns,
+- [ ] Madness ambient effects reach only the affected player, respect their cooldowns,
       and leave no entity behind after quit or restart.
 - [ ] Fake connection messages name only the affected player and reach only
       that player; phantom mobs vanish immediately and have no damage,
@@ -721,9 +853,19 @@ Deliberate deletions, so no agent restores them as "missing functionality".
 - [ ] A victim ghost uses only the killer's own eligible victim history, skips
       without a known victim and cannot impersonate a real player's presence;
       false death requires another visible living player (SB-108, SB-111).
-- [ ] Extreme-only nausea is acknowledged as impairing play, lasts at most
-      40 ticks, occurs at most twice per session and at least 6,000 ticks apart,
-      never stacks and leaves unrelated effects intact (SB-112).
+- [ ] Nausea has no delivery path or configuration keys; every effect is
+      cosmetic with no mechanical advantage or impairment. Fake blocks preserve
+      client collision, selection and interaction behaviour (SB-100, SB-106,
+      withdrawn SB-112).
+- [ ] Serenity is the same metric past neutral: only active peaceful play
+      accrues it after kill expiry, never offline/idle time; diminishing returns
+      reach the configured ceiling. One eligible kill resets the streak; duel
+      exemptions and status-penalty limits do not change its rule
+      (SB-117 through SB-119).
+- [ ] Serenity signals are local and shared with eligible nearby observers;
+      dawn is private, no serene title appears, and every apparition remains
+      harmless. Direction/range/visibility changes and quit/reload/restart leave
+      no fake or override or bypass of limits (SB-120 through SB-125).
 - [ ] No inventory or held-item deception exists; configurable coloured fake
       connection templates and bounded custom lines live in both message files,
       with rejected entries identified on load and edit (SB-113 through SB-116).

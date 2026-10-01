@@ -48,13 +48,15 @@ event. Neither metric feeds the other. Effects write neither metric and cannot
 touch Reputation Confidence or money (SB-100).
 
 Private, cosmetic delivery respects §2.1: no combat or material advantage is
-changed. Quiet intervals and the retained ambient opt-out (SB-044) leave room
-to play under §2.2. Expiry from the 72-hour window provides recovery under §2.6.
+changed. Quiet intervals leave room to play under §2.2. SB-101 subsequently
+removed the ambient opt-out; SB-044 is superseded. Expiry from the 72-hour
+window provides recovery under §2.6.
 
 ## Consequences
 
 - SB-040 and SB-042 are superseded by SB-096 through SB-099; SB-041, SB-043 and
-  SB-044 retain the private-delivery, rate-limit and opt-out boundaries.
+  SB-044 originally retained the private-delivery, rate-limit and opt-out
+  boundaries; SB-101 subsequently superseded SB-044.
 - The scheduler, per-player cooldowns and session caps, managed-entity cleanup
   and configurable layered sounds already exist. Rewire their trigger and
   episode behaviour; do not build another effects engine.
@@ -63,3 +65,28 @@ to play under §2.2. Expiry from the 72-hour window provides recovery under §2.
   tasks in P13, not code changes made by this decision.
 - Decision 0002 stays in the repository, marked superseded, so its mistake and
   retained safeguards remain visible.
+
+## Owner clarification — serenity and the constitutional boundary
+
+The owner approved and then withdrew the Extreme nausea clause (SB-112)
+because it contradicted constitution §2.1, and declined an amendment to that
+principle. No mechanical exception exists, however short or rare. SB-112
+records the refusal in place; its configuration and implementation task are
+removed. SB-100 again forbids every mechanical advantage or impairment.
+
+The same metric continues past neutral into serenity (SB-117 through SB-125).
+It does not derive from or alter status, and no fourth metric is introduced.
+Madness still rises on eligible kills and recovers through their rolling-window
+expiry; serenity thereafter grows only through active peaceful play, with
+diminishing returns and a reachable ceiling. One eligible kill resets the
+peaceful streak, then contributes to madness as before. Logout can expire a
+kill but can never earn serenity.
+
+The owner chose perceptual serenity effects mirroring the existing machinery:
+private dawn, clean sourceless sounds, gentle particles and a kindly cat, fox
+or wolf apparition. There is no serene title. Calm is a social signal, so
+nearby visible players hear/see sounds, particles and apparitions. Dawn is the
+exception and stays private. This clarifies SB-041's boundary: madness is in
+the sufferer's head, while serenity can be noticed by others. Shared cosmetic
+delivery never creates a real animal, world change, reward or mechanical
+advantage. Existing scheduling, limits, sound slots and fake cleanup are reused.

@@ -151,14 +151,19 @@ gradient implemented in P3. Extend the configurable Psychosis window to a
 72-hour default first, then rewire the existing scheduler and episode limits,
 correct the private fake messages and phantom lifetime, and add shared partial
 chat corruption. The cooldowns, session caps, managed-entity cleanup and layered
-sounds already exist; this phase reuses them.
+sounds already exist; this phase reuses them. The cosmetic catalogue and
+serenity (SB-102 through SB-125, with SB-112 withdrawn) use the same machinery.
+Serenity extends the one metric past neutral through active peaceful play,
+with diminishing returns to a reachable ceiling; an eligible kill resets it.
+Sounds, particles and kindly apparitions are visible locally; dawn stays private.
+No mechanical consequence or serene title is permitted.
 
 **Gate:** SB-093 through SB-100 are verified: low status alone causes no
 hallucinations, Psychosis does; episodes leave silence even at extreme; fake
 connection messages name their recipient; phantoms vanish immediately and are
 harmless; every chat reader sees the same partially corrupted, usable text.
 Neither presentation changes any metric or money. P11's acceptance walk uses
-these updated rules before release.
+these updated rules and T-174's full-catalogue/serenity verification before release.
 
 ## Working agreement
 
