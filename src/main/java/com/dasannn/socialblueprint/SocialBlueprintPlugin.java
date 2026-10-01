@@ -72,6 +72,11 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         // Initialize MessageRegistry and ConfigManager
         this.messageRegistry = new MessageRegistry(getDataFolder(), "en", getLogger());
 
+        // Finding 1 (threading audit): configuration loading and defaults merging run
+        // synchronously on the main thread during enable. During enable the server is not
+        // ticking and no player is connected, so there is no tick to stall; moving
+        // configuration loading off the main thread would buy nothing and risk a
+        // half-initialised plugin.
         File configFile = new File(getDataFolder(), "config.yml");
         this.configManager = new ConfigManager(
                 configFile,
@@ -83,6 +88,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                         runnable.run();
                     }
                 },
+                () -> getDescription().getVersion(),
                 getLogger()
         );
 

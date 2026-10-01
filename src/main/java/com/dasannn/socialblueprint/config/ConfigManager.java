@@ -41,15 +41,21 @@ public class ConfigManager {
     private final Executor ioExecutor;
     private final MessageRegistry messageRegistry;
     private final AtomicReference<RuntimeSnapshot> snapshotRef;
+    private final java.util.function.Supplier<String> versionSupplier;
     private final java.util.List<java.util.function.Consumer<RuntimeSnapshot>> snapshotListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Object writeLock = new Object();
 
-    public ConfigManager(File configFile, MessageRegistry messageRegistry, Executor ioExecutor, Logger logger) {
+    public ConfigManager(File configFile, MessageRegistry messageRegistry, Executor ioExecutor, java.util.function.Supplier<String> versionSupplier, Logger logger) {
         this.configFile = Objects.requireNonNull(configFile, "configFile must not be null");
         this.messageRegistry = messageRegistry;
         this.ioExecutor = ioExecutor != null ? ioExecutor : Runnable::run;
         this.logger = logger != null ? logger : Logger.getLogger(ConfigManager.class.getName());
+        this.versionSupplier = versionSupplier != null ? versionSupplier : ConfigManager::resolveBundledVersion;
         this.snapshotRef = messageRegistry != null ? messageRegistry.snapshotReference() : new AtomicReference<>();
+    }
+
+    public ConfigManager(File configFile, MessageRegistry messageRegistry, Executor ioExecutor, Logger logger) {
+        this(configFile, messageRegistry, ioExecutor, null, logger);
     }
 
     public void addSnapshotListener(java.util.function.Consumer<RuntimeSnapshot> listener) {
@@ -87,9 +93,11 @@ public class ConfigManager {
     public RuntimeSnapshot reload() {
         synchronized (writeLock) {
             migrateLegacyHonorWindowIfNeeded(configFile, logger);
+            File dataFolder = configFile.getParentFile();
+            ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
+
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
             PluginConfig newConfig = PluginConfig.load(yaml);
-            File dataFolder = configFile.getParentFile();
             MessagesSnapshot newMessages = MessageRegistry.loadMessagesSnapshot(dataFolder, newConfig.language(), logger);
             RuntimeSnapshot newSnapshot = new RuntimeSnapshot(newConfig, newMessages);
             snapshotRef.set(newSnapshot);
@@ -136,7 +144,7 @@ public class ConfigManager {
             return false;
         }
         String resolved = resolveConfigPath(path);
-        if (SUPPORTED_CONFIG_LEAVES.contains(resolved)) {
+        if (isSupportedConfigLeaf(resolved)) {
             return true;
         }
         return snapshot != null && snapshot.messages().isKnownKey(path);
@@ -334,14 +342,14 @@ public class ConfigManager {
     }
 
     private Object parseValueForPath(String path, String raw) {
-        if ("kill-penalty.exempt-worlds".equals(path)) {
+        if ("kill-penalty.exempt-worlds".equals(path) || "effects.fake-announcement.fake-names".equals(path)) {
             return parseStringList(raw);
         }
         return parseValue(raw);
     }
 
     private String formatRawValueForPath(String path, String raw) {
-        if ("kill-penalty.exempt-worlds".equals(path)) {
+        if ("kill-penalty.exempt-worlds".equals(path) || "effects.fake-announcement.fake-names".equals(path)) {
             List<String> list = parseStringList(raw);
             return "[" + String.join(", ", list) + "]";
         }
@@ -403,6 +411,20 @@ public class ConfigManager {
         }
     }
 
+    private static String resolveBundledVersion() {
+        try (InputStream in = ConfigManager.class.getClassLoader().getResourceAsStream("plugin.yml")) {
+            if (in != null) {
+                YamlConfiguration yaml = YamlConfiguration.loadConfiguration(new java.io.InputStreamReader(in, StandardCharsets.UTF_8));
+                String v = yaml.getString("version");
+                if (v != null && !v.isBlank()) {
+                    return v.trim();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "1.0";
+    }
+
     private static Set<String> createSupportedConfigLeaves() {
         Set<String> set = new HashSet<>();
         set.add("language");
@@ -444,8 +466,30 @@ public class ConfigManager {
         set.add("permissions.admin-adjust");
         set.add("permissions.admin-config");
         set.add("permissions.duel");
+        set.add("permissions.effects");
         set.add("permissions.version");
         set.add("permissions.admin-update");
+        set.add("permissions.admin-import");
+
+        set.add("duel.challenge-timeout");
+        set.add("duel.disconnect.combat-log-window");
+        set.add("duel.disconnect.reconnect-grace-period");
+        set.add("duel.disconnect.action");
+
+        set.add("effects.threshold");
+        set.add("effects.check-interval");
+        set.add("effects.silverfish.cooldown");
+        set.add("effects.silverfish.session-cap");
+        set.add("effects.silverfish.duration-ticks");
+        set.add("effects.whisper.cooldown");
+        set.add("effects.whisper.session-cap");
+        set.add("effects.creeper.cooldown");
+        set.add("effects.creeper.session-cap");
+        set.add("effects.fake-announcement.cooldown");
+        set.add("effects.fake-announcement.session-cap");
+        set.add("effects.fake-announcement.fake-names");
+
+        set.add("legacy-import.trust-name-lookup");
 
         set.add("update.check-on-startup");
         set.add("update.auto-download");
