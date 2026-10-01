@@ -47,27 +47,21 @@ public class StatusHistoryCommand {
         Objects.requireNonNull(args, "args must not be null");
         Objects.requireNonNull(snapshot, "snapshot must not be null");
 
+        if (sender instanceof Player && !PermissionChecker.hasPermission(sender, "admin-adjust", snapshot)) {
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+            return CompletableFuture.completedFuture(null);
+        }
+
         // 1. Determine target
         if (args.length == 0) {
             if (!(sender instanceof Player player)) {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.player-only"));
                 return CompletableFuture.completedFuture(null);
             }
-            if (!PermissionChecker.hasPermission(player, "show", snapshot)
-                    && !PermissionChecker.hasPermission(player, "view-reputation", snapshot)) {
-                player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
-                return CompletableFuture.completedFuture(null);
-            }
             return showHistory(sender, player.getName(), snapshot);
         }
 
         // Target specified
-        if (!PermissionChecker.hasPermission(sender, "show-others", snapshot)
-                && !PermissionChecker.hasPermission(sender, "view-reputation", snapshot)) {
-            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
-            return CompletableFuture.completedFuture(null);
-        }
-
         return showHistory(sender, args[0], snapshot);
     }
 

@@ -294,7 +294,7 @@ class StatusHistoryCommandTest {
         ReputationEvent rating = reputationRepo.save(new ReputationEvent(
                 0L, raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "Full written reason", baseTime));
         for (String language : List.of("en", "es")) {
-            MockPlayerRecord viewer = new MockPlayerRecord("Viewer-" + language, false, "socialblueprint.show.others");
+            MockPlayerRecord viewer = new MockPlayerRecord("Viewer-" + language, false, "socialblueprint.admin.adjust");
             configManager.set("language", language);
             RuntimeSnapshot snapshot = configManager.snapshot();
             for (boolean revealed : List.of(false, true)) {
@@ -322,6 +322,70 @@ class StatusHistoryCommandTest {
                 assertThat(recordingRegistry.getRaw(snapshot, "status.history-entry"))
                         .contains("{time}", "{delta}", "{reason}").doesNotContain("{actor}");
             }
+        }
+    }
+
+    @Test
+    void consoleCanReadHistoryWithoutPermissions() {
+        registerPlayer("Target");
+        MockSenderRecord console = new MockSenderRecord("Console", false);
+        historyCommand.execute(console.sender, new String[]{"Target"}, configManager.snapshot()).join();
+        assertThat(recordingRegistry.findFirstCall("status.history-header").orElseThrow().stringPlaceholders())
+                .containsEntry("player", "Target");
+        assertThat(recordingRegistry.findCalls("commands.no-permission")).isEmpty();
+    }
+
+    @Test
+    void adminAdjustAloneAllowsSelfAndOtherHistory() {
+        registerPlayer("Admin");
+        registerPlayer("Target");
+        MockPlayerRecord admin = new MockPlayerRecord("Admin", false, "socialblueprint.admin.adjust");
+        for (String[] args : List.of(new String[0], new String[]{"Target"})) {
+            recordingRegistry.renderCalls.clear();
+            historyCommand.execute(admin.player, args, configManager.snapshot()).join();
+            assertThat(recordingRegistry.findFirstCall("status.history-header").orElseThrow().stringPlaceholders())
+                    .containsEntry("player", args.length == 0 ? "Admin" : "Target");
+            assertThat(recordingRegistry.findCalls("commands.no-permission")).isEmpty();
+        }
+    }
+
+    @Test
+    void ordinaryPermissionsCannotReadSelfOrOtherHistory() {
+        registerPlayer("Viewer");
+        registerPlayer("Target");
+        for (String permission : List.of("socialblueprint.show", "socialblueprint.show.others",
+                "socialblueprint.view", "socialblueprint.view.reputation", "pstatus.show", "pstatus.viewReputation")) {
+            MockPlayerRecord viewer = new MockPlayerRecord("Viewer", false, permission);
+            for (String[] args : List.of(new String[0], new String[]{"Target"})) {
+                recordingRegistry.renderCalls.clear();
+                historyCommand.execute(viewer.player, args, configManager.snapshot()).join();
+                assertThat(recordingRegistry.findCalls("commands.no-permission")).hasSize(1);
+                assertThat(recordingRegistry.findCalls("status.history-header")).isEmpty();
+                assertThat(recordingRegistry.findCalls("status.history-entry")).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void historyCompletionIsOnlyForAdminsAndNonPlayers() {
+        Player target = registerPlayer("Target");
+        StatusCommandExecutor executor = new StatusCommandExecutor(
+                configManager, recordingRegistry, profileService, null, Runnable::run, () -> List.of(target));
+        MockPlayerRecord admin = new MockPlayerRecord("Admin", false, "socialblueprint.admin.adjust");
+        MockSenderRecord console = new MockSenderRecord("Console", false);
+        for (CommandSender sender : List.of(admin.player, console.sender)) {
+            assertThat(executor.onTabComplete(sender, null, "status", new String[]{""})).contains("history");
+            assertThat(executor.onTabComplete(sender, null, "status", new String[]{"hi"})).containsExactly("history");
+            assertThat(executor.onTabComplete(sender, null, "status", new String[]{"history", ""}))
+                    .containsExactly("Target");
+        }
+        for (String permission : List.of("socialblueprint.show", "socialblueprint.show.others",
+                "socialblueprint.view", "socialblueprint.view.reputation", "socialblueprint.admin.config")) {
+            MockPlayerRecord viewer = new MockPlayerRecord("Viewer", false, permission);
+            assertThat(executor.onTabComplete(viewer.player, null, "status", new String[]{""}))
+                    .doesNotContain("history");
+            assertThat(executor.onTabComplete(viewer.player, null, "status", new String[]{"hi"})).isEmpty();
+            assertThat(executor.onTabComplete(viewer.player, null, "status", new String[]{"history", ""})).isEmpty();
         }
     }
 
