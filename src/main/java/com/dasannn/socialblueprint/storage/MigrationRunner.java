@@ -36,7 +36,10 @@ public final class MigrationRunner {
     }
 
     public static MigrationRunner withDefaultMigrations() {
-        return new MigrationRunner(List.of(new Migration_1_InitialSchema()));
+        return new MigrationRunner(List.of(
+                new Migration_1_InitialSchema(),
+                new Migration_2_RaterReveal()
+        ));
     }
 
     /**

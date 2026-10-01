@@ -274,3 +274,10 @@ sounds:
     pitch: 0.5
     category: HOSTILE
 
+# ==============================================================================
+# Rating History GUI & Anonymity (SB-080 to SB-084, T-120 to T-126)
+# ==============================================================================
+history:
+  # Cost in currency to reveal an anonymous rater's identity in the /status GUI (T-124).
+  reveal-cost: 100.0
+

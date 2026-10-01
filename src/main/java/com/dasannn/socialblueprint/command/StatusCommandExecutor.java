@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.UUID;
 import com.dasannn.socialblueprint.domain.PlayerId;
@@ -60,6 +61,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final Consumer<Runnable> mainThreadRunner;
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
     private final Consumer<UUID> optOutCleaner;
+    private final com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService;
 
     private volatile CompletableFuture<?> lastExecution = CompletableFuture.completedFuture(null);
 
@@ -73,7 +75,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             Consumer<Runnable> mainThreadRunner,
             Supplier<Collection<? extends Player>> onlinePlayersSupplier,
             Consumer<UUID> optOutCleaner,
-            com.dasannn.socialblueprint.feature.update.UpdateService updateService
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
     ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
@@ -95,6 +98,22 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 : null;
         this.onlinePlayersSupplier = onlinePlayersSupplier != null ? onlinePlayersSupplier : Collections::emptyList;
         this.optOutCleaner = optOutCleaner;
+        this.statusGuiService = statusGuiService;
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<Collection<? extends Player>> onlinePlayersSupplier,
+            Consumer<UUID> optOutCleaner,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService
+    ) {
+        this(configManager, messageRegistry, profileService, honorService, duelService, auditRepository, mainThreadRunner, onlinePlayersSupplier, optOutCleaner, updateService, null);
     }
 
     public StatusCommandExecutor(
@@ -221,6 +240,39 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
             Consumer<UUID> optOutCleaner,
             Plugin plugin,
+            com.dasannn.socialblueprint.feature.update.UpdateService updateService,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService
+    ) {
+        this(
+                configManager,
+                messageRegistry,
+                profileService,
+                honorService,
+                duelService,
+                auditRepository,
+                runnable -> {
+                    if (plugin != null && plugin.isEnabled()) {
+                        Bukkit.getScheduler().runTask(plugin, runnable);
+                    } else if (plugin == null) {
+                        runnable.run();
+                    }
+                },
+                Bukkit::getOnlinePlayers,
+                optOutCleaner,
+                updateService,
+                statusGuiService
+        );
+    }
+
+    public StatusCommandExecutor(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            ProfileService profileService,
+            HonorService honorService,
+            com.dasannn.socialblueprint.feature.duel.DuelService duelService,
+            com.dasannn.socialblueprint.storage.AuditRepository auditRepository,
+            Consumer<UUID> optOutCleaner,
+            Plugin plugin,
             com.dasannn.socialblueprint.feature.update.UpdateService updateService
     ) {
         this(
@@ -239,7 +291,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 },
                 Bukkit::getOnlinePlayers,
                 optOutCleaner,
-                updateService
+                updateService,
+                null
         );
     }
 
@@ -574,7 +627,20 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     }
 
     private void handleShowProfile(CommandSender sender, String targetInput, RuntimeSnapshot snapshot) {
-        this.lastExecution = executeShowProfile(sender, targetInput, snapshot);
+        if (sender instanceof Player player && statusGuiService != null) {
+            this.lastExecution = statusGuiService.openGuiAsync(player, targetInput, snapshot)
+                    .exceptionally(ex -> {
+                        Logger.getLogger(StatusCommandExecutor.class.getName())
+                                .log(java.util.logging.Level.SEVERE, "Failed to open status GUI for " + player.getName(), ex);
+                        return null;
+                    });
+        } else {
+            this.lastExecution = executeShowProfile(sender, targetInput, snapshot);
+        }
+    }
+
+    public com.dasannn.socialblueprint.feature.gui.StatusGuiService getStatusGuiService() {
+        return statusGuiService;
     }
 
     private CompletableFuture<Void> handleToggleEffects(Player player, RuntimeSnapshot snapshot) {

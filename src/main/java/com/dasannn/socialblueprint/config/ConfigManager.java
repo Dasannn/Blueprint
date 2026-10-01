@@ -464,6 +464,7 @@ public class ConfigManager {
         set.add("sounds.creeper-fuse.volume");
         set.add("sounds.creeper-fuse.pitch");
         set.add("sounds.creeper-fuse.category");
+        set.add("history.reveal-cost");
 
         return Collections.unmodifiableSet(set);
     }

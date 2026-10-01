@@ -8,6 +8,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
@@ -45,7 +46,9 @@ public class StatusGiveCommand {
         String target = args[0];
         String reason = args.length > 1 ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : null;
         if (reason != null && reason.length() > com.dasannn.socialblueprint.domain.ReputationEvent.MAX_REASON_LENGTH) {
-            reason = reason.substring(0, com.dasannn.socialblueprint.domain.ReputationEvent.MAX_REASON_LENGTH);
+            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.reason-too-long",
+                    Map.of("max", String.valueOf(com.dasannn.socialblueprint.domain.ReputationEvent.MAX_REASON_LENGTH))));
+            return CompletableFuture.completedFuture(null);
         }
 
         return honorService.preparePlayerHonor(player, target, HonorKind.POSITIVE, reason, snapshot);

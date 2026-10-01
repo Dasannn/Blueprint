@@ -272,6 +272,8 @@ class SocialBlueprintPluginTest {
         assertThat(plugin.getDuelService()).isNotNull();
         assertThat(plugin.getAmbientEntityRegistry()).isNotNull();
         assertThat(plugin.getAmbientEffectScheduler()).isNotNull();
+        assertThat(plugin.getRaterRevealRepository()).isNotNull();
+        assertThat(plugin.getStatusGuiService()).isNotNull();
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {

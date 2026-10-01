@@ -55,6 +55,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private com.dasannn.socialblueprint.feature.update.UpdateService updateService;
     private LegacyImportService legacyImportService;
     private Economy economy;
+    private com.dasannn.socialblueprint.storage.RaterRevealRepository raterRevealRepository;
+    private com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService;
     private AmbientEntityRegistry ambientEntityRegistry;
     private FakeSilverfishService fakeSilverfishService;
     private AmbientEffectDispatcher ambientEffectDispatcher;
@@ -174,6 +176,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         this.psychosisRepository = new PsychosisRepository(storageEngine);
         this.auditRepository = new AuditRepository(storageEngine);
         this.compensationRepository = new CompensationRepository(storageEngine);
+        this.raterRevealRepository = new com.dasannn.socialblueprint.storage.RaterRevealRepository(storageEngine);
         this.duelRepository = new com.dasannn.socialblueprint.storage.DuelRepository(storageEngine);
 
         BukkitPlayerLookup playerLookup = new BukkitPlayerLookup(getServer());
@@ -213,6 +216,35 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         );
         this.honorService.reconcileCompensationsAsync();
 
+        this.statusGuiService = new com.dasannn.socialblueprint.feature.gui.StatusGuiService(
+                messageRegistry,
+                profileService,
+                reputationRepository,
+                raterRevealRepository,
+                honorService,
+                runnable -> {
+                    if (isEnabled()) {
+                        getServer().getScheduler().runTask(this, runnable);
+                    }
+                },
+                economy,
+                uuid -> {
+                    if (getServer() != null) {
+                        return getServer().getOfflinePlayer(uuid);
+                    }
+                    return null;
+                },
+                java.time.Clock.systemUTC(),
+                new com.dasannn.socialblueprint.feature.gui.GuiRenderer(messageRegistry, uuid -> {
+                    if (getServer() != null) {
+                        return getServer().getOfflinePlayer(uuid);
+                    }
+                    return null;
+                }),
+                compensationRepository,
+                getLogger()
+        );
+
         this.duelService = new com.dasannn.socialblueprint.feature.duel.DuelService(
                 duelRepository,
                 auditRepository,
@@ -246,7 +278,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         );
 
         getServer().getPluginManager().registerEvents(
-                new AsyncChatListener(profileService, configManager, messageRegistry),
+                new AsyncChatListener(profileService, configManager, messageRegistry, statusGuiService),
                 this
         );
         getServer().getPluginManager().registerEvents(
@@ -278,6 +310,10 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(
                 new AmbientEffectsListener(ambientEntityRegistry, ambientEffectScheduler),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new com.dasannn.socialblueprint.platform.listener.StatusGuiListener(statusGuiService, getLogger()),
                 this
         );
 
@@ -328,7 +364,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     ambientEntityRegistry::cleanForPlayer,
                     legacyImportService,
                     this,
-                    updateService
+                    updateService,
+                    statusGuiService
             );
             statusCmd.setExecutor(executor);
             statusCmd.setTabCompleter(executor);
@@ -434,6 +471,17 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
             honorService.setEconomy(economy);
             honorService.reconcileCompensationsAsync();
         }
+        if (statusGuiService != null) {
+            statusGuiService.setEconomy(economy);
+        }
+    }
+
+    public com.dasannn.socialblueprint.storage.RaterRevealRepository getRaterRevealRepository() {
+        return raterRevealRepository;
+    }
+
+    public com.dasannn.socialblueprint.feature.gui.StatusGuiService getStatusGuiService() {
+        return statusGuiService;
     }
 
     public com.dasannn.socialblueprint.storage.DuelRepository getDuelRepository() {
