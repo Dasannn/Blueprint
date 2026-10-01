@@ -322,6 +322,20 @@ another player's screen.
 scenes. The cap of SB-054 is still counted per actor-target pair, an
 administrator still sees who rated whom, and the audit trail is unaffected.
 
+**SB-085.** A history line reads as a sentence to a player, not as a log line
+to an operator. The machine timestamp is replaced by how long ago the rating
+happened, in the player's language, at the granularity that is actually useful
+(minutes within the hour, hours within the day, then days). The exact instant
+stays available on hover and in the audit trail, which is where a precise time
+belongs.
+
+**SB-086.** Giving and removing honor is reachable from a chest GUI, not only
+from `/status give` and `/status take`. The GUI is a **surface**, not a second
+set of rules: SB-081 already binds it to the same cost, cooldown, cap and audit
+as the command, and the reason prompt, the confirmation and the charge are the
+same path. The commands keep working: an operator with no client, and a console,
+still need them.
+
 
 ## 12. Later releases
 
