@@ -316,7 +316,7 @@ class AmbientPrivacyTest {
 
         assertThat(targetPlayer.receivedMessages).hasSize(1);
         assertThat(messageRegistry.renderedCalls).singleElement().satisfies(call -> {
-            assertThat(call.key()).isIn("effects.fake-join", "effects.fake-leave");
+            assertThat(call.key()).isIn("effects.fake-connection.join", "effects.fake-connection.leave");
             assertThat(call.placeholders()).containsExactlyEntriesOf(Map.of("player", targetPlayer.name));
         });
 

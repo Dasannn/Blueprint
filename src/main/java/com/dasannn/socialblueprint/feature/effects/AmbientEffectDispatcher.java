@@ -9,6 +9,9 @@ import com.dasannn.socialblueprint.config.SoundLayerConfig;
 import com.dasannn.socialblueprint.config.SoundSlotConfig;
 import com.dasannn.socialblueprint.config.PresentationConfig;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.bossbar.BossBar;
+import com.dasannn.socialblueprint.config.CatalogueLines;
+import com.dasannn.socialblueprint.config.ConfigValidationException;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -50,6 +53,7 @@ public class AmbientEffectDispatcher {
     private final Map<UUID, List<SoundScheduler.TaskHandle>> pendingTasks = new ConcurrentHashMap<>();
     private final Map<UUID, Runnable> activeSoundStops = new ConcurrentHashMap<>();
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
+    private final java.util.logging.Logger logger;
     private final Random random = new Random();
 
     public AmbientEffectDispatcher(
@@ -79,6 +83,7 @@ public class AmbientEffectDispatcher {
             SoundScheduler scheduler,
             SoundPlayer soundPlayer
     ) {
+        this.logger = plugin == null ? java.util.logging.Logger.getLogger(getClass().getName()) : plugin.getLogger();
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "MessageRegistry must not be null");
         this.silverfishService = Objects.requireNonNull(silverfishService, "FakeSilverfishService must not be null");
         this.scheduler = scheduler != null ? scheduler : defaultScheduler(plugin);
@@ -110,6 +115,12 @@ public class AmbientEffectDispatcher {
 
         cancelPending(player.getUniqueId()); // interruption restores the previous owned presentation first
         return switch (type) {
+            case ADVANCEMENT_TOAST -> {
+                List<String> keys = snapshot.messages().lineKeys("effects.advancement-toast.lines");
+                yield !keys.isEmpty() && ToastDecision.describe(keys.getFirst(), config.presentation().toast()).deliveryAvailable();
+            }
+            case BOSS_BAR -> dispatchBar(player, config.presentation().bar(), snapshot);
+            case FALSE_DEATH -> dispatchFalseDeath(player, config.presentation().deathRange(), snapshot);
             case SKY -> dispatchSky(player, config.presentation().sky());
             case PARTICLES -> dispatchParticles(player, config.presentation().particles());
             case SCREEN_FLASH -> dispatchScreen(player, config.presentation().flash(), snapshot);
@@ -119,18 +130,12 @@ public class AmbientEffectDispatcher {
             case HURT_FLASH -> dispatchHurt(player, config.presentation(), snapshot);
             case VICTIM_GHOST -> false; // Requires the asynchronous killer-history read before rendering.
             case SILVERFISH -> dispatchSilverfish(player);
-            case WHISPER -> {
-                dispatchWhisper(player, snapshot);
-                yield true;
-            }
+            case WHISPER -> dispatchWhisper(player, snapshot);
             case CREEPER_SOUND -> {
                 dispatchCreeperSound(player, config, snapshot);
                 yield true;
             }
-            case FAKE_ANNOUNCEMENT -> {
-                dispatchFakeAnnouncement(player, snapshot);
-                yield true;
-            }
+            case FAKE_ANNOUNCEMENT -> dispatchFakeAnnouncement(player, snapshot);
         };
     }
 
@@ -329,13 +334,74 @@ public class AmbientEffectDispatcher {
         return entry != null;
     }
 
-    private void dispatchWhisper(Player player, RuntimeSnapshot snapshot) {
-        int idx = random.nextInt(3) + 1;
-        String key = "effects.whisper-" + idx;
-        String raw = (snapshot != null && snapshot.messages() != null)
-                ? snapshot.messages().resolveRaw(key, warnedKeys, null)
-                : "";
-        player.sendMessage(ColorParser.parse(raw));
+    private boolean dispatchWhisper(Player player, RuntimeSnapshot snapshot) {
+        List<String> keys = new java.util.ArrayList<>(snapshot.messages().lineKeys("effects.private-chat.lines"));
+        if (keys.isEmpty()) for (int i = 1; i <= 3; i++) keys.add("effects.whisper-" + i);
+        keys.addAll(snapshot.messages().lineKeys(CatalogueLines.CUSTOM));
+        Map<String, String> values = Map.of("player", player.getName());
+        keys.removeIf(key -> !validLine(snapshot, key, values, snapshot.config().effects().presentation().maxVisibleLength()));
+        if (keys.isEmpty()) return false;
+        String key = keys.get(random.nextInt(keys.size()));
+        player.sendMessage(messageRegistry.render(snapshot, key, values));
+        return true;
+    }
+
+    private boolean validLine(RuntimeSnapshot snapshot, String key, Map<String, String> values, int max) {
+        String base = key;
+        int index = -1;
+        for (String list : CatalogueLines.LISTS) if (key.startsWith(list + ".")) {
+            base = list;
+            index = Integer.parseInt(key.substring(list.length() + 1));
+            break;
+        }
+        try {
+            CatalogueLines.validateLine(base, index, messageRegistry.getRaw(snapshot, key), values, max, base.equals(CatalogueLines.CUSTOM));
+            return true;
+        } catch (ConfigValidationException error) {
+            if (warnedKeys.add(error.getMessage())) logger.warning(error.getMessage());
+            return false;
+        }
+    }
+
+    private boolean dispatchBar(Player player, PresentationConfig.Bar config, RuntimeSnapshot snapshot) {
+        List<String> keys = snapshot.messages().lineKeys("effects.boss-bar.lines");
+        if (keys.isEmpty()) return false;
+        String key = keys.get(random.nextInt(keys.size()));
+        Map<String, String> values = Map.of("player", player.getName());
+        if (!validLine(snapshot, key, values, 160)) return false;
+        BossBar bar = BossBar.bossBar(messageRegistry.render(snapshot, key, values), (float) config.progress(),
+                BossBar.Color.valueOf(config.colour().toUpperCase(java.util.Locale.ROOT)),
+                BossBar.Overlay.valueOf(config.style().toUpperCase(java.util.Locale.ROOT)));
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.BOSS_BAR,
+                config.durationTicks(), () -> player.hideBossBar(bar));
+        if (entry == null) return false;
+        try {
+            player.showBossBar(bar);
+            return true;
+        } catch (RuntimeException failure) {
+            silverfishService.registry().cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    private boolean dispatchFalseDeath(Player player, double range, RuntimeSnapshot snapshot) {
+        Location origin = player.getLocation();
+        List<FalseDeathTarget> candidates = new java.util.ArrayList<>();
+        for (Player subject : player.getWorld().getPlayers()) {
+            boolean sameWorld = subject.getWorld().equals(player.getWorld());
+            // Skip any explicit vanish marker, regardless of other plugins' metadata conventions.
+            candidates.add(new FalseDeathTarget(subject.getUniqueId(), subject.getName(), sameWorld,
+                    player.canSee(subject), subject.isOnline() && !subject.isDead(), subject.hasMetadata("vanished"),
+                    sameWorld ? origin.distanceSquared(subject.getLocation()) : Double.POSITIVE_INFINITY));
+        }
+        List<FalseDeathTarget> eligible = FalseDeathTarget.eligible(player.getUniqueId(), candidates, range);
+        if (eligible.isEmpty()) return false;
+        FalseDeathTarget subject = eligible.get(random.nextInt(eligible.size()));
+        Map<String, String> values = Map.of("player", subject.name());
+        String key = "effects.false-death.line";
+        if (!validLine(snapshot, key, values, 160)) return false;
+        player.sendMessage(messageRegistry.render(snapshot, key, values));
+        return true;
     }
 
     private void dispatchCreeperSound(Player player, EffectsConfigSection config, RuntimeSnapshot snapshot) {
@@ -498,13 +564,16 @@ public class AmbientEffectDispatcher {
         }
     }
 
-    private void dispatchFakeAnnouncement(Player player, RuntimeSnapshot snapshot) {
+    private boolean dispatchFakeAnnouncement(Player player, RuntimeSnapshot snapshot) {
         boolean isJoin = random.nextBoolean();
-        String key = isJoin ? "effects.fake-join" : "effects.fake-leave";
+        String key = isJoin ? "effects.fake-connection.join" : "effects.fake-connection.leave";
+        if (!snapshot.messages().isKnownKey(key)) key = isJoin ? "effects.fake-join" : "effects.fake-leave";
+        if (!validLine(snapshot, key, Map.of("player", player.getName()), 160)) return false;
         Component announcement = messageRegistry.render(snapshot, key, Map.of("player", player.getName()));
 
         // Send privately to the affected player alone - never broadcasted or logged
         player.sendMessage(announcement);
+        return true;
     }
 
     public FakeSilverfishService silverfishService() {

@@ -176,7 +176,7 @@ class PresentationEffectsTest {
         for (String file : List.of("AmbientEffectDispatcher.java", "PrivateScreen.java", "ActivePresentationEntry.java")) {
             String source = Files.readString(Path.of("src/main/java/com/dasannn/socialblueprint/feature/effects", file));
             assertThat(source).doesNotContain("ReputationRepository", "PsychosisRepository", "Confidence", "Economy",
-                    "depositPlayer", "withdrawPlayer", ".setTime(", ".setFullTime(", ".setStorm(", ".setThundering(");
+                    "depositPlayer", "withdrawPlayer", ".setTime(", ".setFullTime(", ".setStorm(", ".setThundering(", "getAdvancementProgress", "awardCriteria", "revokeCriteria", "incrementStatistic");
         }
     }
 }

@@ -194,6 +194,39 @@ duel:
 # Private, cosmetic episodes triggered by Medium, High and Extreme Psychosis.
 # ==============================================================================
 effects:
+  advancement-toast:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    icon: minecraft:paper
+    duration-ticks: 60
+  boss-bar:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 3
+    colour: purple
+    style: progress
+    progress: 0.5
+    duration-ticks: 60
+  false-death:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 3
+    range-blocks: 16
+  fake-connection:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 18000
+    session-cap: 2
+  private-chat:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 6000
+    session-cap: 5
+    max-visible-length: 160
   block-change:
     enabled: true
     minimum-level: high

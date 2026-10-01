@@ -129,6 +129,23 @@ effects:
       - '&7Lo recuerdas.'
   victim-ghost:
     label: '&7Fantasma de {victim}'
+  fake-connection:
+    join: '&e{player} se ha unido a la partida'
+    leave: '&e{player} ha salido de la partida'
+  private-chat:
+    lines:
+      - '&#202020...'
+      - '&#202020¿Escuchaste eso?'
+      - '&#202020Mira detrás de ti.'
+    custom-lines: []
+  advancement-toast:
+    lines:
+      - '&8Algo te recuerda.'
+  boss-bar:
+    lines:
+      - '&5El silencio te observa.'
+  false-death:
+    line: '&e{player} murió'
   screen-flash:
     lines:
       - '&8Detrás de ti.'
