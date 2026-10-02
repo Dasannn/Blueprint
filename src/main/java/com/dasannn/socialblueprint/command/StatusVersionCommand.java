@@ -41,9 +41,10 @@ public class StatusVersionCommand {
         if (check == null || check.comparison() == VersionComparison.UNKNOWN) {
             sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "updater.version-unknown",
                     Map.of("current", runningVersion)));
-            if (check == null) {
-                updateService.checkForUpdateAsync();
-            }
+            // Retry on every unknown, not only before the first check: a failed
+            // startup check (no release yet, network down) otherwise stuck the
+            // answer at unknown until a restart.
+            updateService.checkForUpdateAsync();
             return CompletableFuture.completedFuture(null);
         }
 

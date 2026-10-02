@@ -396,10 +396,9 @@ public class UpdateService {
             File tempFile = null;
             try {
                 // 1. Ensure latest release metadata is available
-                VersionCheckResult check = lastResult.get();
-                if (check == null || check.releaseInfo() == null) {
-                    check = performCheckInternal();
-                }
+                // Always fresh: the cached result can predate a release published
+                // after startup, and this runs off the main thread anyway.
+                VersionCheckResult check = performCheckInternal();
 
                 if (check.releaseInfo() == null) {
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "No release information available"));
