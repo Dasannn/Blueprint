@@ -106,7 +106,7 @@ class AsyncChatListenerTest {
                 java.util.Map.of("status", "25"),
                 java.util.Map.of("tier", messageRegistry.getRaw(snapshot, "tiers.tier2")),
                 java.util.Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence.established")),
-                java.util.Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis.low")),
+                java.util.Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis.low"), "value", "0.0"),
                 java.util.Map.of("contributors", "7"));
         assertThat(calls.get(1).components()).containsOnlyKeys("prefix").containsEntry("prefix",
                 ColorParser.parse(snapshot.config().tiers().prefix(Tier.HONORABLE)));

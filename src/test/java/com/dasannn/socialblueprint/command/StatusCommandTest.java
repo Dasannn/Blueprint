@@ -409,7 +409,7 @@ class StatusCommandTest {
         // Line 6: Distinct raters
         assertThat(messages.get(5)).contains("&7Rated by: &f0 players");
 
-        assertPinnedMentalStateMessages(player, "Mental state: Psychosis Medium", "Mental state: Serenity 43.7/100");
+        assertPinnedMentalStateMessages(player, "Mental state: Psychosis Medium (34.0/100)", "Mental state: Serenity 43.7/100");
     }
 
     @Test
@@ -438,7 +438,7 @@ class StatusCommandTest {
         // Line 6: Distinct raters
         assertThat(messages.get(5)).contains("&7Valorado por: &f0 jugadores");
 
-        assertPinnedMentalStateMessages(player, "Estado mental: Psicosis Media", "Estado mental: Serenidad 43.7/100");
+        assertPinnedMentalStateMessages(player, "Estado mental: Psicosis Media (34.0/100)", "Estado mental: Serenidad 43.7/100");
     }
 
     private void assertPinnedMentalStateMessages(Player player, String psychosis, String serenity) {
@@ -456,11 +456,11 @@ class StatusCommandTest {
         }
         assertThat(plain.serialize(messageRegistry.renderMentalState(snapshot,
                 messageRegistry.mentalStateLine(snapshot, view, "status.profile-mental-state", true))))
-                .isEqualTo(psychosis + " (34.0/100)");
+                .isEqualTo(psychosis);
         getMessages(player).clear();
         commandExecutor.sendProfile(player, view, snapshot);
         assertThat(getMessages(player)).hasSize(6);
-        assertThat(getMessages(player).get(4)).doesNotContain("34.0");
+        assertThat(getMessages(player).get(4)).contains("34.0/100"); // the magnitude shows on the profile too
     }
 
     @Test

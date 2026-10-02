@@ -25,9 +25,9 @@ class MentalStateLineTest {
                     var line = MentalStateLine.of(calculator.calculate(row.getKey()), Math.abs(row.getKey()), prefix, detail);
                     assertThat(line.key()).isEqualTo(prefix + (detail ? "-psychosis-detail" : "-psychosis"));
                     assertThat(line.levelKey()).isEqualTo("psychosis." + row.getValue());
-                    if (detail) assertThat(line.placeholders()).containsExactlyEntriesOf(
+                    // The magnitude shows on every surface, not only the detail command.
+                    assertThat(line.placeholders()).containsExactlyEntriesOf(
                             Map.of("value", String.format(java.util.Locale.ROOT, "%.1f", Math.abs(row.getKey()))));
-                    else assertThat(line.placeholders()).isEmpty();
                 }
             }
         }

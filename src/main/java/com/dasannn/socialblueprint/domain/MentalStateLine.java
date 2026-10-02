@@ -12,7 +12,7 @@ public record MentalStateLine(String key, String levelKey, Map<String, String> p
                     Map.of("value", String.format(Locale.ROOT, "%.1f", magnitude)));
             default -> new MentalStateLine(prefix + (detail ? "-psychosis-detail" : "-psychosis"),
                     "psychosis." + level.name().toLowerCase(Locale.ROOT),
-                    detail ? Map.of("value", String.format(Locale.ROOT, "%.1f", magnitude)) : Map.of());
+                    Map.of("value", String.format(Locale.ROOT, "%.1f", magnitude)));
         };
     }
 }

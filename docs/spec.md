@@ -1096,7 +1096,8 @@ Psychosis and Serenity lines, everywhere a profile appears: chat hover, chat
 and console profile, chest and `/status psychosis`. In Spanish:
 `Estado mental: Psicosis Media`, `Estado mental: Serenidad 43.7/100` or
 `Estado mental: Neutral`; English equivalents in `messages_en.yml`.
-`/status psychosis` adds the psychosis magnitude to one decimal. Supersedes
+Psychosis also shows its magnitude to one decimal, `Psicosis Media (34.0/100)`,
+everywhere (owner, 2026-10-02). Supersedes
 the two-line display of SB-022 and SB-117. Labels live in both message files.
 
 **SB-146.** **Honor ratings move the mental state** (owner, 2026-10-02;
