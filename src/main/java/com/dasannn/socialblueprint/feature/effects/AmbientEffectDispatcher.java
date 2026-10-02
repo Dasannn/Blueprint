@@ -327,13 +327,13 @@ public class AmbientEffectDispatcher {
             if (remaining <= delay) return true;
             return scheduleTracked(subject.getUniqueId(), () -> {
                 if (apparitionFollows.get(subject.getUniqueId()) != this) return;
-                update(subject.getLocation());
+                moveTo(subject.getLocation());
                 if (apparitionFollows.get(subject.getUniqueId()) == this && !schedule(remaining - delay))
                     cancelPending(subject.getUniqueId());
             }, delay);
         }
 
-        void update(Location origin) {
+        void moveTo(Location origin) {
             UUID owner = subject.getUniqueId();
             var direction = directionGuards.get(owner);
             if (!subject.isOnline() || (direction != null && !direction.getAsBoolean())) { cancelPending(owner); return; }
@@ -406,7 +406,7 @@ public class AmbientEffectDispatcher {
         if (destination == null) return;
         var own = apparitionFollows.get(viewer.getUniqueId());
         if (own != null && own.animals.containsKey(viewer.getUniqueId()) && (SereneEpisode.followEnds(position(own.previousSubject), position(destination), false)
-                || !safeAnimalViewerAt(viewer, own.animals.get(viewer.getUniqueId()).bounds(), destination))) own.update(destination);
+                || !safeAnimalViewerAt(viewer, own.animals.get(viewer.getUniqueId()).bounds(), destination))) own.moveTo(destination);
         for (var entry : java.util.List.copyOf(apparitionFollows.values())) {
             if (entry == own) continue;
             PrivateGhost animal = entry.animals.get(viewer.getUniqueId());
