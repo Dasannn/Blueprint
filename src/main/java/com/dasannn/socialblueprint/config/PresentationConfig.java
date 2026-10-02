@@ -277,7 +277,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
     }
 
     private static double range(ConfigurationSection root, String id) {
-        return number(root, id + ".range-blocks", 6, true);
+        return number(root, id + ".range-blocks", id.equals("victim-ghost") ? 8 : 6, true);
     }
 
     private static String icon(ConfigurationSection root) {

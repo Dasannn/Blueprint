@@ -10,12 +10,9 @@ class ChatCorruptionTest {
     private static final ChatCorruptionConfig DEFAULT = ChatCorruptionConfig.DEFAULT;
 
     @Test
-    void deterministicExactOutput() {
+    void deterministicOneResultForAllReaders() {
         var config = new ChatCorruptionConfig(10, 25, 50, 20);
-        assertThat(ChatCorruption.corrupt(MESSAGE, PsychosisLevel.EXTREME, 0, 0, config))
-                .isEqualTo("Please bring wooden supplies to jbk village before sunset");
-        assertThat(ChatCorruption.corrupt(MESSAGE, PsychosisLevel.EXTREME, 0, 2, config))
-                .isEqualTo("Please bring wooden supplies to the ivheieg before sunset");
+        assertThat(ChatCorruption.corrupt(MESSAGE, PsychosisLevel.EXTREME, 0, 0, config)).isNotEqualTo(MESSAGE);
         assertThat(ChatCorruption.corrupt(MESSAGE, PsychosisLevel.EXTREME, 0, 0, config))
                 .isEqualTo(ChatCorruption.corrupt(MESSAGE, PsychosisLevel.EXTREME, 0, 0, config));
     }
@@ -41,8 +38,8 @@ class ChatCorruptionTest {
     }
 
     @Test
-    void maximumConfigurationStillPreservesThreeQuartersOfWordsAndLetters() {
-        var config = new ChatCorruptionConfig(10, 25, 50, 25);
+    void maximumConfigurationStillPreservesHalfOfWordsAndLetters() {
+        var config = new ChatCorruptionConfig(10, 25, 50, 50);
         for (String input : new String[]{MESSAGE, "meet at home tonight", "aaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ccc ddd",
                 "Please BRING wooden supplies to the VILLAGE before sunset", "Trae madera al pueblo antes de anochecer"}) {
             var matcher = Pattern.compile("\\p{L}+").matcher(input);
@@ -56,11 +53,11 @@ class ChatCorruptionTest {
                 assertThat(output.length()).isEqualTo(input.length());
                 int changed = 0;
                 for (int i = 0; i < input.length(); i++) if (input.charAt(i) != output.charAt(i)) changed++;
-                assertThat(changed).isLessThanOrEqualTo(letters / 4);
+                assertThat(changed).isLessThanOrEqualTo(letters / 2);
                 String[] resultWords = output.split(" ");
                 int changedWords = 0;
                 for (int i = 0; i < words.length; i++) if (!words[i].equals(resultWords[i])) changedWords++;
-                assertThat(changedWords).isLessThanOrEqualTo(words.length / 4);
+                assertThat(changedWords).isLessThanOrEqualTo(words.length / 2);
             }
         }
     }
@@ -87,7 +84,7 @@ class ChatCorruptionTest {
                 assertThat(output.length()).isEqualTo(input.length());
                 int changed = 0;
                 for (int i = 0; i < input.length(); i++) if (input.charAt(i) != output.charAt(i)) changed++;
-                assertThat(changed).isLessThanOrEqualTo(letters * config.extent() / 100);
+                assertThat(changed).isLessThanOrEqualTo(letters * config.extent(PsychosisLevel.EXTREME) / 100);
                 if ((sequence & 1) == 0) assertThat(changed).isPositive();
                 else assertThat(output).isEqualTo(input);
                 String[] words = input.split(" ");
@@ -101,6 +98,36 @@ class ChatCorruptionTest {
         assertThat(ChatCorruption.corrupt("hello", PsychosisLevel.EXTREME, 0, 0,
                 new ChatCorruptionConfig(10, 25, 50, 1, 1))).isEqualTo("hello"); // No letter fits a 1% budget.
         assertThatThrownBy(() -> new ChatCorruptionConfig(10, 25, 50, 20, 0)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void extentsIncreaseAndSpreadTheBudgetAcrossWords() {
+        String input = "edge abcdefghij klmnopqrst uvwxyzabcd efghijklmn opqrstuvwx yzabcdefgh ijklmnopqr stuvwxyzab last";
+        var config = new ChatCorruptionConfig(10, 25, 50, 20, 35, 50, 6);
+        int letters = (int) input.chars().filter(Character::isLetter).count();
+        String[] words = input.split(" ");
+        int previous = 0;
+        for (PsychosisLevel level : new PsychosisLevel[]{PsychosisLevel.MEDIUM, PsychosisLevel.HIGH, PsychosisLevel.EXTREME}) {
+            int total = 0;
+            for (int sequence = 0; sequence < 1000; sequence += 2) {
+                String result = ChatCorruption.corrupt(input, level, 123, sequence, config);
+                if (result.equals(input)) continue;
+                String[] changedWords = result.split(" ");
+                int touched = 0, changed = 0;
+                for (int i = 0; i < words.length; i++) if (!words[i].equals(changedWords[i])) touched++;
+                for (int i = 0; i < input.length(); i++) if (input.charAt(i) != result.charAt(i)) changed++;
+                assertThat(touched).isEqualTo(words.length * config.extent(level) / 100);
+                assertThat(changed).isEqualTo(letters * config.extent(level) / 100);
+                assertThat(changed).isLessThanOrEqualTo(letters / 2);
+                total += changed;
+            }
+            assertThat(total).isGreaterThan(previous);
+            previous = total;
+        }
+        assertThatThrownBy(() -> new ChatCorruptionConfig(10, 25, 40, 35, 20, 50, 6))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ChatCorruptionConfig(10, 25, 40, 20, 50, 35, 6))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -124,7 +151,7 @@ class ChatCorruptionTest {
     @Test
     void validationCannotDisableReadabilityOrQuietMessageGuards() {
         for (int[] values : new int[][]{{0, 25, 40, 20}, {25, 25, 40, 20}, {10, 40, 25, 20},
-                {10, 25, 51, 20}, {10, 25, 40, 0}, {10, 25, 40, 26}}) {
+                {10, 25, 51, 20}, {10, 25, 40, 0}, {10, 25, 40, 51}}) {
             assertThatThrownBy(() -> new ChatCorruptionConfig(values[0], values[1], values[2], values[3]))
                     .isInstanceOf(IllegalArgumentException.class);
         }

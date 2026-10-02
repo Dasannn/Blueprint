@@ -180,13 +180,14 @@ public class MessageRegistry {
     /** Direction and magnitude of the same Psychosis metric, reused by every display. */
     public String psychosisLabel(RuntimeSnapshot snapshot, com.dasannn.socialblueprint.domain.PlayerSocialView view) {
         return switch (view.psychosis()) {
-            case NEUTRAL -> getRaw(snapshot, "psychosis.neutral.name");
-            case SERENITY -> getRaw(snapshot, "psychosis.serenity.detail")
-                    .replace("{name}", getRaw(snapshot, "psychosis.serenity.name"))
-                    .replace("{value}", String.format(Locale.ROOT, "%.2f", view.psychosisMagnitude()))
-                    .replace("{ceiling}", String.format(Locale.ROOT, "%.2f", snapshot.config().psychosis().serenity().ceiling()));
+            case NEUTRAL, SERENITY -> getRaw(snapshot, "psychosis.neutral.name");
             default -> getRaw(snapshot, "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT));
         };
+    }
+
+    public String serenityValue(com.dasannn.socialblueprint.domain.PlayerSocialView view) {
+        return String.format(Locale.ROOT, "%.1f", view.psychosis() == com.dasannn.socialblueprint.domain.PsychosisLevel.SERENITY
+                ? view.psychosisMagnitude() : 0);
     }
 
     /**

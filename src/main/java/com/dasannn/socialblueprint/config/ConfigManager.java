@@ -114,6 +114,23 @@ public class ConfigManager {
         }
     }
 
+    private void adoptChatExtents(YamlConfiguration before) {
+        String oldKey = "psychosis.chat.extent";
+        if (!before.contains(oldKey)) return;
+        Object raw = before.get(oldKey);
+        int value;
+        try { value = Integer.parseInt(String.valueOf(raw)); }
+        catch (NumberFormatException error) { throw new ConfigValidationException(oldKey, "Must be an integer"); }
+        if (value < 1 || value > 50) throw new ConfigValidationException(oldKey, "Must be between 1 and 50 percent");
+        try {
+            if (value != 20) for (String level : List.of("medium", "high", "extreme")) {
+                String key = "psychosis.chat." + level + "-extent";
+                if (!before.contains(key)) YamlFileUpdater.updateLeafAndSave(configFile, key, Integer.toString(value));
+            }
+            YamlFileUpdater.removeLeafAndSave(configFile, oldKey);
+        } catch (IOException error) { throw new ConfigValidationException(oldKey, error.getMessage()); }
+    }
+
     private void adoptEpisodeIntervals(YamlConfiguration beforeMerge) {
         for (String level : List.of("medium", "high", "extreme")) {
             String path = "effects.episodes." + level + ".interval-ticks";
@@ -196,6 +213,7 @@ public class ConfigManager {
             adoptPrivateTextMessages(messagesBeforeMerge);
             adoptEpisodeIntervals(beforeMerge);
             adoptPrivateTextLimits(beforeMerge);
+            adoptChatExtents(beforeMerge);
             retireEffectsKeys();
 
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
@@ -616,7 +634,9 @@ public class ConfigManager {
         set.add("psychosis.chat.medium-rate");
         set.add("psychosis.chat.high-rate");
         set.add("psychosis.chat.extreme-rate");
-        set.add("psychosis.chat.extent");
+        set.add("psychosis.chat.medium-extent");
+        set.add("psychosis.chat.high-extent");
+        set.add("psychosis.chat.extreme-extent");
         set.add("psychosis.chat.min-letters");
         set.add("psychosis.serenity.ceiling");
         set.add("psychosis.serenity.active-hours-to-ceiling");
@@ -765,7 +785,9 @@ public class ConfigManager {
         if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());
         if ("psychosis.chat.extreme-rate".equals(path)) return String.valueOf(config.psychosis().chat().extremeRate());
         if ("psychosis.chat.min-letters".equals(path)) return String.valueOf(config.psychosis().chat().minLetters());
-        if ("psychosis.chat.extent".equals(path)) return String.valueOf(config.psychosis().chat().extent());
+        if ("psychosis.chat.medium-extent".equals(path)) return String.valueOf(config.psychosis().chat().mediumExtent());
+        if ("psychosis.chat.high-extent".equals(path)) return String.valueOf(config.psychosis().chat().highExtent());
+        if ("psychosis.chat.extreme-extent".equals(path)) return String.valueOf(config.psychosis().chat().extremeExtent());
         if ("psychosis.serenity.ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().ceiling());
         if ("psychosis.serenity.active-hours-to-ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().activeHoursToCeiling());
         if ("psychosis.serenity.idle-timeout-seconds".equals(path)) return String.valueOf(config.psychosis().serenity().idleTimeoutSeconds());

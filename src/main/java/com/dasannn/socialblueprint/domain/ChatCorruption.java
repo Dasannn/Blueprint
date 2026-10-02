@@ -43,25 +43,37 @@ public final class ChatCorruption {
             letters += safe.codePointCount(matcher.start(), matcher.end());
         }
         if (words.isEmpty() || letters < config.minLetters()) return safe;
-        int budget = (int) ((long) letters * config.extent() / 100);
+        int budget = (int) ((long) letters * config.extent(level) / 100);
         if (budget == 0) return safe; // No substitution fits the percentage bound.
-        int wordBudget = Math.max(1, words.size() * config.extent() / 100);
+        int wordBudget = Math.max(1, words.size() * config.extent(level) / 100);
         // Protect boundary words only for phrases of three or more words.
         var candidates = new ArrayList<int[]>(words.size() >= 3 ? words.subList(1, words.size() - 1) : words);
         Collections.shuffle(candidates, random);
         StringBuilder result = new StringBuilder(safe);
-        for (int[] word : candidates) {
-            if (wordBudget-- <= 0 || budget <= 0) break;
-            for (int i = word[0]; i < word[1] && budget > 0; i++) {
+        // Select words first, then visit them in rounds so long words cannot monopolise the budget.
+        candidates.removeIf(word -> safe.substring(word[0], word[1]).chars()
+                .noneMatch(c -> c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'));
+        int selected = Math.min(candidates.size(), Math.min(wordBudget, budget));
+        int[] positions = new int[selected];
+        for (int w = 0; w < selected; w++) positions[w] = candidates.get(w)[0];
+        boolean progress = true;
+        while (budget > 0 && progress) {
+            progress = false;
+            for (int w = 0; w < selected && budget > 0; w++) {
+                int[] word = candidates.get(w);
+                int i = positions[w];
+                while (i < word[1] && !((safe.charAt(i) >= 'a' && safe.charAt(i) <= 'z')
+                        || (safe.charAt(i) >= 'A' && safe.charAt(i) <= 'Z'))) i++;
+                if (i >= word[1]) continue;
+                progress = true;
+                positions[w] = i + 1;
                 char original = safe.charAt(i);
-                if (original < 'a' || original > 'z') {
-                    if (original < 'A' || original > 'Z') continue;
-                }
-                if (budget >= 2 && i + 1 < word[1] && random.nextBoolean()) {
+                if (budget > selected - w && budget >= 2 && i + 1 < word[1] && random.nextBoolean()) {
                     char next = safe.charAt(i + 1);
                     if (next != original && ((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z'))) {
                         result.setCharAt(i, next);
                         result.setCharAt(++i, original);
+                        positions[w] = i + 1;
                         budget -= 2;
                         continue;
                     }

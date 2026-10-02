@@ -82,15 +82,34 @@ class AsyncChatListenerTest {
         }
     }
 
+    @Test
+    void sereneHoverUsesNeutralMadnessAndSeparateMagnitude() {
+        var snapshot = configManager.snapshot();
+        var view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Peaceful", 0,
+                Tier.PARTICULAR, ConfidenceLevel.UNKNOWN, PsychosisLevel.SERENITY, 7, 0.36);
+        chatListener.buildHoverComponent(snapshot, view, Tier.PARTICULAR);
+        assertThat(messageRegistry.calls).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("chat.hover-psychosis");
+            assertThat(call.values()).containsEntry("psychosis", messageRegistry.getRaw(snapshot, "psychosis.neutral.name"));
+        }).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("chat.hover-serenity");
+            assertThat(call.values()).containsEntry("serenity", "0.4");
+        }).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("chat.hover-contributors");
+            assertThat(call.values()).containsEntry("contributors", "7");
+        });
+    }
+
     private void assertHoverInputsAndStructure(RuntimeSnapshot snapshot, Component hover) {
         var calls = messageRegistry.calls;
         assertThat(calls).extracting(HoverCall::key).containsExactly("chat.hover-status", "chat.hover-tier",
-                "chat.hover-confidence", "chat.hover-psychosis", "chat.hover-contributors");
+                "chat.hover-confidence", "chat.hover-psychosis", "chat.hover-serenity", "chat.hover-contributors");
         assertThat(calls).extracting(HoverCall::values).containsExactly(
                 java.util.Map.of("status", "25"),
                 java.util.Map.of("tier", messageRegistry.getRaw(snapshot, "tiers.tier2")),
                 java.util.Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence.established")),
                 java.util.Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis.low")),
+                java.util.Map.of("serenity", "0.0"),
                 java.util.Map.of("contributors", "7"));
         assertThat(calls.get(1).components()).containsOnlyKeys("prefix").containsEntry("prefix",
                 ColorParser.parse(snapshot.config().tiers().prefix(Tier.HONORABLE)));
@@ -153,7 +172,7 @@ class AsyncChatListenerTest {
         configManager.set("psychosis.chat.medium-rate", "12");
         RuntimeSnapshot changed = configManager.snapshot();
         assertThat(changed.config().psychosis().chat().mediumRate()).isEqualTo(12);
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> configManager.set("psychosis.chat.extent", "100"))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> configManager.set("psychosis.chat.extreme-extent", "100"))
                 .isInstanceOf(com.dasannn.socialblueprint.config.ConfigValidationException.class);
         assertThat(configManager.snapshot()).isSameAs(changed);
         assertThat(before.config().psychosis().chat().mediumRate()).isEqualTo(10);

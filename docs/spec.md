@@ -119,7 +119,11 @@ effect into exclusion.
 The configurable `psychosis.chat.min-letters` defaults to 6; there is no word
 minimum. First and last words are protected only for messages of three or more
 words. Every other message stays intact; substitutions affect at most the
-configured `extent` percent of letters, with at least one changed letter in a
+level's `medium-extent` / `high-extent` / `extreme-extent` percent of letters
+and matching share of words (at least one eligible word for short phrases),
+defaulting to 20/35/50. Changes are spread across eligible words through swaps
+and substitutions. Extents are 1..50 and non-decreasing; at least 50% of letters
+remain untouched even at Extreme, and at least one letter changes in a
 corrupted result. A zero-letter budget leaves the message intact. If a short
 message cannot be partially corrupted while
 remaining readable, it stays intact. Prefixes and the name hover are untouched.
@@ -129,7 +133,12 @@ text under SB-083, never parsed for colour, formatting or click actions; chat
 corruption gives no permission to reinterpret a rating or its reason.
 
 **SB-022.** Hovering a player's name in chat shows a compact summary: status,
-tier, Confidence, Psychosis, and the number of distinct players who contributed.
+tier, Confidence, separate Psychosis and Serenity lines, and the number of
+distinct raters labelled `Rated by: {count} players` / `Valorado por: {count}
+jugadores`. The same labels apply to chat/console profiles and the chest.
+Psychosis shows the madness level (Neutral during serenity); Serenity shows
+one decimal `x/100` (zero during madness). This is display of the same metric,
+not a new metric or storage change (SB-117); `/status psychosis` uses both lines.
 
 ## 5. Duels
 
@@ -317,14 +326,19 @@ for a moment, then vanishes. Its displayed victim name comes from a real victim
 in **that killer's own** eligible non-duel `psychosis_event` rows, resolved by
 UUID to a known name. Read the existing history; do not invent a victim or
 write a new event. If no such victim has a resolvable name, skip the effect.
-It is a packet-only, non-pickable text display (not a fake player, which the
-client could target) with a distinct ghost appearance and a
-message-file label identifying it as a ghost. It never copies a real player's
+It is a packet-only stationary `minecraft:mannequin` with its default skin
+and a translucent text display above it using `effects.victim-ghost.label`.
+The mannequin uses a random entity UUID, no profile lookup or player-info/tab
+entry, and hides its native description/nameplate. Living mannequins remain
+pickable on the client: place it outside interaction reach (range default 8
+blocks), reuse phantom/serene separation and movement guards, and skip viewers
+whose reach could touch it. If the running server cannot resolve the mannequin,
+deliver only the existing ghost label as one effect, consuming the cap once. It never copies a real player's
 skin, account UUID, tab-list identity or ordinary nameplate in a way that could
 be mistaken for that player actually being there. It appears and vanishes,
 never moves, acts, speaks, collides, damages or responds to interaction, and
 never appears to another player. Reuse managed-fake cleanup on disappearance,
-quit, world change and stop; relog or restart leaves no entity or identity
+move, teleport, quit, world change and stop; relog or restart leaves no entity or identity
 behind. Its short duration, independent cooldown and session cap obey
 SB-043/SB-097, leaving silence after removal. It changes no status, Confidence
 or money.
@@ -531,7 +545,12 @@ target's status directly; it is not the withdrawal of something the actor gave
 earlier. A player cannot undo an honor they have issued — only an administrator
 can, under SB-058.
 
-**SB-056.** Negative honor requires a written reason. Positive honor may carry
+**SB-056.** The give/take banners collect reasons through the same timed chat
+prompt before the existing confirmation chest. Giving honor accepts an optional
+plain-text reason or a message-configured skip word (default `-`, shown in the
+prompt); taking honor rejects empty and skip reasons. Both use the same timeout
+and cancellation behaviour and SB-083 plain-text handling.
+Negative honor requires a written reason. Positive honor may carry
 one.
 
 **SB-057.** The charge and the reputation event commit together. A failed charge
@@ -650,6 +669,14 @@ fixed native client tail remains a duration floor and ends before quiet time.
 The native momentary hurt animation and sound playback remain unscaled.
 Restoration and quiet-time reservation use the same scaled duration.
 
+Chat corruption retains unchanged `psychosis.chat.<medium|high|extreme>-rate`
+and `min-letters`; per-level `medium-extent` / `high-extent` / `extreme-extent`
+default to 20/35/50 percent of letters and the matching share of words, bounded
+to 1..50 and non-decreasing. On upgrade, adopt a customised legacy
+`psychosis.chat.extent` into all three missing extent keys, then retire it;
+an untouched legacy default adopts the new graded defaults. Alternating intact
+messages, shared output and at least 50% untouched letters remain mandatory.
+
 Additional behaviour keys, relative to `effects.<id>`, are:
 
 | Effect / clause | Keys and bounds |
@@ -660,7 +687,7 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 | Source-less sounds / SB-105 | `sound-slot`, `offset.forward-blocks`, `offset.right-blocks`, `offset.up-blocks`, `playback-ticks`; finite recipient-relative offsets allow footsteps behind; playback ticks bound the audible tail after the last delayed layer |
 | Block change and sign / SB-106 | Each has `block-data`, `range-blocks`, `duration-ticks`; range is positive and finite, block data must support the selected presentation, and sign text is at most four lines of 80 visible code points each |
 | Hurt flash / SB-107 | `sound-slot`, `playback-ticks`; flash is momentary, playback includes the final sound tail |
-| Victim ghost / SB-108 | `range-blocks`, `duration-ticks`; positive finite range, distinct ghost appearance, no real-skin option |
+| Victim ghost / SB-108 | `range-blocks` (default 8), `duration-ticks`; positive finite range, outside interaction reach, default-skin mannequin and translucent ghost label; label-only fallback, no real-skin option |
 | Advancement toast / SB-109 | `icon`, `duration-ticks`; icon is visual only, not an item grant |
 | Boss bar / SB-110 | `colour`, `style`, `progress`, `duration-ticks`; progress lies in `[0, 1]` |
 | False death / SB-111 | `range-blocks`; positive finite range and a living, visible nearby subject required |

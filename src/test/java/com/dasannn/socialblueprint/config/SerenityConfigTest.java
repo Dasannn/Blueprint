@@ -63,10 +63,18 @@ class SerenityConfigTest {
             var registry = new MessageRegistry(folder.toFile(), language, null);
             var snapshot = registry.snapshot();
             var neutral = PlayerSocialView.neutral(PlayerId.of(UUID.randomUUID()), "Peaceful", snapshot.config().tiers().ladder());
-            assertThat(registry.psychosisLabel(snapshot, neutral)).isEqualTo("Neutral");
+            assertThat(registry.psychosisLabel(snapshot, neutral)).isEqualTo(registry.getRaw(snapshot, "psychosis.neutral.name"));
+            assertThat(registry.serenityValue(neutral)).isEqualTo("0.0");
             var serene = new PlayerSocialView(neutral.playerId(), neutral.name(), -100, neutral.tier(),
                     ConfidenceLevel.UNKNOWN, PsychosisLevel.SERENITY, 0, 43.75);
-            assertThat(registry.psychosisLabel(snapshot, serene)).isEqualTo(language.equals("en") ? "Serenity: 43.75 / 100.00" : "Serenidad: 43.75 / 100.00");
+            assertThat(registry.psychosisLabel(snapshot, serene)).isEqualTo(registry.getRaw(snapshot, "psychosis.neutral.name"));
+            assertThat(registry.serenityValue(serene)).isEqualTo("43.8");
+            var mad = new PlayerSocialView(neutral.playerId(), neutral.name(), -100, neutral.tier(),
+                    ConfidenceLevel.UNKNOWN, PsychosisLevel.HIGH, 0, 2);
+            assertThat(registry.psychosisLabel(snapshot, mad)).isEqualTo(registry.getRaw(snapshot, "psychosis.high"));
+            assertThat(registry.serenityValue(mad)).isEqualTo("0.0");
+            assertThat(snapshot.messages().bundledActiveMessages()).containsKeys("status.profile-serenity", "chat.hover-serenity",
+                    "gui.prompt-give-reason", "gui.reason-skip-word");
             assertThat(registry.getRaw(snapshot, "psychosis.serenity.name")).isEqualTo(language.equals("en") ? "Serenity" : "Serenidad");
             assertThat(serene.status()).isEqualTo(-100);
             assertThat(serene.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);

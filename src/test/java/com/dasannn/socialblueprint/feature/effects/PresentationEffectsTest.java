@@ -94,6 +94,53 @@ class PresentationEffectsTest {
         }
     }
 
+    @Test void mannequinAtDefaultRangeStaysOutsideReachWithMovementMargin() {
+        var body = new SereneEpisode.Bounds(7.7, 0, -.3, 8.3, 1.8, .3);
+        assertThat(body.separatedFrom(new SereneEpisode.Bounds(-.3, 0, -.3, .3, 1.8, .3))).isTrue();
+        assertThat(body.outsideReach(0, 1.62, 0, 3 + 1)).isTrue();
+        assertThat(body.outsideReach(0, 1.62, 0, 7 + 1)).isFalse();
+        assertThat(body.outsideReach(4, 1.62, 0, 3 + 1)).isFalse();
+        assertThat(body.outsideReach(0, 1.62, 0, Double.NaN)).isFalse();
+    }
+
+    @Test void ghostBodyAndFallbackLabelShareOnePresentationAndCleanup() {
+        UUID owner = UUID.randomUUID(), world = UUID.randomUUID();
+        for (boolean body : List.of(true, false)) {
+            for (String end : List.of("expiry", "move", "teleport", "quit", "world-change", "disable", "spawn-failure")) {
+                var registry = new AmbientEntityRegistry();
+                List<Scheduled> tasks = new ArrayList<>();
+                var dispatcher = dispatcher(registry, tasks);
+                AtomicInteger removed = new AtomicInteger();
+                var label = new ActiveEntityEntry(owner, 501, null, world, null, removed::incrementAndGet);
+                var mannequin = new ActiveEntityEntry(owner, 502, null, world, null, removed::incrementAndGet);
+                var entities = body ? List.of(label, mannequin) : List.of(label);
+                boolean shown = dispatcher.showEntities(entities, AmbientEffectType.VICTIM_GHOST, 40, () -> {
+                    assertThat(registry.presentationsFor(owner)).singleElement().satisfies(entry ->
+                            assertThat(entry.type()).isEqualTo(AmbientEffectType.VICTIM_GHOST));
+                    if (end.equals("spawn-failure")) throw new IllegalStateException("packet failure");
+                });
+                assertThat(shown).isEqualTo(!end.equals("spawn-failure"));
+                switch (end) {
+                    case "expiry" -> tasks.getFirst().action().run();
+                    case "move", "teleport" -> dispatcher.removeAnimalViewer(owner);
+                    case "quit" -> new AmbientEffectsListener(registry, null, dispatcher).cleanupPlayer(owner, true);
+                    case "world-change" -> new AmbientEffectsListener(registry, null, dispatcher).cleanupPlayer(owner, false);
+                    case "disable" -> dispatcher.cancelAllPending();
+                    case "spawn-failure" -> { }
+                    default -> throw new AssertionError(end);
+                }
+                assertThat(removed).hasValue(entities.size());
+                assertThat(registry.getActiveCount()).isZero();
+                assertThat(registry.presentationsFor(owner)).isEmpty();
+                dispatcher.cancelPending(owner);
+                tasks.getFirst().action().run();
+                assertThat(removed).hasValue(entities.size());
+            }
+        }
+        assertThat(PresentationConfig.load(shipped()).ghost().range()).isEqualTo(8);
+        assertThat(PresentationConfig.defaults().ghost().range()).isEqualTo(8);
+    }
+
     @Test void phantomRemainsVisibleUntilScaledExpiryAndEveryCleanupPathRemovesIt() {
         UUID id = UUID.randomUUID();
         for (String end : List.of("expiry", "move", "teleport", "quit", "world-change", "disable")) {

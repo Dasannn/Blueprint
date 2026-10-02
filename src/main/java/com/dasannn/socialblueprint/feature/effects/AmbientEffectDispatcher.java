@@ -383,12 +383,19 @@ public class AmbientEffectDispatcher {
         Component label = messageRegistry.render(snapshot, "effects.victim-ghost.label", Map.of("victim", name));
         if (label.equals(Component.empty())) return false;
         double yaw = Math.toRadians(player.getLocation().getYaw());
-        double distance = Math.min(config.range() / 2, 3);
-        double height = Math.min(config.range() / 2, 1.5);
-        Location at = player.getLocation().clone().add(-Math.sin(yaw) * distance, height, Math.cos(yaw) * distance);
+        Location at = player.getLocation().clone().add(-Math.sin(yaw) * config.range(), 0, Math.cos(yaw) * config.range());
+        at.setYaw(player.getLocation().getYaw() + 180F);
+        PrivateGhost body = null;
+        try {
+            Object type = silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft("mannequin"));
+            if (type != null) body = PrivateGhost.animal(player, at, "mannequin", type);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            if (warnedKeys.add("mannequin-bridge")) logger.warning("Private mannequin unavailable; using ghost label: " + failure.getMessage());
+        }
+        if (body != null && !safeAnimalViewer(player, body.bounds())) return false;
         PrivateGhost ghost;
         try {
-            ghost = new PrivateGhost(player, at, label,
+            ghost = new PrivateGhost(player, at.clone().add(0, 2.2, 0), label,
                     silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft("text_display")));
         } catch (ReflectiveOperationException | RuntimeException failure) {
             if (warnedKeys.add("ghost-bridge")) java.util.logging.Logger.getLogger(getClass().getName())
@@ -396,14 +403,43 @@ public class AmbientEffectDispatcher {
             return false;
         }
         cancelPending(player.getUniqueId());
+        PrivateGhost mannequin = body;
+        List<ActiveEntityEntry> entities = mannequin == null ? List.of(ghost.entry()) : List.of(ghost.entry(), mannequin.entry());
+        if (!showEntities(entities, AmbientEffectType.VICTIM_GHOST, config.durationTicks(), () -> {
+            try {
+                if (mannequin != null) mannequin.show();
+                ghost.show();
+            } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+        })) return false;
+        ActivePresentationEntry entry = phantoms.get(player.getUniqueId());
+        try {
+            if (mannequin != null && !watchPhantom(player, mannequin, entry, config.durationTicks())) {
+                removeAnimalViewer(player.getUniqueId());
+                return false;
+            }
+            return true;
+        }
+        catch (RuntimeException failure) {
+            silverfishService.registry().cleanPresentation(entry);
+            return false;
+        }
+    }
+
+    boolean showEntities(List<ActiveEntityEntry> entities, AmbientEffectType type, long ticks, Runnable sendSpawn) {
+        UUID owner = entities.getFirst().targetPlayerId();
         AmbientEntityRegistry registry = silverfishService.registry();
-        registry.register(ghost.entry());
-        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.VICTIM_GHOST,
-                config.durationTicks(), () -> registry.cleanDespawn(ghost.entry()));
-        if (entry == null) return false;
-        try { ghost.show(); return true; }
-        catch (ReflectiveOperationException | RuntimeException failure) {
-            registry.cleanPresentation(entry);
+        entities.forEach(registry::register);
+        try {
+            ActivePresentationEntry entry = startPresentation(owner, type, ticks, () -> {
+                entities.forEach(registry::cleanDespawn);
+                phantoms.remove(owner);
+            });
+            if (entry == null) return false;
+            phantoms.put(owner, entry);
+            sendSpawn.run();
+            return true;
+        } catch (RuntimeException failure) {
+            cancelPending(owner);
             return false;
         }
     }
@@ -550,22 +586,7 @@ public class AmbientEffectDispatcher {
 
     // Plain lifecycle seam: register before spawn, retain until expiry, and remove on interrupted delivery.
     boolean showPhantom(ActiveEntityEntry phantom, long ticks, Runnable sendSpawn) {
-        UUID owner = phantom.targetPlayerId();
-        AmbientEntityRegistry registry = silverfishService.registry();
-        registry.register(phantom);
-        try {
-            ActivePresentationEntry entry = startPresentation(owner, AmbientEffectType.SILVERFISH, ticks, () -> {
-                registry.cleanDespawn(phantom);
-                phantoms.remove(owner);
-            });
-            if (entry == null) return false;
-            phantoms.put(owner, entry);
-            sendSpawn.run();
-            return true;
-        } catch (RuntimeException failure) {
-            cancelPending(owner);
-            return false;
-        }
+        return showEntities(List.of(phantom), AmbientEffectType.SILVERFISH, ticks, sendSpawn);
     }
 
     private boolean watchPhantom(Player viewer, PrivateGhost phantom, ActivePresentationEntry entry, long remaining) {

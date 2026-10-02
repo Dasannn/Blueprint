@@ -92,6 +92,7 @@ public class StatusGuiService {
             UUID viewerUuid,
             String targetName,
             RuntimeSnapshot snapshot,
+            HonorKind kind,
             Instant expiry
     ) {
     }
@@ -421,6 +422,7 @@ public class StatusGuiService {
                 GuiLoreLine.ofKey("status.profile-status", Map.of("status", view != null ? String.valueOf(view.status()) : "0")),
                 GuiLoreLine.ofKey("status.profile-confidence", Map.of("confidence", localizedConfidence)),
                 GuiLoreLine.ofKey("status.profile-psychosis", Map.of("psychosis", localizedPsychosis)),
+                GuiLoreLine.ofKey("status.profile-serenity", Map.of("serenity", view != null ? messageRegistry.serenityValue(view) : "0.0")),
                 GuiLoreLine.ofKey("status.profile-contributors", Map.of("contributors", view != null ? String.valueOf(view.contributors()) : "0"))
         );
 
@@ -823,7 +825,8 @@ public class StatusGuiService {
             // 1. Top row Give Honor (T-120, T-123)
             case GIVE_BANNER -> {
                 viewer.closeInventory();
-                yield prepareGuiHonor(viewer, holder.targetName(), HonorKind.POSITIVE, null, snapshot);
+                promptForHonorReason(viewer, holder.targetName(), HonorKind.POSITIVE, snapshot);
+                yield CompletableFuture.completedFuture(null);
             }
 
             // 2. Top row Take Honor (Finding 3: prompts chat for written reason)
@@ -901,7 +904,7 @@ public class StatusGuiService {
         lore.add(GuiLoreLine.ofKey(pending.kind() == HonorKind.POSITIVE
                 ? "gui.honor-confirmation.give" : "gui.honor-confirmation.take"));
         lore.add(GuiLoreLine.ofKey("gui.honor-confirmation.cost", Map.of("cost", HonorService.formatCost(pending.cost()))));
-        if (pending.kind() == HonorKind.NEGATIVE) {
+        if (pending.reason() != null) {
             lore.add(GuiLoreLine.ofKey("gui.honor-confirmation.reason"));
             lore.add(GuiLoreLine.ofPlain(pending.reason()));
         }
@@ -926,13 +929,20 @@ public class StatusGuiService {
      * Prompts the player to type their reason in chat for taking honor (Finding 3).
      */
     public void promptForTakeHonorReason(Player viewer, String targetName, RuntimeSnapshot snapshot) {
+        promptForHonorReason(viewer, targetName, HonorKind.NEGATIVE, snapshot);
+    }
+
+    public void promptForHonorReason(Player viewer, String targetName, HonorKind kind, RuntimeSnapshot snapshot) {
         pendingReasons.put(viewer.getUniqueId(), new PendingReasonPrompt(
                 viewer.getUniqueId(),
                 targetName,
                 snapshot,
+                kind,
                 clock.instant().plusSeconds(60)
         ));
-        viewer.sendMessage(messageRegistry.renderWithPrefix(snapshot, "gui.prompt-reason", Map.of("player", targetName)));
+        viewer.sendMessage(messageRegistry.renderWithPrefix(snapshot,
+                kind == HonorKind.POSITIVE ? "gui.prompt-give-reason" : "gui.prompt-reason",
+                Map.of("player", targetName, "skip", messageRegistry.getRaw(snapshot, "gui.reason-skip-word"))));
     }
 
     public boolean hasPendingReason(UUID playerUuid) {
@@ -965,7 +975,13 @@ public class StatusGuiService {
             return CompletableFuture.completedFuture(null);
         }
 
-        return prepareGuiHonor(player, pending.targetName(), HonorKind.NEGATIVE, trimmed, pending.snapshot());
+        boolean skip = trimmed.equals(messageRegistry.getRaw(pending.snapshot(), "gui.reason-skip-word"));
+        if (pending.kind() == HonorKind.NEGATIVE && (trimmed.isEmpty() || skip)) {
+            player.sendMessage(messageRegistry.renderWithPrefix(pending.snapshot(), "honor.reason-required"));
+            return CompletableFuture.completedFuture(null);
+        }
+        return prepareGuiHonor(player, pending.targetName(), pending.kind(),
+                trimmed.isEmpty() || skip ? null : trimmed, pending.snapshot());
     }
 
     /**

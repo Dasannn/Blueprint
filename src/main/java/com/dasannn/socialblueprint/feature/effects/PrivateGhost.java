@@ -34,6 +34,7 @@ final class PrivateGhost {
         Class<?> level = Class.forName("net.minecraft.world.level.Level");
         boolean hostile = animal != null && animal.contains(":");
         Class<?> display = hostile ? null : Class.forName(animal == null ? "net.minecraft.world.entity.Display$TextDisplay" : switch (animal) {
+            case "mannequin" -> "net.minecraft.world.entity.decoration.Mannequin";
             case "cat" -> "net.minecraft.world.entity.animal.feline.Cat";
             case "fox" -> "net.minecraft.world.entity.animal.fox.Fox";
             case "wolf" -> "net.minecraft.world.entity.animal.wolf.Wolf";
@@ -52,7 +53,11 @@ final class PrivateGhost {
                 boxType.getField("minZ").getDouble(box), boxType.getField("maxX").getDouble(box),
                 boxType.getField("maxY").getDouble(box), boxType.getField("maxZ").getDouble(box));
         if (animal != null) {
-            display.getMethod("setNoAi", boolean.class).invoke(entity, true);
+            if (animal.equals("mannequin")) {
+                // Constructor default profile only; no victim identity or profile lookup.
+                display.getMethod("setImmovable", boolean.class).invoke(entity, true);
+                display.getMethod("setHideDescription", boolean.class).invoke(entity, true);
+            } else display.getMethod("setNoAi", boolean.class).invoke(entity, true);
             display.getMethod("setSilent", boolean.class).invoke(entity, true);
             display.getMethod("setYRot", float.class).invoke(entity, at.getYaw());
             display.getMethod("setYHeadRot", float.class).invoke(entity, at.getYaw());

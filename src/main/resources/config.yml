@@ -104,12 +104,14 @@ psychosis:
     ceiling: 100
     active-hours-to-ceiling: 100
     idle-timeout-seconds: 300
-  # Percentages; every other message and at least 75% of words/letters stay intact.
+  # Percentages; every other message and at least 50% of letters stay intact.
   chat:
     medium-rate: 10
     high-rate: 25
     extreme-rate: 40
-    extent: 20
+    medium-extent: 20
+    high-extent: 35
+    extreme-extent: 50
     min-letters: 6
   # Rolling evaluation window for counting PvP kills (default: 72 hours).
   window: 72h
@@ -305,7 +307,7 @@ effects:
     minimum-level: high
     cooldown-ticks: 1200
     session-cap: 6
-    range-blocks: 6
+    range-blocks: 8
     duration-ticks: 40
   episodes:
     medium:
