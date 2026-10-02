@@ -48,15 +48,8 @@ class FeatureSwitchLayoutTest {
         }
         for (var item : view.switches().values()) {
             assertThat(item.slot()).isBetween(0, 53);
-            if (item.key().contains("honor-review")) {
-                assertThat(item.enabled()).isNull();
-                assertThat(view.layout().get(item.slot()).dyeKind()).isEqualTo(GuiDyeKind.WHITE);
-                assertThat(view.layout().get(item.slot()).lore()).extracting(GuiLoreLine::key)
-                        .contains("features.state.unavailable").doesNotContain("features.toggle");
-            } else {
-                assertThat(manager.isEditableKey(item.key())).as(item.key()).isTrue();
-                assertThat(item.enabled()).isEqualTo(Boolean.valueOf(manager.get(item.key())));
-            }
+            assertThat(manager.isEditableKey(item.key())).as(item.key()).isTrue();
+            assertThat(item.enabled()).isEqualTo(Boolean.valueOf(manager.get(item.key())));
         }
     }
 

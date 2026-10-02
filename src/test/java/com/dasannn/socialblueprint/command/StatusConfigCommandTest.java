@@ -599,10 +599,10 @@ class StatusConfigCommandTest {
     }
 
     @Test
-    void featureTogglesRejectOtherLeavesMissingHonorReviewAndConfigOnlyPermission() {
+    void featureTogglesRejectOtherLeavesAndConfigOnlyPermission() {
         MockSender features = new MockSender("Features", "socialblueprint.admin.features");
         var before = configManager.snapshot();
-        for (String key : List.of("honor.cost", "psychosis.inputs.kill.serene-drain", "psychosis.inputs.honor-review.enabled")) {
+        for (String key : List.of("honor.cost", "psychosis.inputs.kill.serene-drain")) {
             command.toggleFeatureAsync(features, key, before).join();
             assertThat(messageRegistry.lastCall().key()).isEqualTo("features.unavailable");
             assertThat(configManager.snapshot()).isSameAs(before);

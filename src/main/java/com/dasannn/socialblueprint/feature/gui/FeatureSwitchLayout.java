@@ -17,8 +17,11 @@ public final class FeatureSwitchLayout {
 
     private static List<String> inputs() {
         List<String> keys = new ArrayList<>();
-        for (MindInput input : MindInput.values()) keys.add("psychosis.inputs." + input.id() + ".enabled");
-        if (!keys.contains("psychosis.inputs.honor-review.enabled")) keys.add("psychosis.inputs.honor-review.enabled");
+        // Both honor-review directions share one id and therefore one switch.
+        for (MindInput input : MindInput.values()) {
+            String key = "psychosis.inputs." + input.id() + ".enabled";
+            if (!keys.contains(key)) keys.add(key);
+        }
         return keys;
     }
 
