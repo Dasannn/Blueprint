@@ -355,4 +355,3 @@ T-201 and T-205 follow T-200; T-206 follows everything else.
 | T-214 | Revoke by rating id alone. | SB-152, SB-159 | done |
 | T-215 | Test fixtures no longer decay against the wall clock. | — | done |
 | T-216 | Private sky storms at High, night and storm together at Extreme. | SB-102 | done — 882 tests green |
-| T-209 | Owner live-test round 1: rating wait, hidden revoked history, config suffixes, mind set and revoke last. | SB-152, SB-156 to SB-159 | in progress - code, regression tests and spec ready; Claude build pending |
