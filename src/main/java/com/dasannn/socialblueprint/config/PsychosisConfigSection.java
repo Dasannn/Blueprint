@@ -48,7 +48,7 @@ public record PsychosisConfigSection(double mediumThreshold, double highThreshol
             inputs.put(kind, new MindInputConfig((Boolean) enabled,
                     number(root, prefix + (kind.bad() ? "serene-drain" : "gain"), defaults.sereneAmount()),
                     number(root, prefix + (kind.bad() ? "psychosis-weight" : "cure"), defaults.psychosisAmount()),
-                    kind.peaceful() ? peacefulCap : kind.bad() ? 0 : cap(root, prefix + "cap", defaults.cap())));
+                    kind.peaceful() ? peacefulCap : kind.bad() && kind != MindInput.HONOR_REVIEW_NEGATIVE ? 0 : cap(root, prefix + "cap", defaults.cap())));
         }
         double health = number(root, "psychosis.inputs.near-death.health", 4);
         if (health <= 0) throw new ConfigValidationException("psychosis.inputs.near-death.health", "Must be positive");

@@ -5,6 +5,8 @@ import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import com.dasannn.socialblueprint.domain.Status;
+import com.dasannn.socialblueprint.domain.MindInput;
+import com.dasannn.socialblueprint.domain.MindInputConfig;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -216,7 +218,16 @@ public final class ReputationRepository {
             Long compensationId,
             CompensationRepository compensationRepository
     ) {
+        MindInput input = event.kind() == HonorKind.NEGATIVE ? MindInput.HONOR_REVIEW_NEGATIVE : MindInput.HONOR_REVIEW;
+        return commitPlayerHonorAsync(event, compensationId, compensationRepository, input.defaults());
+    }
+
+    public CompletableFuture<ReputationEvent> commitPlayerHonorAsync(
+            ReputationEvent event, Long compensationId, CompensationRepository compensationRepository,
+            MindInputConfig mindConfig
+    ) {
         Objects.requireNonNull(event, "Event must not be null");
+        Objects.requireNonNull(mindConfig, "Mind configuration must not be null");
         return engine.executeAsync(conn -> {
             boolean initialAutoCommit = conn.getAutoCommit();
             try {
@@ -226,6 +237,19 @@ public final class ReputationRepository {
                     compensationRepository.markEventWrittenInternal(conn, compensationId);
                 }
                 conn.commit();
+                // Reputation is durable first. Finish the mind transaction in this same
+                // executor task, so a queued revocation cannot overtake its input.
+                if (saved.kind().isPlayerHonor()) {
+                    try {
+                        MindInput input = saved.kind() == HonorKind.NEGATIVE ? MindInput.HONOR_REVIEW_NEGATIVE : MindInput.HONOR_REVIEW;
+                        MindRepository.applyInternal(conn, saved.target(), input, mindConfig,
+                                Long.toString(saved.id()), saved.createdAt());
+                        conn.commit();
+                    } catch (SQLException | RuntimeException mindFailure) {
+                        conn.rollback();
+                        LOGGER.log(Level.WARNING, "Failed to apply mind input for durable rating " + saved.id(), mindFailure);
+                    }
+                }
                 if (compensationId != null && compensationRepository != null) {
                     compensationRepository.deleteCompensationAsync(compensationId)
                             .exceptionally(error -> {
@@ -265,6 +289,8 @@ public final class ReputationRepository {
                 ReputationEvent revocation = new ReputationEvent(0, admin, target, 0, HonorKind.REVOCATION,
                         0, adminName, now, ratingId, null);
                 ReputationEvent saved = saveInternal(conn, revocation);
+                if (rating.kind().isPlayerHonor())
+                    MindRepository.reverseHonorInternal(conn, target, ratingId, admin, now);
                 auditRepository.saveInternal(conn, new AuditEvent(admin, "admin_revoke", target,
                         "rating=" + ratingId + ";reason=" + rating.reason(), "revocation=" + saved.id(), now));
                 conn.commit();

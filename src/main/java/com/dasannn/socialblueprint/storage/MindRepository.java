@@ -36,12 +36,26 @@ public final class MindRepository {
     }
     static MindState.Result applyInternal(Connection conn, PlayerId player, MindInput kind, MindInputConfig config, String source, Instant now) throws SQLException {
         double before = valueInternal(conn, player);
-        if (config.enabled() && !kind.bad() && capped(conn, player, kind, config.cap(), now))
+        if (config.enabled() && (!kind.bad() || kind == MindInput.HONOR_REVIEW_NEGATIVE) && capped(conn, player, kind, config.cap(), now))
             return new MindState.Result(before, 0, 0, before, false);
         MindState.Result result = MindState.apply(before, kind, config);
         if (result.enabled()) writeInternal(conn, new MindEvent(0, player, kind.id(), source,
                 result.requestedDelta(), result.appliedDelta(), result.before(), result.after(), now, null), kind.bad() || kind == MindInput.CLEAN_DAY);
         return result;
+    }
+    /** SB-146: undo the historical applied delta, including across Neutral. */
+    static void reverseHonorInternal(Connection conn, PlayerId player, long ratingId, PlayerId admin, Instant now) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("SELECT applied_delta FROM mind_event WHERE player_uuid = ? AND kind = 'honor-review' AND source = ?")) {
+            ps.setString(1, player.toString()); ps.setString(2, Long.toString(ratingId));
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next() || rs.getDouble(1) == 0) return;
+                double requested = -rs.getDouble(1);
+                double before = valueInternal(conn, player);
+                double after = Math.max(-100, Math.min(100, before + requested));
+                writeInternal(conn, new MindEvent(0, player, "honor-revoke", Long.toString(ratingId),
+                        requested, after - before, before, after, now, admin), false);
+            }
+        }
     }
     private static boolean capped(Connection conn, PlayerId player, MindInput kind, int cap, Instant now) throws SQLException {
         if (cap == 0) return true;

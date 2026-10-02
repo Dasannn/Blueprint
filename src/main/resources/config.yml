@@ -107,6 +107,15 @@ psychosis:
     high: 50
     extreme: 80
   inputs:
+    # Received player ratings: both directions share one rolling 24-hour cap.
+    # Administrator adjustments and system penalties do not use this input.
+    honor-review:
+      enabled: true
+      gain: 2
+      cure: 2
+      serene-drain: 2
+      psychosis-weight: 2
+      cap: 3
     # Bad inputs use drain while serene and weight at Neutral or in psychosis.
     kill:
       enabled: true
