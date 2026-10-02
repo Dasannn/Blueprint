@@ -883,19 +883,18 @@ still need them.
 
 In order. Each becomes its own specification section when it is reached.
 
-1. Public comments with mandatory reasons and the Bobba profanity filter.
-2. Profile GUI with cost preview and explicit confirmation.
-3. Reputation Confidence as a displayed metric, with decay and recalculation.
-4. Vouching with a monetary guarantee.
-5. Integrations: trade warnings, CoreProtect, land claims, reputation event API.
-6. Dying as a Psychosis input (owner idea, 2026-10-01): decide the direction
-   (lowers madness, raises it, or resets the serenity streak) and which deaths
-   count, guarding against deliberate deaths used to clear madness.
-7. Votes affecting Psychosis or serenity: blocked by constitution §2.3 (no
-   metric derived from another) and open to brigading; requires an amendment
-   first.
-8. More configurable lists: several ghost labels, false-death templates,
-   particle types with a bounded client tail, and serene apparition kinds.
+1. Reputation Confidence decay and recalculation. Its displayed label stays
+   as it is (owner, 2026-10-02).
+2. Vouching with a monetary guarantee.
+3. Integrations: trade warnings, CoreProtect, land claims, reputation event API.
+4. Votes affecting the mental state: still blocked by constitution §2.3
+   (no metric derived from another) and open to brigading.
+5. Advancement toast delivery, if a later Paper exposes a grant-free toast
+   (SB-109).
+
+Release 2 took up mandatory reasons with the word filter, dying as an input
+and the configurable lists (§15). The profile GUI with cost preview and
+confirmation already shipped in release 1 (SB-086).
 
 ## 13. Removed from the baseline
 
@@ -985,3 +984,217 @@ Deliberate deletions, so no agent restores them as "missing functionality".
 - [ ] Every value named in this document is configurable without recompiling.
 - [ ] Changing `language:` from `es` to `en` changes every player-visible
       string, with no other edit and no separate build.
+
+## 15. Release 2
+
+Governed by `docs/decisions/0007-psychosis-is-a-mental-state.md`, which amends
+constitution §2.3. Where a clause here contradicts an earlier one, this section
+wins; the superseded clauses are named in each requirement. Everything in §6
+that this section does not touch (catalogue, privacy, cleanup, cadence, chat
+corruption, sounds) stays in force.
+
+### 15.1 Mental state
+
+**SB-130.** Psychosis (English `Psychosis`, Spanish `Psicosis`; formerly
+*Killing Psychosis*) is one **signed mental-state value** per player on a
+single scale: psychosis magnitude `P` in `(0, 100]` on one side, serenity
+magnitude `S` in `(0, 100]` on the other, and `0` (Neutral) between them. A
+player is never in psychosis and serenity at once. The plugin stores the
+current value and an immutable `mind_event` log: kind, source, requested
+delta, applied delta, value before and after, and timestamp, so every change
+is explainable (constitution §2.5 applied to this metric). The value never
+reads or writes status, Confidence or money (SB-100 unchanged).
+
+This replaces the rolling kill window and the active-hours curve. Superseded:
+the window part of SB-004, SB-093, the timing rules of SB-117, SB-118, SB-119,
+and the keys `psychosis.window`, `psychosis.serenity.active-hours-to-ceiling`
+and the kill-count thresholds of SB-125.
+
+**SB-131.** Psychosis levels are read from `P`: Neutral at `0`, **Low** below
+20, **Medium** from 20, **High** from 50, **Extreme** from 80 up to 100. The
+three thresholds are configurable, strictly increasing and inside `(0, 100]`.
+Low still triggers no madness effects (SB-096). Serenity effects keep their
+`minimum-serenity` against `S`.
+
+**SB-132.** **Nothing resets the value at once, and nothing disappears on a
+timer.** A bad action applied while the player is serene lowers `S` by its
+*serene drain*. If the drain is larger than what is left, `S` stops at `0`
+(Neutral); the remainder is not carried into psychosis. A bad action applied
+at Neutral or in psychosis raises `P` by its *psychosis weight*, capped at 100.
+A good action applied in psychosis lowers `P`; if it is larger than what is
+left, `P` stops at `0`. A good action at Neutral or while serene raises `S`,
+capped at 100. Growth is **linear**: there is no diminishing-return curve.
+
+**SB-133.** Bad actions. Nothing that happens inside an accepted plugin duel
+counts (SB-031 eligibility is reused for every row).
+
+| Input | Trigger | Serene drain | Psychosis weight |
+|---|---|---|---|
+| `kill` | Killing a player outside a duel; same eligibility as R1 Psychosis events | 25 | 10 |
+| `death` | Dying outside a duel, from any cause | 10 | 6 |
+| `near-death` | Taking damage that leaves health above 0 and at or below `near-death.health` (default `4`, two hearts) from above it; re-armed only after health rises back above the threshold | 3 | 2 |
+| `sleepless-night` | An Overworld night ending in which the player was **actively** online (SB-118 idle rule) for at least half the night's nominal length and did not sleep. A night cut short by others sleeping usually fails the half-night test and then counts for nobody | 2 | 2 |
+
+A death and the near-death that preceded it both apply. Two deaths in five
+minutes both apply.
+
+**SB-134.** Good actions. Offline time and idle/AFK time earn nothing; the
+SB-118 idle rule decides what is active. Each kind has its own cap over a
+**rolling 24 real hours**.
+
+| Input | Trigger | Serene gain | Psychosis cure | Cap per 24 h |
+|---|---|---|---|---|
+| `clean-day` | 24 real hours since the later of the last bad action and the last clean-day credit, with at least `clean-day.active-minutes` (default 30) of active play inside them. A bad action restarts the clock | 1 | 1 | 1 credit |
+| `sleep` | Sleeping through a night (deep sleep reached and the night ends) | 0.5 | 1 | 2 nights |
+| `fishing` | Catching a fish; counts only if the player made a non-fishing qualifying action within the idle timeout, so AFK fish farms earn nothing | 0.02 | 0.02 | shared: 25 actions |
+| `breeding` | Breeding two animals | 0.02 | 0.02 | shared |
+| `feeding` | Feeding an animal so it enters love mode or a baby grows | 0.02 | 0.02 | shared |
+| `planting` | Planting a crop on farmland | 0.02 | 0.02 | shared |
+| `harvesting` | Harvesting a mature crop | 0.02 | 0.02 | shared |
+
+The five peaceful kinds share one cap of 25 credited actions per 24 hours. An
+action past a cap still happens; it simply credits nothing and writes no event.
+Active play time alone no longer credits serenity.
+
+**SB-135.** Configuration lives under `psychosis.inputs.<id>` with `enabled`
+and the amounts of SB-133/SB-134 (`serene-drain`, `psychosis-weight`, `gain`,
+`cure`, caps, `near-death.health`, `clean-day.active-minutes`), plus
+`psychosis.levels.<low|medium|high|extreme>` thresholds. All are typed,
+validated, live-editable, merged into older configurations and finite;
+amounts are nonnegative and caps are nonnegative integers. A disabled input
+is ignored entirely: no event, no cap use.
+
+**SB-136.** Upgrade from release 1 invents nothing. A player with eligible
+kills still inside the old window starts in psychosis at
+`min(100, 10 × kills)`; otherwise a player with credited serenity starts at
+the serenity the R1 curve gave; everyone else starts Neutral. The conversion
+writes one `mind_event` per converted player. Existing `psychosis_event` kill
+rows are kept, because the victim ghost reads them (SB-108).
+
+**SB-137.** Administrators can reset the mental state to Neutral:
+`/status admin mind reset <player>` for one player, online or offline, and
+`/status admin mind reset-all` for every stored player, which requires
+repeating the command with `confirm` within 30 seconds. A reset sets the value
+to `0`, restarts the clean-day clock, writes a `mind_event` naming the
+administrator and an audit record (SB-064). Caps already used in the current
+24 hours stay used. Permission `socialblueprint.admin.mind`. The console can
+run both; `reset-all` runs off the main thread.
+
+**SB-138.** Profiles show **one mental-state line** instead of separate
+Psychosis and Serenity lines, everywhere a profile appears: chat hover, chat
+and console profile, chest and `/status psychosis`. In Spanish:
+`Estado mental: Psicosis Media`, `Estado mental: Serenidad 43.7/100` or
+`Estado mental: Neutral`; English equivalents in `messages_en.yml`.
+`/status psychosis` adds the psychosis magnitude to one decimal. Supersedes
+the two-line display of SB-022 and SB-117. Labels live in both message files.
+
+### 15.2 Effects
+
+**SB-140.** Madness episodes can start **several effects at once**. The
+number started together is at most 2 at Medium, 3 at High and 4 at Extreme,
+under `effects.episodes.<medium|high|extreme>.max-concurrent` (positive,
+non-decreasing by level). Effects in one episode are distinct ids, each
+respecting its own minimum level, cooldown and session cap; fewer start when
+fewer are available. The episode ends when every one of them has cleared and
+its final sound has finished, then SB-097's quiet interval applies. Raising the
+level cannot bypass a cooldown, cap or quiet interval. Chat corruption keeps
+its own rule (SB-095). Serenity episodes stay one effect at a time.
+
+**SB-141.** The false death (SB-111) draws its line at random from a list,
+`effects.false-death.lines` in each message file, each line with the living
+subject `{player}` and SB-115 bounds. On upgrade, an existing single
+`effects.false-death.line` becomes the first entry and is retired.
+
+**SB-142.** Particle effects pick one type at random per episode from a list:
+`effects.particles.types` for madness and `effects.serenity.particles.types`
+for serenity. Only particle types that need no extra data and have a bounded
+client tail are accepted; anything else fails validation naming the entry. On
+upgrade, the existing single `type` becomes a one-entry list and is retired.
+
+**SB-143.** Serene apparitions (SB-124) pick one kind at random per episode
+from `effects.serenity.apparition.kinds`, default
+`[turtle, fox, armadillo, bee]`; `cat` and `wolf` remain accepted. Only passive
+living types are accepted. An apparition is a packet-only fake with no
+server-side entity, so nothing can harm it: no player, mob, explosion, fire,
+drowning, fall or command reaches it, and interacting with it does nothing.
+On upgrade, an existing `kind` becomes a one-entry list and is retired.
+
+### 15.3 Feature switches
+
+**SB-145.** `/status admin features` opens a chest GUI (permission
+`socialblueprint.admin.features`) with one item per mind input of SB-133 and
+SB-134 and one per effect: every madness catalogue effect, phantom mobs, chat
+corruption and every serenity effect. Each item shows whether it is on; a click
+flips it. The GUI writes the same `enabled` keys as `/status config`, through
+the same validated live-edit path, so a switch takes effect at once, survives a
+restart and leaves an audit record. It is a surface, not a second set of rules
+(as SB-081). A switched-off input stops affecting the mental state; a
+switched-off effect stops being selected, and one already playing finishes
+and cleans up normally.
+
+### 15.4 Honor and words
+
+**SB-150.** **Every honor rating needs a written reason**, positive or
+negative, from the command and from the GUI. The skip word disappears and its
+message key `gui.reason-skip-word` is retired. Reasons shorter than
+`honor.reason.min-length` visible characters (default 3) are rejected with a
+message. Supersedes the optional positive reason of SB-056.
+
+**SB-151.** A **word filter** replaces listed words with a replacement
+(default `bobba`, the message key `chat-filter.replacement`). Words live in
+`config.yml` under `chat-filter.words`, one list for each shipped language;
+every list applies whatever the active language, because players write in
+either. Matching is whole-word, case-insensitive and accent-insensitive.
+It applies to public chat for every reader, before chat corruption, and to
+honor reasons wherever they are shown. A reason is still **stored as written**
+(SB-083): players see it filtered, the audit trail keeps the original. The
+filter never blocks or delays a message and never touches status, Confidence,
+the mental state or money. `chat-filter.enabled` defaults to `true`; lists are
+live-editable and reject empty entries.
+
+**SB-152.** Administrators can **revoke** one rating, positive or negative,
+from a player's history: by shift-clicking its column in the history GUI with
+permission `socialblueprint.admin.revoke`, after a confirmation, or by
+`/status admin revoke <player> <rating-id>` (the admin view of the history
+shows ids). A revocation does not delete the rating. It writes a revocation
+event referencing it and an audit record, and the revoked rating stops counting
+towards status and decay, so the player's status is recalculated as if it had
+never been given. The history keeps the column and marks it
+`Anulada por {admin}` / `Revoked by {admin}`. A rating can be revoked once;
+a revocation cannot itself be revoked. No money is refunded and the rater's
+allowance (SB-054) is not restored. System penalties (SB-032) can be revoked
+the same way.
+
+### 15.5 Housekeeping
+
+**SB-155.** The version in `plugin.yml` is filtered from `pom.xml` at build
+time, so a release bumps one number.
+
+## 16. Acceptance criteria for release 2
+
+- [ ] One signed mental-state value per player; no 72-hour expiry; nothing
+      resets it at once (SB-130, SB-132).
+- [ ] A serene player's bad action only lowers serenity and stops at Neutral;
+      the next bad action enters psychosis (SB-132).
+- [ ] Kill, death, near-death and sleepless night apply their table amounts
+      outside duels and nothing inside a duel (SB-133).
+- [ ] Clean day, sleep and peaceful actions cure psychosis and then build
+      serenity, never past their 24-hour caps, never offline or idle (SB-134).
+- [ ] Levels read Low/Medium/High/Extreme at 20/50/80 by default (SB-131).
+- [ ] A release 1 world upgrades with no invented history (SB-136).
+- [ ] Admin reset works for one player and for all, audited (SB-137).
+- [ ] Profiles show one mental-state line in both languages (SB-138).
+- [ ] Medium/High/Extreme start up to 2/3/4 distinct effects together, still
+      with quiet intervals and limits; serenity one at a time (SB-140).
+- [ ] False-death lines, particle types and serene kinds rotate from their
+      lists; serene apparitions cannot be harmed (SB-141 to SB-143).
+- [ ] Every input and effect can be switched off and on from the features GUI
+      without a restart (SB-145).
+- [ ] Ratings cannot be submitted without a reason (SB-150).
+- [ ] Listed words appear as `bobba` in chat and reasons; stored reasons keep
+      the original (SB-151).
+- [ ] A revoked rating no longer counts, is marked in the history and is
+      audited (SB-152).
+- [ ] The release-1 checks deferred to this release pass: a real name change,
+      every effect with two clients, `language: en`, and a reload during an
+      effect.

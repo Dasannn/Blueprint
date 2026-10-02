@@ -41,7 +41,9 @@ of a core game function.
 
 - **Social status** — how the community perceives this player's trustworthiness.
 - **Reputation Confidence** — how much evidence stands behind that status.
-- **Killing Psychosis** — how prone this player is to killing other players.
+- **Psychosis** — this player's mental state: violence, dying and lack of
+  rest push it towards madness, and peaceful conduct brings it back through
+  neutral towards serenity (amended by decision 0007).
 
 They are stored separately, computed separately, and displayed separately.
 Killing someone is not the same as being untrustworthy, and having no record is
