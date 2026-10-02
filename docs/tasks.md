@@ -342,7 +342,7 @@ T-201 and T-205 follow T-200; T-206 follows everything else.
 | T-201 | After T-200, the remaining inputs: death, near-death, sleepless night, clean day, sleep and the five peaceful actions, with duel exemption, idle rule and rolling 24-hour caps. | SB-133, SB-134 | todo |
 | T-202 | Low effects and floors, `max-concurrent` per level, false-death line list, particle type lists, serene apparition kind list with turtle, fox, armadillo and bee. | SB-139 to SB-143 | in progress — `feat/r2-effects` |
 | T-203 | Mandatory reasons, word filter for chat and reasons, admin revoke from the GUI and the command. | SB-150 to SB-152 | in progress — `feat/r2-honor` |
-| T-204 | Filter the `plugin.yml` version from `pom.xml`. | SB-155 | in progress — `feat/r2-version` |
+| T-204 | Filter the `plugin.yml` version from `pom.xml`. | SB-155 | done — `18c522c`, 735 tests green |
 | T-205 | After T-200, one mental-state line in hover, profiles, chest and `/status psychosis`, both languages. | SB-138 | todo |
 | T-206 | After T-201 to T-205, the `/status admin features` switch GUI over every input and effect. | SB-145 | todo |
 | T-207 | Live acceptance walk for §16, including the release-1 boxes carried over. | §16 | todo |
