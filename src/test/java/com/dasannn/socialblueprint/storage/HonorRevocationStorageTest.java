@@ -45,7 +45,7 @@ class HonorRevocationStorageTest {
         }
     }
 
-    @Test void onceOnlyTargetBoundAuditedAndNeverRefundsOrRestoresAllowance() {
+    @Test void onceOnlyGlobalIdAuditedAndNeverRefundsOrRestoresAllowance() {
         try (StorageEngine engine = StorageEngine.inMemory()) {
             prepareSchema(engine);
             var repository = new ReputationRepository(engine, new StatusCache());
@@ -56,8 +56,7 @@ class HonorRevocationStorageTest {
             for (HonorKind kind : List.of(HonorKind.POSITIVE, HonorKind.NEGATIVE, HonorKind.SYSTEM_KILL)) {
                 var rating = repository.save(new ReputationEvent(kind == HonorKind.SYSTEM_KILL ? null : actor,
                         target, kind.isPositive() ? 1 : -1, kind, kind.isPlayerHonor() ? 500 : 0, "idiot &a original", now));
-                assertThat(repository.revokeAsync(actor, "Admin", PlayerId.of(UUID.randomUUID()), rating.id(), now, audits).join()).isFalse();
-                assertThat(repository.revokeAsync(actor, "Admin", target, rating.id(), now, audits).join()).isTrue();
+                assertThat(repository.revokeAsync(actor, "Admin", PlayerId.of(UUID.randomUUID()), rating.id(), now, audits).join()).isTrue();
                 assertThat(repository.revokeAsync(actor, "Admin", target, rating.id(), now, audits).join()).isFalse();
                 var events = repository.findByTarget(target);
                 var original = events.stream().filter(e -> e.id() == rating.id()).findFirst().orElseThrow();
@@ -80,6 +79,35 @@ class HonorRevocationStorageTest {
             assertThat(audits.findByTarget(target)).hasSize(3);
             assertThat(audits.findByTarget(target).getFirst().before()).contains("idiot &a original");
             assertThat(repository.findByTarget(target).stream().filter(e -> e.kind().isPlayerHonor()).count()).isEqualTo(2);
+        }
+    }
+
+    @Test void globalIdResultDistinguishesMissingAndNotRevocableAndInvalidatesActualTarget() {
+        try (var engine = StorageEngine.inMemory()) {
+            engine.runMigrations();
+            var rep = new ReputationRepository(engine, new StatusCache());
+            var audits = new AuditRepository(engine);
+            var target = PlayerId.of(UUID.randomUUID());
+            var now = Instant.now();
+            var rating = rep.save(new ReputationEvent(PlayerId.CONSOLE, target, 1,
+                    HonorKind.ADMIN_GIVE, 0, "Admin", now));
+            var invalidated = new java.util.ArrayList<PlayerId>();
+            rep.addInvalidationListener(invalidated::add);
+            var missing = rep.revokeRatingAsync(PlayerId.CONSOLE, "Owner", null, Long.MAX_VALUE, now, audits).join();
+            assertThat(missing.rating()).isNull();
+            assertThat(missing.revoked()).isFalse();
+            var success = rep.revokeRatingAsync(PlayerId.CONSOLE, "Owner", null, rating.id(), now, audits).join();
+            assertThat(success.rating()).isEqualTo(rating);
+            assertThat(success.revoked()).isTrue();
+            var retry = rep.revokeRatingAsync(PlayerId.CONSOLE, "Owner", null, rating.id(), now, audits).join();
+            assertThat(retry.rating().id()).isEqualTo(rating.id());
+            assertThat(retry.revoked()).isFalse();
+            var revocation = rep.findByTarget(target).getLast();
+            var rejected = rep.revokeRatingAsync(PlayerId.CONSOLE, "Owner", null, revocation.id(), now, audits).join();
+            assertThat(rejected.rating().kind()).isEqualTo(HonorKind.REVOCATION);
+            assertThat(rejected.revoked()).isFalse();
+            assertThat(invalidated).containsExactly(target);
+            assertThat(audits.findByTarget(target)).hasSize(1);
         }
     }
 

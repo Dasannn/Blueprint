@@ -85,18 +85,18 @@ public class StatusAdminCommand {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
                 return CompletableFuture.completedFuture(null);
             }
-            if (args.length != 3) {
+            if (args.length != 2 && args.length != 3) {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.revoke-usage"));
                 return CompletableFuture.completedFuture(null);
             }
-            if ("last".equalsIgnoreCase(args[2]))
+            if (args.length == 3 && "last".equalsIgnoreCase(args[2]))
                 return honorService.adminRevoke(sender, args[1], -1, snapshot);
-            java.util.OptionalLong ratingId = ArgumentParser.parsePositiveLong(args[2]);
+            java.util.OptionalLong ratingId = ArgumentParser.parsePositiveLong(args[args.length - 1]);
             if (ratingId.isEmpty()) {
-                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.revoke-rejected"));
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.revoke-usage"));
                 return CompletableFuture.completedFuture(null);
             }
-            return honorService.adminRevoke(sender, args[1], ratingId.getAsLong(), snapshot);
+            return honorService.adminRevoke(sender, null, ratingId.getAsLong(), snapshot);
         }
 
         // Permission check for give/take/reset

@@ -626,7 +626,7 @@ public class StatusGuiService {
                     List<GuiLoreLine> lore = new ArrayList<>(item.lore());
                     if (viewer != null && (PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot)
                             || PermissionChecker.hasPermission(viewer, "admin-adjust", snapshot))) {
-                        lore.add(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(event.id()), "player", targetName)));
+                        lore.add(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(event.id()))));
                         if (event.canRevoke() && PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot))
                             lore.add(GuiLoreLine.ofKey("honor.revoke-hint"));
                     }

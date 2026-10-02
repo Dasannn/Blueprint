@@ -76,10 +76,10 @@ class HonorMindStorageTest {
             var positive = commit(rep, target, HonorKind.POSITIVE, NOW);
             commit(rep, target, HonorKind.NEGATIVE, NOW);
             assertThat(mind.value(target)).isZero();
-            assertThat(rep.revokeAsync(PlayerId.CONSOLE, "Admin", target, negative.id(), NOW, audits).join()).isTrue();
+            assertThat(rep.revokeAsync(PlayerId.CONSOLE, "Admin", null, negative.id(), NOW, audits).join()).isTrue();
             assertThat(mind.value(target)).isEqualTo(0.5);
             assertThat(mind.events(target).getLast().requestedDelta()).isEqualTo(0.5);
-            assertThat(rep.revokeAsync(PlayerId.CONSOLE, "Admin", target, positive.id(), NOW, audits).join()).isTrue();
+            assertThat(rep.revokeAsync(PlayerId.CONSOLE, "Admin", player(), positive.id(), NOW, audits).join()).isTrue();
             assertThat(mind.value(target)).isEqualTo(-1.5);
             var undo = mind.events(target).getLast();
             assertThat(undo.kind()).isEqualTo("honor-revoke");

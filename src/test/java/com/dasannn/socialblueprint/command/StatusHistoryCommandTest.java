@@ -304,7 +304,7 @@ class StatusHistoryCommandTest {
         assertThat(recordingRegistry.findCalls("honor.revoked")).singleElement().satisfies(call ->
                 assertThat(call.stringPlaceholders()).containsEntry("admin", "Owner"));
         assertThat(recordingRegistry.findCalls("honor.rating-id")).singleElement().satisfies(call ->
-                assertThat(call.stringPlaceholders()).containsEntry("id", Long.toString(rating.id())).containsEntry("player", "RevokedTarget"));
+                assertThat(call.stringPlaceholders()).containsEntry("id", Long.toString(rating.id())));
     }
 
     @Test

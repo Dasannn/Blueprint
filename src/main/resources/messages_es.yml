@@ -46,7 +46,7 @@ commands:
     invalid-key: '&cClave de configuración desconocida o no editable: &f{key}'
     reload-success: '&aConfiguración recargada exitosamente.'
   admin:
-    usage: '&eUso: &f/status admin <give|take|reset|import> <jugador> [cantidad]'
+    usage: '&eUso: &f/status admin <give|take|reset|import> <jugador> [cantidad] | /status admin revoke <id> | /status admin revoke <jugador> last'
     give-success: '&aSe añadieron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
     take-success: '&aSe retiraron exitosamente &e{amount}&a de honor a &e{target}&a. Nuevo estatus: &f{status}'
     reset-success: '&aSe restableció el estatus de &e{target}&a a neutral (0).'
@@ -93,11 +93,13 @@ status:
   read-failed: '&cError al leer el perfil.'
 
 honor:
-  revoke-usage: '&eUso: /status admin revoke <jugador> <id-calificación|last>'
-  revoke-success: '&aCalificación {id} de {player} anulada.'
+  revoke-usage: '&eUso: /status admin revoke <id> | <jugador> last | <jugador> <id>'
+  revoke-success: '&aReseña {id} de {rater} a {player} revocada.'
   revoke-rejected: '&cLa calificación no existe, ya fue anulada o no se puede anular.'
+  revoke-not-found: '&cLa reseña {id} no existe.'
+  revoke-not-revocable: '&cLa reseña {id} no se puede revocar (ya revocada o tipo no revocable).'
   last-rating: 'última'
-  rating-id: '&7Revocar: /status admin revoke {player} {id}'
+  rating-id: '&7Revocar: /status admin revoke {id}'
   revoked: '&cRevocada por {admin}'
   revoke-title: '&c¿Anular la calificación {id}?'
   revoke-confirm: '&aConfirmar anulación'

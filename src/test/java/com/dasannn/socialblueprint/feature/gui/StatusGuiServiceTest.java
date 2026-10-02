@@ -225,7 +225,7 @@ public class StatusGuiServiceTest {
         var adminPages = guiService.computeAllPages(view, events, Set.of(), admin, snapshot);
         assertThat(adminPages).hasSize(2);
         assertThat(adminPages.getFirst().get(36).lore()).contains(
-                GuiLoreLine.ofKey("honor.rating-id", Map.of("player", "TargetUser", "id", "1")),
+                GuiLoreLine.ofKey("honor.rating-id", Map.of("id", "1")),
                 GuiLoreLine.ofKey("honor.revoked", Map.of("admin", "Owner")));
         var revokedOnly = events.subList(0, 2);
         var hidden = guiService.computeAllPages(view, revokedOnly, Set.of(), viewer, snapshot).getFirst();
@@ -277,19 +277,91 @@ public class StatusGuiServiceTest {
     void revokeLastCommandUsesPermissionAndShowsNoEmptySuccessfulRevocations() {
         var target = PlayerId.of(UUID.randomUUID());
         onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", false));
-        reputationRepo.save(new ReputationEvent(PlayerId.CONSOLE, target, 1, HonorKind.ADMIN_GIVE, 0, "Admin", Instant.now()));
+        var rater = PlayerId.of(UUID.randomUUID());
+        offlineNames.put(rater.uuid(), "RaterUser");
+        offlineNames.put(target.uuid(), "TargetUser");
+        var rating = reputationRepo.save(new ReputationEvent(rater, target, 1, HonorKind.POSITIVE, 500, "Helpful", Instant.now()));
+        var other = PlayerId.of(UUID.randomUUID());
+        reputationRepo.save(new ReputationEvent(target, other, -1, HonorKind.NEGATIVE, 500, "Given later", Instant.now().plusSeconds(1)));
         var cmd = new com.dasannn.socialblueprint.command.StatusAdminCommand(honorService, messageRegistry);
         var denied = createMockPlayer("Denied", UUID.randomUUID(), "socialblueprint.admin.adjust");
         awaitQueued(cmd.execute(denied, new String[]{"revoke", "TargetUser", "last"}, configManager.snapshot()));
         assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();
         var admin = createMockPlayer("Owner", UUID.randomUUID(), "socialblueprint.admin.revoke");
         awaitQueued(cmd.execute(admin, new String[]{"revoke", "TargetUser", "last"}, configManager.snapshot()));
-        assertThat(messageRegistry.hasCall("honor.revoke-success")).isTrue();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.revoke-success");
+        assertThat(messageRegistry.lastCall().placeholders()).containsExactlyInAnyOrderEntriesOf(
+                Map.of("id", String.valueOf(rating.id()), "rater", "RaterUser", "player", "TargetUser"));
+        assertThat(reputationRepo.findByTarget(other).getFirst().canRevoke()).isTrue();
         assertThat(reputationRepo.findByTarget(target).getFirst().revokedBy()).isEqualTo("Owner");
         messageRegistry.clearCalls();
         awaitQueued(cmd.execute(admin, new String[]{"revoke", "TargetUser", "last"}, configManager.snapshot()));
         assertThat(messageRegistry.hasCall("honor.revoke-rejected")).isTrue();
         assertThat(cmd.tabComplete(admin, new String[]{"revoke", "TargetUser", "l"}, configManager.snapshot())).containsExactly("last");
+    }
+
+    @Test
+    void revokeIdsIgnoreLegacyPlayerAndReportActualSidesAndFailureReason() {
+        var target = PlayerId.of(UUID.randomUUID());
+        var rater = PlayerId.of(UUID.randomUUID());
+        offlineNames.put(target.uuid(), "TakeOnnMee");
+        offlineNames.put(rater.uuid(), "asdaasdasda");
+        var admin = createMockPlayer("Owner", UUID.randomUUID(), "socialblueprint.admin.revoke");
+        var cmd = new com.dasannn.socialblueprint.command.StatusAdminCommand(honorService, messageRegistry);
+        // Id alone, legacy recipient, legacy rater (live incident), and unknown unrelated player.
+        for (String legacyPlayer : List.of("", "TakeOnnMee", "asdaasdasda", "UnrelatedUnknown")) {
+            var rating = reputationRepo.save(new ReputationEvent(rater, target, 1, HonorKind.POSITIVE,
+                    500, "Helpful", Instant.now()));
+            String id = String.valueOf(rating.id());
+            String[] args = legacyPlayer.isEmpty() ? new String[]{"revoke", id}
+                    : new String[]{"revoke", legacyPlayer, id};
+            messageRegistry.clearCalls();
+            awaitQueued(cmd.execute(admin, args, configManager.snapshot()));
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.revoke-success");
+            assertThat(messageRegistry.lastCall().placeholders()).containsExactlyInAnyOrderEntriesOf(
+                    Map.of("id", id, "rater", "asdaasdasda", "player", "TakeOnnMee"));
+            assertThat(reputationRepo.findByTarget(target).getLast().revokedRatingId()).isEqualTo(rating.id());
+            messageRegistry.clearCalls();
+            awaitQueued(cmd.execute(admin, args, configManager.snapshot()));
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.revoke-not-revocable");
+            assertThat(messageRegistry.lastCall().placeholders()).containsEntry("id", id);
+        }
+        assertThat(auditRepo.findByTarget(target)).hasSize(4);
+        assertThat(deposits).isEmpty();
+        assertThat(economyBalances).isEmpty();
+        messageRegistry.clearCalls();
+        awaitQueued(cmd.execute(admin, new String[]{"revoke", "9223372036854775807"}, configManager.snapshot()));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.revoke-not-found");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("id", "9223372036854775807");
+        var reset = reputationRepo.save(new ReputationEvent(PlayerId.CONSOLE, target, 0,
+                HonorKind.ADMIN_RESET, 0, "Reset", Instant.now()));
+        awaitQueued(cmd.execute(admin, new String[]{"revoke", String.valueOf(reset.id())}, configManager.snapshot()));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.revoke-not-revocable");
+    }
+
+    @Test
+    void revokeIdValidationPermissionsAndCompletion() {
+        var admin = createMockPlayer("Owner", UUID.randomUUID(), "socialblueprint.admin.revoke");
+        var denied = createMockPlayer("Denied", UUID.randomUUID(), "socialblueprint.admin.adjust");
+        var cmd = new com.dasannn.socialblueprint.command.StatusAdminCommand(honorService, messageRegistry);
+        for (String[] args : List.of(new String[]{"revoke"}, new String[]{"revoke", "last"},
+                new String[]{"revoke", "0"}, new String[]{"revoke", "-1"}, new String[]{"revoke", "abc"},
+                new String[]{"revoke", "9223372036854775808"}, new String[]{"revoke", "Target", "1", "extra"})) {
+            messageRegistry.clearCalls();
+            awaitQueued(cmd.execute(admin, args, configManager.snapshot()));
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.revoke-usage");
+        }
+        awaitQueued(cmd.execute(denied, new String[]{"revoke", "1"}, configManager.snapshot()));
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
+        assertThat(cmd.tabComplete(admin, new String[]{"r"}, configManager.snapshot())).containsExactly("revoke");
+        assertThat(cmd.tabComplete(admin, new String[]{"revoke", "90"}, configManager.snapshot())).isEmpty();
+        assertThat(cmd.tabComplete(admin, new String[]{"revoke", "Target", "l"}, configManager.snapshot())).containsExactly("last");
+        assertThat(cmd.tabComplete(denied, new String[]{"revoke", "Target", "l"}, configManager.snapshot())).isEmpty();
+        var executor = new StatusCommandExecutor(configManager, messageRegistry, profileService, honorService,
+                null, auditRepo, mainThreadQueue::add, () -> List.of(admin), null, guiService);
+        assertThat(executor.onTabComplete(admin, null, "status", new String[]{"admin", "revoke", "90"})).isEmpty();
+        assertThat(executor.onTabComplete(admin, null, "status", new String[]{"admin", "revoke", "Owner", "l"})).containsExactly("last");
+        assertThat(executor.onTabComplete(denied, null, "status", new String[]{"admin", "revoke", "O"})).isEmpty();
     }
 
     @Test
@@ -337,7 +409,7 @@ public class StatusGuiServiceTest {
         var layout = StatusGuiService.buildPageLayout(null, events, 0, 1, Set.of(), admin,
                 configManager.snapshot(), null, messageRegistry);
         for (int slot : List.of(27, 36, 45))
-            assertThat(layout.get(slot).lore()).contains(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(ratingId), "player", "Player")));
+            assertThat(layout.get(slot).lore()).contains(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(ratingId))));
         var denied = new StatusGuiHolder(actor.getUniqueId(), "TargetUser", List.of(layout), new HashSet<>(), configManager.snapshot());
         awaitQueued(guiService.handleClick(actor, denied, 36, true));
         assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();
@@ -360,7 +432,7 @@ public class StatusGuiServiceTest {
             assertThat(marked.get(slot).lore()).contains(GuiLoreLine.ofKey("honor.revoked", Map.of("admin", "Admin")));
         awaitQueued(new com.dasannn.socialblueprint.command.StatusAdminCommand(honorService, messageRegistry)
                 .execute(admin, new String[]{"revoke", "TargetUser", String.valueOf(ratingId)}, configManager.snapshot()));
-        assertThat(messageRegistry.hasCall("honor.revoke-rejected")).isTrue();
+        assertThat(messageRegistry.hasCall("honor.revoke-not-revocable")).isTrue();
     }
 
     @Test

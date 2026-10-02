@@ -262,42 +262,66 @@ public final class ReputationRepository {
         });
     }
 
-    /** Once-only revocation and its audit commit in the same storage transaction. */
+    public record RevocationResult(ReputationEvent rating, boolean revoked) {}
+
+    /** Compatibility entry point; explicit ids are global, target scopes only last. */
     public CompletableFuture<Boolean> revokeAsync(PlayerId admin, String adminName, PlayerId target,
+            long ratingId, Instant now, AuditRepository auditRepository) {
+        return revokeRatingAsync(admin, adminName, target, ratingId, now, auditRepository)
+                .thenApply(RevocationResult::revoked);
+    }
+
+    /** Once-only revocation and its audit commit in the same storage transaction. */
+    public CompletableFuture<RevocationResult> revokeRatingAsync(PlayerId admin, String adminName, PlayerId target,
             long ratingId, Instant now, AuditRepository auditRepository) {
         Objects.requireNonNull(admin);
         Objects.requireNonNull(adminName);
         Objects.requireNonNull(auditRepository);
+        if (ratingId == -1) Objects.requireNonNull(target);
         return engine.executeAsync(conn -> {
             boolean autoCommit = conn.getAutoCommit();
             try {
                 conn.setAutoCommit(false);
-                ReputationEvent rating = findByTargetStrictInternal(conn, target.toString()).stream()
-                        .filter(e -> ratingId == -1 ? e.canRevoke() : e.id() == ratingId)
-                        .max(java.util.Comparator.comparing(ReputationEvent::createdAt).thenComparingLong(ReputationEvent::id))
-                        .orElse(null);
+                ReputationEvent rating;
+                if (ratingId == -1) {
+                    rating = findByTargetStrictInternal(conn, target.toString()).stream()
+                            .filter(ReputationEvent::canRevoke)
+                            .max(java.util.Comparator.comparing(ReputationEvent::createdAt).thenComparingLong(ReputationEvent::id))
+                            .orElse(null);
+                } else {
+                    try (PreparedStatement ps = conn.prepareStatement("""
+                            SELECT *, (SELECT rev.reason FROM reputation_event rev
+                                WHERE rev.revoked_rating_id = reputation_event.id) AS revoked_by
+                            FROM reputation_event WHERE id = ?
+                            """)) {
+                        ps.setLong(1, ratingId);
+                        try (ResultSet rs = ps.executeQuery()) {
+                            rating = rs.next() ? mapRowStrict(rs) : null;
+                        }
+                    }
+                }
                 if (rating == null || !rating.canRevoke()) {
                     conn.rollback();
-                    return false;
+                    return new RevocationResult(rating, false);
                 }
-                ReputationEvent revocation = new ReputationEvent(0, admin, target, 0, HonorKind.REVOCATION,
+                ReputationEvent revocation = new ReputationEvent(0, admin, rating.target(), 0, HonorKind.REVOCATION,
                         0, adminName, now, rating.id(), null);
                 ReputationEvent saved = saveInternal(conn, revocation);
                 if (rating.kind().isPlayerHonor())
-                    MindRepository.reverseHonorInternal(conn, target, rating.id(), admin, now);
-                auditRepository.saveInternal(conn, new AuditEvent(admin, "admin_revoke", target,
+                    MindRepository.reverseHonorInternal(conn, rating.target(), rating.id(), admin, now);
+                auditRepository.saveInternal(conn, new AuditEvent(admin, "admin_revoke", rating.target(),
                         "rating=" + rating.id() + ";reason=" + rating.reason(), "revocation=" + saved.id(), now));
                 conn.commit();
-                return true;
+                return new RevocationResult(rating, true);
             } catch (Exception ex) {
                 conn.rollback();
                 throw ex;
             } finally {
                 conn.setAutoCommit(autoCommit);
             }
-        }).thenApply(changed -> {
-            if (changed) notifyInvalidation(target);
-            return changed;
+        }).thenApply(result -> {
+            if (result.revoked()) notifyInvalidation(result.rating().target());
+            return result;
         });
     }
 
