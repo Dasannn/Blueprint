@@ -336,7 +336,7 @@ public class StatusConfigCommand {
             keys.addAll(com.dasannn.socialblueprint.config.SerenityEffectsConfig.defaults().leafValues().keySet());
             for (com.dasannn.socialblueprint.domain.MindInput input : com.dasannn.socialblueprint.domain.MindInput.values()) {
                 String prefix = "psychosis.inputs." + input.id() + ".";
-                keys.add(prefix + "enabled");
+                if (!keys.contains(prefix + "enabled")) keys.add(prefix + "enabled");
                 keys.add(prefix + (input.bad() ? "serene-drain" : "gain"));
                 keys.add(prefix + (input.bad() ? "psychosis-weight" : "cure"));
                 if (!input.bad() && !input.peaceful()) keys.add(prefix + "cap");

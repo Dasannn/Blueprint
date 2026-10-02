@@ -1367,6 +1367,10 @@ public class StatusGuiServiceTest {
         assertThat(events).hasSize(1);
         assertThat(events.getFirst().actor()).isEqualTo(actorId);
         assertThat(events.getFirst().target()).isEqualTo(targetId);
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        assertThat(mind.value(targetId)).isEqualTo(2);
+        assertThat(mind.value(actorId)).isZero();
+        assertThat(mind.events(targetId).getFirst().source()).isEqualTo(Long.toString(events.getFirst().id()));
     }
 
     @Test

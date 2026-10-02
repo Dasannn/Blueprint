@@ -160,6 +160,10 @@ class StatusCommandTest {
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "reset", "Online"})).contains("OnlineAlice", "OnlineBob");
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"config", "set", "psychosis.inputs.kill."}))
                 .contains("psychosis.inputs.kill.enabled", "psychosis.inputs.kill.serene-drain", "psychosis.inputs.kill.psychosis-weight");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"config", "set", "psychosis.inputs.honor-review."}))
+                .containsExactlyInAnyOrder("psychosis.inputs.honor-review.enabled", "psychosis.inputs.honor-review.gain",
+                        "psychosis.inputs.honor-review.cure", "psychosis.inputs.honor-review.serene-drain",
+                        "psychosis.inputs.honor-review.psychosis-weight", "psychosis.inputs.honor-review.cap");
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"config", "get", "psychosis."}))
                 .doesNotContain("psychosis.window", "psychosis.medium-threshold", "psychosis.serenity.active-hours-to-ceiling");
     }

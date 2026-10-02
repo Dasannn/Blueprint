@@ -4,6 +4,20 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class MindStateTest {
+    @Test void honorDirectionsUseIndependentAmountsWithoutSpillingAcrossNeutral() {
+        var good = new MindInputConfig(true, 3, 4, 3);
+        var bad = new MindInputConfig(true, 5, 6, 3);
+        assertThat(MindInput.HONOR_REVIEW.id()).isEqualTo("honor-review");
+        assertThat(MindInput.HONOR_REVIEW_NEGATIVE.id()).isEqualTo("honor-review");
+        assertThat(MindInput.HONOR_REVIEW.peaceful()).isFalse();
+        assertThat(MindInput.HONOR_REVIEW_NEGATIVE.peaceful()).isFalse();
+        assertThat(MindState.apply(0, MindInput.HONOR_REVIEW, good).after()).isEqualTo(3);
+        assertThat(MindState.apply(-2, MindInput.HONOR_REVIEW, good).after()).isZero();
+        assertThat(MindState.apply(-10, MindInput.HONOR_REVIEW, good).after()).isEqualTo(-6);
+        assertThat(MindState.apply(2, MindInput.HONOR_REVIEW_NEGATIVE, bad).after()).isZero();
+        assertThat(MindState.apply(10, MindInput.HONOR_REVIEW_NEGATIVE, bad).after()).isEqualTo(5);
+        assertThat(MindState.apply(0, MindInput.HONOR_REVIEW_NEGATIVE, bad).after()).isEqualTo(-6);
+    }
     @Test void everyInputUsesItsRowOnBothSidesAndAtNeutral() {
         for (MindInput kind : MindInput.values()) {
             MindInputConfig config = kind.defaults();
