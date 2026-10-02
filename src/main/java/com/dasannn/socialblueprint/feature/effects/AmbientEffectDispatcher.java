@@ -54,7 +54,6 @@ public class AmbientEffectDispatcher {
     private final Map<UUID, Runnable> activeSoundStops = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, Runnable>> sereneViewers = new java.util.HashMap<>();
     private final Map<UUID, Map<UUID, ActiveEntityEntry>> sereneAnimals = new java.util.HashMap<>();
-    private final Map<UUID, ActivePresentationEntry> phantoms = new java.util.HashMap<>();
     private final Map<UUID, java.util.function.BooleanSupplier> directionGuards = new java.util.HashMap<>();
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
     private final java.util.logging.Logger logger;
@@ -117,8 +116,7 @@ public class AmbientEffectDispatcher {
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(config, "config must not be null");
 
-        cancelPending(player.getUniqueId()); // interruption restores the previous owned presentation first
-        return switch (type) {
+        return attempt(player.getUniqueId(), () -> switch (type) {
             case ADVANCEMENT_TOAST -> {
                 List<String> keys = snapshot.messages().lineKeys("effects.advancement-toast.lines");
                 yield !keys.isEmpty() && ToastDecision.describe(keys.getFirst(), config.presentation().toast()).deliveryAvailable();
@@ -140,12 +138,30 @@ public class AmbientEffectDispatcher {
                 yield true;
             }
             case FAKE_ANNOUNCEMENT -> dispatchFakeAnnouncement(player, snapshot);
-        };
+        });
+    }
+
+    /** A skipped renderer rolls back only its own tasks and presentations. */
+    private boolean attempt(UUID owner, java.util.function.BooleanSupplier delivery) {
+        Set<SoundScheduler.TaskHandle> beforeTasks = Set.copyOf(pendingTasks.getOrDefault(owner, List.of()));
+        Set<ActivePresentationEntry> beforePresentations = silverfishService.registry().presentationsFor(owner);
+        boolean success = false;
+        try { success = delivery.getAsBoolean(); return success; }
+        catch (RuntimeException skipped) { return false; }
+        finally {
+            if (!success) {
+                for (SoundScheduler.TaskHandle handle : List.copyOf(pendingTasks.getOrDefault(owner, List.of())))
+                    if (!beforeTasks.contains(handle)) { handle.cancel(); removePendingTask(owner, handle); }
+                for (ActivePresentationEntry entry : silverfishService.registry().presentationsFor(owner))
+                    if (!beforePresentations.contains(entry)) silverfishService.registry().cleanPresentation(entry);
+            }
+        }
     }
 
     public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
                                   java.util.function.BooleanSupplier stillSerene) {
         var config = snapshot.config().effects().serenity();
+        String animalKind = config.animals().get(random.nextInt(config.animals().size()));
         UUID owner = subject.getUniqueId();
         cancelPending(owner);
         directionGuards.put(owner, stillSerene);
@@ -190,12 +206,12 @@ public class AmbientEffectDispatcher {
                             0, Math.cos(yaw) * config.animalRange());
                     at.setYaw(subject.getLocation().getYaw() + 180F);
                     boolean shown = false;
-                    PrivateGhost subjectAnimal = PrivateGhost.animal(subject, at, config.animal(),
-                            silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(config.animal())));
+                    PrivateGhost subjectAnimal = PrivateGhost.animal(subject, at, animalKind,
+                            silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(animalKind)));
                     if (!safeAnimalViewer(subject, subjectAnimal.bounds())) yield false;
                     for (Player viewer : audience) {
-                        PrivateGhost animal = viewer.getUniqueId().equals(owner) ? subjectAnimal : PrivateGhost.animal(viewer, at, config.animal(),
-                                silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(config.animal())));
+                        PrivateGhost animal = viewer.getUniqueId().equals(owner) ? subjectAnimal : PrivateGhost.animal(viewer, at, animalKind,
+                                silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(animalKind)));
                         if (!safeAnimalViewer(viewer, animal.bounds())) { viewers.remove(viewer.getUniqueId()); continue; }
                         silverfishService.registry().register(animal.entry());
                         UUID viewerId = viewer.getUniqueId();
@@ -304,8 +320,9 @@ public class AmbientEffectDispatcher {
     }
 
     void removeAnimalViewer(UUID id) {
-        ActivePresentationEntry phantom = phantoms.remove(id);
-        if (phantom != null) silverfishService.registry().cleanPresentation(phantom);
+        for (ActivePresentationEntry entry : silverfishService.registry().presentationsFor(id))
+            if (entry.type() == AmbientEffectType.SILVERFISH || entry.type() == AmbientEffectType.VICTIM_GHOST)
+                silverfishService.registry().cleanPresentation(entry);
         for (UUID owner : Set.copyOf(sereneAnimals.keySet())) {
             Map<UUID, ActiveEntityEntry> animals = sereneAnimals.get(owner);
             if (animals != null && animals.containsKey(id)) {
@@ -380,6 +397,10 @@ public class AmbientEffectDispatcher {
     }
 
     public boolean dispatchVictimGhost(Player player, PresentationConfig.Ghost config, RuntimeSnapshot snapshot, String name) {
+        return attempt(player.getUniqueId(), () -> renderVictimGhost(player, config, snapshot, name));
+    }
+
+    private boolean renderVictimGhost(Player player, PresentationConfig.Ghost config, RuntimeSnapshot snapshot, String name) {
         Component label = messageRegistry.render(snapshot, "effects.victim-ghost.label", Map.of("victim", name));
         if (label.equals(Component.empty())) return false;
         double yaw = Math.toRadians(player.getLocation().getYaw());
@@ -402,7 +423,6 @@ public class AmbientEffectDispatcher {
                     .warning("Private ghost bridge unavailable; skipping victim ghosts: " + failure.getMessage());
             return false;
         }
-        cancelPending(player.getUniqueId());
         PrivateGhost mannequin = body;
         List<ActiveEntityEntry> entities = mannequin == null ? List.of(ghost.entry()) : List.of(ghost.entry(), mannequin.entry());
         if (!showEntities(entities, AmbientEffectType.VICTIM_GHOST, config.durationTicks(), () -> {
@@ -411,10 +431,10 @@ public class AmbientEffectDispatcher {
                 ghost.show();
             } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
         })) return false;
-        ActivePresentationEntry entry = phantoms.get(player.getUniqueId());
+        ActivePresentationEntry entry = phantomPresentation(player.getUniqueId(), AmbientEffectType.VICTIM_GHOST);
         try {
             if (mannequin != null && !watchPhantom(player, mannequin, entry, config.durationTicks())) {
-                removeAnimalViewer(player.getUniqueId());
+                silverfishService.registry().cleanPresentation(entry);
                 return false;
             }
             return true;
@@ -426,22 +446,31 @@ public class AmbientEffectDispatcher {
     }
 
     boolean showEntities(List<ActiveEntityEntry> entities, AmbientEffectType type, long ticks, Runnable sendSpawn) {
+        return attempt(entities.getFirst().targetPlayerId(), () -> renderEntities(entities, type, ticks, sendSpawn));
+    }
+
+    private boolean renderEntities(List<ActiveEntityEntry> entities, AmbientEffectType type, long ticks, Runnable sendSpawn) {
         UUID owner = entities.getFirst().targetPlayerId();
         AmbientEntityRegistry registry = silverfishService.registry();
         entities.forEach(registry::register);
+        ActivePresentationEntry entry = null;
         try {
-            ActivePresentationEntry entry = startPresentation(owner, type, ticks, () -> {
+            entry = startPresentation(owner, type, ticks, () -> {
                 entities.forEach(registry::cleanDespawn);
-                phantoms.remove(owner);
             });
             if (entry == null) return false;
-            phantoms.put(owner, entry);
             sendSpawn.run();
             return true;
         } catch (RuntimeException failure) {
-            cancelPending(owner);
+            if (entry != null) registry.cleanPresentation(entry);
+            entities.forEach(registry::cleanDespawn);
             return false;
         }
+    }
+
+    private ActivePresentationEntry phantomPresentation(UUID owner, AmbientEffectType type) {
+        return silverfishService.registry().presentationsFor(owner).stream()
+                .filter(entry -> entry.type() == type).findFirst().orElse(null);
     }
 
     public void restoreBlocks(UUID playerId) {
@@ -489,7 +518,8 @@ public class AmbientEffectDispatcher {
 
     boolean dispatchParticles(Player player, PresentationConfig.Particles config, List<Player> audience) {
         if (!config.fitsAudience(audience.size())) return false;
-        org.bukkit.Particle particle = org.bukkit.Particle.valueOf(config.type().toUpperCase(java.util.Locale.ROOT));
+        config = config.choose(random);
+        org.bukkit.Particle particle = org.bukkit.Particle.valueOf(config.types().getFirst().toUpperCase(java.util.Locale.ROOT));
         ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.PARTICLES, config.totalTicks(), () -> {});
         if (entry == null) return false;
         try {
@@ -505,7 +535,7 @@ public class AmbientEffectDispatcher {
                 long delay = config.emissionDelay(i);
                 if (delay == 0) emit.run();
                 else if (!scheduleTracked(player.getUniqueId(), emit, delay)) {
-                    cancelPending(player.getUniqueId());
+                    silverfishService.registry().cleanPresentation(entry);
                     return false;
                 }
             }
@@ -575,9 +605,9 @@ public class AmbientEffectDispatcher {
                 try { phantom.show(); }
                 catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
             })) return false;
-            ActivePresentationEntry entry = phantoms.get(owner);
+            ActivePresentationEntry entry = phantomPresentation(owner, AmbientEffectType.SILVERFISH);
             if (!watchPhantom(player, phantom, entry, config.durationTicks())) {
-                removeAnimalViewer(owner);
+                silverfishService.registry().cleanPresentation(entry);
                 return false;
             }
             return true;
@@ -585,7 +615,8 @@ public class AmbientEffectDispatcher {
             warnPeacefulPhantoms();
             return false;
         } catch (ReflectiveOperationException | RuntimeException failure) {
-            cancelPending(owner);
+            ActivePresentationEntry entry = phantomPresentation(owner, AmbientEffectType.SILVERFISH);
+            if (entry != null) silverfishService.registry().cleanPresentation(entry);
             if (warnedKeys.add("phantom-bridge")) logger.warning("Private phantom bridge unavailable: " + failure.getMessage());
             return false;
         }
@@ -602,9 +633,9 @@ public class AmbientEffectDispatcher {
 
     private boolean watchPhantom(Player viewer, PrivateGhost phantom, ActivePresentationEntry entry, long remaining) {
         return scheduleTracked(viewer.getUniqueId(), () -> {
-            if (phantoms.get(viewer.getUniqueId()) != entry) return;
-            if (!viewer.isOnline() || !safeAnimalViewer(viewer, phantom.bounds())) removeAnimalViewer(viewer.getUniqueId());
-            else if (remaining > 1 && !watchPhantom(viewer, phantom, entry, remaining - 1)) removeAnimalViewer(viewer.getUniqueId());
+            if (!silverfishService.registry().presentationsFor(viewer.getUniqueId()).contains(entry)) return;
+            if (!viewer.isOnline() || !safeAnimalViewer(viewer, phantom.bounds())) silverfishService.registry().cleanPresentation(entry);
+            else if (remaining > 1 && !watchPhantom(viewer, phantom, entry, remaining - 1)) silverfishService.registry().cleanPresentation(entry);
         }, 1);
     }
 
@@ -672,7 +703,9 @@ public class AmbientEffectDispatcher {
         if (eligible.isEmpty()) return false;
         FalseDeathTarget subject = eligible.get(random.nextInt(eligible.size()));
         Map<String, String> values = Map.of("player", subject.name());
-        String key = "effects.false-death.line";
+        List<String> keys = snapshot.messages().lineKeys("effects.false-death.lines");
+        if (keys.isEmpty()) return false;
+        String key = keys.get(random.nextInt(keys.size()));
         if (!validLine(snapshot, key, values, 160)) return false;
         player.sendMessage(messageRegistry.render(snapshot, key, values));
         return true;

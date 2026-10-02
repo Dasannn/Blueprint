@@ -154,7 +154,10 @@ effects:
     lines:
       - '&5The silence is watching.'
   false-death:
-    line: '&e{player} died'
+    lines:
+      - '&e{player} died'
+      - '&7{player} fell out of the world.'
+      - '&7{player} vanished into the dark.'
   screen-flash:
     lines:
       - '&8Behind you.'
