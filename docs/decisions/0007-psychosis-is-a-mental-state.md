@@ -47,8 +47,8 @@ Duels stay outside the metric entirely, as in release 1.
   retired. An upgrade converts existing data once, inventing no history
   (SB-136).
 - Kill rows in `psychosis_event` are kept, because the victim ghost reads them.
-- Votes still cannot affect the metric. §2.3 still forbids deriving one metric
-  from another.
+- Votes could not affect the metric when this was first decided; the
+  amendment below changes that for received honor ratings only.
 
 ## Amendment, 2026-10-02
 

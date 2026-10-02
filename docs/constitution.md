@@ -50,6 +50,9 @@ Killing someone is not the same as being untrustworthy, and having no record is
 not the same as having a bad one. Collapsing any two of these into one number is
 a violation of this constitution.
 
+One exception is recorded by the owner in decision 0007: received honor
+ratings are a capped input to Psychosis. Status never reads Psychosis.
+
 ### 2.4 Emitting an opinion costs something
 
 Giving or removing honor charges the actor. The purpose is not to sell
