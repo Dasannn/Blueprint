@@ -14,8 +14,23 @@ the ability to communicate.
 ## Decision
 
 Status retains the coloured tier prefix and ladder. It no longer colours the
-message body (SB-094). Psychosis can substitute letters, scramble words and
-mangle characters in part of the speaker's message (SB-095).
+message body (SB-094). Psychosis both darkens the body occasionally and
+substitutes letters, scrambles words or mangles characters in part of the
+speaker's message (SB-095).
+
+Owner correction, 2026-10-01: replacing darkening with corruption was a
+misreading. Both presentations belong to Psychosis, never status. One episode
+roll chooses both for every reader, including the speaker; every other message
+is intact and uncoloured. Configurable Medium/High/Extreme body colours default
+to `#AAAAAA` / `#666666` / `#303030`. Require `#RRGGBB`, relative sRGB luminance
+at least 0.025 and non-increasing luminance by level, so black and near-black
+cannot hide a message. An episode can darken a short body even when no letter
+change fits its readability budget.
+
+Every word, including the first and last, is eligible. Touch up to
+`min(words, ceil(words * extent * 2 / 100))` words and distribute the unchanged
+letter budget round-robin across them. At least half the letters remain intact;
+the word-count and boundary protections are replaced by this letter guarantee.
 
 Medium Psychosis causes occasional corruption, high more frequent corruption,
 and extreme frequent corruption with intact messages between episodes. The
@@ -23,7 +38,7 @@ lowest level leaves messages intact. Frequency and extent are configurable,
 but no setting may make corruption constant or destroy a whole message
 (SB-095, SB-097).
 
-Every reader, including the speaker, sees the same corrupted text. The result
+Every reader, including the speaker, sees the same text and body colour. The result
 is chosen once for the message, not separately for each viewer. This is the
 speaker's voice failing; viewer-specific distortion would instead depict each
 reader's perception and make people disagree about what was said.
@@ -51,7 +66,10 @@ Confidence or money, and has no mechanical consequence. The kill rules of
 decision 0004 remain independent.
 
 Reuse the existing async chat path and immutable snapshots. Compute one
-corruption result before delivery to viewers; keep database and Bukkit access
-out of the async transformation. Tests must check identical text for all
+text and colour result before delivery to viewers; keep database and Bukkit
+access out of the async transformation. Apply body colour through the existing
+renderer for vanilla/Paper chat with EssentialsX core (not EssentialsChat).
+If another plugin supplies or replaces the renderer, never override it; log
+once and leave that plugin in control of presentation. Tests must check identical text for all
 readers, intact messages between episodes and readability at every level,
 including short inputs. P13 records the implementation and live-server checks.

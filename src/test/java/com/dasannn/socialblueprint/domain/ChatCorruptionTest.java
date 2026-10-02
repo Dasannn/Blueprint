@@ -38,7 +38,7 @@ class ChatCorruptionTest {
     }
 
     @Test
-    void maximumConfigurationStillPreservesHalfOfWordsAndLetters() {
+    void maximumConfigurationCanTouchEveryWordButPreservesHalfOfLetters() {
         var config = new ChatCorruptionConfig(10, 25, 50, 50);
         for (String input : new String[]{MESSAGE, "meet at home tonight", "aaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ccc ddd",
                 "Please BRING wooden supplies to the VILLAGE before sunset", "Trae madera al pueblo antes de anochecer"}) {
@@ -49,7 +49,6 @@ class ChatCorruptionTest {
             for (int sequence = 0; sequence < 200; sequence++) {
                 String output = ChatCorruption.corrupt(input, PsychosisLevel.EXTREME, 123, sequence, config);
                 assertThat(output.length()).isEqualTo(input.length());
-                assertThat(output).startsWith(words[0] + " ").endsWith(" " + words[words.length - 1]);
                 assertThat(output.length()).isEqualTo(input.length());
                 int changed = 0;
                 for (int i = 0; i < input.length(); i++) if (input.charAt(i) != output.charAt(i)) changed++;
@@ -57,7 +56,8 @@ class ChatCorruptionTest {
                 String[] resultWords = output.split(" ");
                 int changedWords = 0;
                 for (int i = 0; i < words.length; i++) if (!words[i].equals(resultWords[i])) changedWords++;
-                assertThat(changedWords).isLessThanOrEqualTo(words.length / 2);
+                if ((sequence & 1) == 0) assertThat(changedWords).isEqualTo(words.length);
+                else assertThat(changedWords).isZero();
             }
         }
     }
@@ -88,7 +88,11 @@ class ChatCorruptionTest {
                 if ((sequence & 1) == 0) assertThat(changed).isPositive();
                 else assertThat(output).isEqualTo(input);
                 String[] words = input.split(" ");
-                if (words.length >= 3) assertThat(output).startsWith(words[0] + " ").endsWith(" " + words[words.length - 1]);
+                String[] resultWords = output.split(" ");
+                int touched = 0;
+                for (int i = 0; i < words.length; i++) if (!words[i].equals(resultWords[i])) touched++;
+                assertThat(touched).isLessThanOrEqualTo(Math.min(words.length,
+                        (words.length * config.extent(PsychosisLevel.EXTREME) * 2 + 99) / 100));
             }
             assertThat(ChatCorruption.corrupt(input, PsychosisLevel.EXTREME, 0, 0,
                     new ChatCorruptionConfig(10, 25, 50, 20, letters + 1))).isEqualTo(input);
@@ -116,7 +120,7 @@ class ChatCorruptionTest {
                 int touched = 0, changed = 0;
                 for (int i = 0; i < words.length; i++) if (!words[i].equals(changedWords[i])) touched++;
                 for (int i = 0; i < input.length(); i++) if (input.charAt(i) != result.charAt(i)) changed++;
-                assertThat(touched).isEqualTo(words.length * config.extent(level) / 100);
+                assertThat(touched).isEqualTo(Math.min(words.length, (words.length * config.extent(level) * 2 + 99) / 100));
                 assertThat(changed).isEqualTo(letters * config.extent(level) / 100);
                 assertThat(changed).isLessThanOrEqualTo(letters / 2);
                 total += changed;
@@ -128,6 +132,34 @@ class ChatCorruptionTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ChatCorruptionConfig(10, 25, 40, 20, 50, 35, 6))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void fourWordSentenceSpreadsAcrossTwoThreeAndFourWordsByLevel() {
+        String input = "meet at home tonight";
+        String[] words = input.split(" ");
+        var config = new ChatCorruptionConfig(10, 25, 50, 20, 35, 50, 6);
+        int expected = 2;
+        for (PsychosisLevel level : new PsychosisLevel[]{PsychosisLevel.MEDIUM, PsychosisLevel.HIGH, PsychosisLevel.EXTREME}) {
+            boolean seen = false;
+            for (int sequence = 0; sequence < 1000; sequence += 2) {
+                if (!ChatCorruption.isEpisode(input, level, 123, sequence, config)) continue;
+                seen = true;
+                String output = ChatCorruption.corrupt(input, level, 123, sequence, config);
+                String[] result = output.split(" ");
+                int touched = 0, changed = 0;
+                for (int i = 0; i < words.length; i++) if (!words[i].equals(result[i])) touched++;
+                for (int i = 0; i < input.length(); i++) if (input.charAt(i) != output.charAt(i)) changed++;
+                assertThat(touched).isEqualTo(expected);
+                assertThat(changed).isLessThanOrEqualTo(17 * config.extent(level) / 100);
+                if (level == PsychosisLevel.EXTREME) {
+                    assertThat(result[0]).isNotEqualTo(words[0]);
+                    assertThat(result[3]).isNotEqualTo(words[3]);
+                }
+            }
+            assertThat(seen).isTrue();
+            expected++;
+        }
     }
 
     @Test

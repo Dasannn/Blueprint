@@ -85,7 +85,11 @@ final class PrivateGhost {
         entry = new ActiveEntityEntry(player.getUniqueId(), id, null, at.getWorld().getUID(), null, this::remove);
     }
 
-    private static Object createMob(Object type, Object world) throws ReflectiveOperationException {
+    static final class MobUnavailableException extends IllegalStateException {
+        MobUnavailableException() { super("Mob factory returned no entity"); }
+    }
+
+    static Object createMob(Object type, Object world) throws ReflectiveOperationException {
         // Use the registry type's factory, rather than version-dependent hostile class names.
         for (Method method : type.getClass().getMethods()) {
             Class<?>[] parameters = method.getParameterTypes();
@@ -94,7 +98,7 @@ final class PrivateGhost {
                     || !parameters[1].getSimpleName().equals("EntitySpawnReason")) continue;
             Object reason = parameters[1].getField("COMMAND").get(null);
             Object entity = method.invoke(type, world, reason);
-            if (entity == null) throw new IllegalStateException("Mob factory returned no entity");
+            if (entity == null) throw new MobUnavailableException();
             return entity;
         }
         throw new NoSuchMethodException("EntityType.create(Level, EntitySpawnReason)");

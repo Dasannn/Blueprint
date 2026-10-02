@@ -41,6 +41,25 @@ import java.util.function.Function;
  */
 public class AsyncChatListener implements Listener {
 
+    private record OwnedRenderer(ChatRenderer delegate) implements ChatRenderer {
+        @Override public Component render(Player source, Component name, Component message,
+                                          net.kyori.adventure.audience.Audience viewer) {
+            return delegate.render(source, name, message, viewer);
+        }
+    }
+    private final java.util.concurrent.atomic.AtomicBoolean warnedRenderer = new java.util.concurrent.atomic.AtomicBoolean();
+
+    private void warnForeignRenderer() {
+        if (warnedRenderer.compareAndSet(false, true)) java.util.logging.Logger.getLogger(AsyncChatListener.class.getName())
+                .warning("Another plugin replaced the chat renderer; SocialBlueprint leaves it in control of chat presentation.");
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onRenderedChat(AsyncChatEvent event) {
+        if (!(event.renderer() instanceof OwnedRenderer) && !(event.renderer() instanceof ChatRenderer.Default))
+            warnForeignRenderer();
+    }
+
     private record ChatIdentity(PlayerId id, AtomicLong sequence) {}
     // Identity keys never invoke a Player method (including hashCode) on the chat thread.
     private final Map<Player, ChatIdentity> identities = Collections.synchronizedMap(new IdentityHashMap<>());
@@ -110,7 +129,7 @@ public class AsyncChatListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) { identities.remove(event.getPlayer()); }
 
-    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
         try {
             // Hook GUI pending written reason prompt before normal chat formatting (Finding 3 / Finding 6)
@@ -127,6 +146,10 @@ public class AsyncChatListener implements Listener {
                         statusGuiService.cancelPendingReason(playerUuid);
                     }
                 });
+                return;
+            }
+            if (!(event.renderer() instanceof ChatRenderer.Default)) {
+                warnForeignRenderer();
                 return;
             }
             // Read one immutable snapshot per event (T-040, T-042)
@@ -148,8 +171,8 @@ public class AsyncChatListener implements Listener {
             long sequence = identity != null ? identity.sequence().getAndIncrement() : 1;
             long speakerSeed = playerUuid != null
                     ? playerUuid.getMostSignificantBits() ^ playerUuid.getLeastSignificantBits() : 0;
-            Component body = Component.text(ChatCorruption.corrupt(original, view.psychosis(), speakerSeed,
-                    sequence, snapshot.config().psychosis().chat()));
+            Component body = messageBody(original, view.psychosis(), speakerSeed, sequence,
+                    snapshot.config().psychosis().chat());
 
             // Format name hover summary from message bundle (T-043)
             Component hoverComponent = buildHoverComponent(snapshot, view, tier);
@@ -159,9 +182,10 @@ public class AsyncChatListener implements Listener {
         } catch (Throwable t) {
             // Keep even the fallback body fixed for all viewers.
             Component body = plainBody(event.message());
-            event.renderer((source, sourceDisplayName, message, viewer) ->
-                    Component.empty().append(sourceDisplayName).append(Component.text(": ")).append(body)
-            );
+            if (event.renderer() instanceof ChatRenderer.Default) {
+                event.renderer(new OwnedRenderer((source, sourceDisplayName, message, viewer) ->
+                        Component.empty().append(sourceDisplayName).append(Component.text(": ")).append(body)));
+            }
         }
     }
 
@@ -181,7 +205,7 @@ public class AsyncChatListener implements Listener {
     ) {
         Objects.requireNonNull(hoverAttacher, "hoverAttacher must not be null");
         Objects.requireNonNull(body, "body must not be null");
-        return (source, sourceDisplayName, message, viewer) -> {
+        return new OwnedRenderer((source, sourceDisplayName, message, viewer) -> {
             Component hoveredName;
             try {
                 hoveredName = hoverAttacher.apply(sourceDisplayName, hoverComponent);
@@ -194,7 +218,15 @@ public class AsyncChatListener implements Listener {
                 rendered = rendered.append(prefixComp).append(Component.space());
             }
             return rendered.append(hoveredName).append(Component.text(": ")).append(body);
-        };
+        });
+    }
+
+    public static Component messageBody(String original, com.dasannn.socialblueprint.domain.PsychosisLevel level,
+                                        long seed, long sequence, com.dasannn.socialblueprint.domain.ChatCorruptionConfig chat) {
+        boolean episode = ChatCorruption.isEpisode(original, level, seed, sequence, chat);
+        Component body = Component.text(episode ? ChatCorruption.corruptEpisode(original, level, seed, sequence, chat)
+                : ChatCorruption.plain(original));
+        return episode ? body.color(net.kyori.adventure.text.format.TextColor.fromHexString(chat.colour(level))) : body;
     }
 
     public static Component plainBody(Component message) {

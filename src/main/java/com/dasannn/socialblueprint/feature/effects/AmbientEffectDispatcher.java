@@ -556,7 +556,11 @@ public class AmbientEffectDispatcher {
         return true;
     }
 
-    private boolean dispatchSilverfish(Player player, PresentationConfig.Phantom config) {
+    boolean dispatchSilverfish(Player player, PresentationConfig.Phantom config) {
+        if (player.getWorld().getDifficulty() == org.bukkit.Difficulty.PEACEFUL) {
+            warnPeacefulPhantoms();
+            return false;
+        }
         String mob = config.mobs().get(random.nextInt(config.mobs().size()));
         double yaw = Math.toRadians(player.getLocation().getYaw());
         Location at = player.getLocation().clone().add(-Math.sin(yaw) * config.distance(), 0,
@@ -577,11 +581,18 @@ public class AmbientEffectDispatcher {
                 return false;
             }
             return true;
+        } catch (PrivateGhost.MobUnavailableException skipped) {
+            warnPeacefulPhantoms();
+            return false;
         } catch (ReflectiveOperationException | RuntimeException failure) {
             cancelPending(owner);
             if (warnedKeys.add("phantom-bridge")) logger.warning("Private phantom bridge unavailable: " + failure.getMessage());
             return false;
         }
+    }
+
+    private void warnPeacefulPhantoms() {
+        if (warnedKeys.add("phantom-peaceful")) logger.info("Private phantom mobs need a non-peaceful difficulty; skipping this episode.");
     }
 
     // Plain lifecycle seam: register before spawn, retain until expiry, and remove on interrupted delivery.

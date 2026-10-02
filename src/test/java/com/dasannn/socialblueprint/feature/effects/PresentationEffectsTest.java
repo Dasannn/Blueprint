@@ -24,6 +24,48 @@ class PresentationEffectsTest {
                 getClass().getClassLoader().getResourceAsStream("config.yml"), StandardCharsets.UTF_8));
     }
 
+    public enum EntitySpawnReason { COMMAND }
+    public static class EmptyMobFactory {
+        public Object create(Object world, EntitySpawnReason reason) { return null; }
+    }
+
+    @Test void nullMobFactoryIsAnEpisodeSkipRatherThanABridgeFailure() {
+        assertThatThrownBy(() -> PrivateGhost.createMob(new EmptyMobFactory(), new Object()))
+                .isInstanceOf(PrivateGhost.MobUnavailableException.class);
+    }
+
+    @Test void peacefulPhantomsSkipBeforePacketsAndLogOnlyOnce() {
+        AmbientEntityRegistry registry = new AmbientEntityRegistry();
+        List<Scheduled> scheduled = new ArrayList<>();
+        var dispatcher = dispatcher(registry, scheduled);
+        org.bukkit.World world = (org.bukkit.World) java.lang.reflect.Proxy.newProxyInstance(
+                org.bukkit.World.class.getClassLoader(), new Class<?>[]{org.bukkit.World.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("getDifficulty")) return org.bukkit.Difficulty.PEACEFUL;
+                    throw new AssertionError("Unexpected world access: " + method.getName());
+                });
+        org.bukkit.entity.Player player = (org.bukkit.entity.Player) java.lang.reflect.Proxy.newProxyInstance(
+                org.bukkit.entity.Player.class.getClassLoader(), new Class<?>[]{org.bukkit.entity.Player.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("getWorld")) return world;
+                    throw new AssertionError("Skipped phantom touched player: " + method.getName());
+                });
+        var logger = java.util.logging.Logger.getLogger(AmbientEffectDispatcher.class.getName());
+        List<java.util.logging.LogRecord> records = new ArrayList<>();
+        var handler = new java.util.logging.Handler() {
+            public void publish(java.util.logging.LogRecord record) { records.add(record); }
+            public void flush() {}
+            public void close() {}
+        };
+        logger.addHandler(handler);
+        try {
+            for (int i = 0; i < 3; i++) assertThat(dispatcher.dispatchSilverfish(player,
+                    new PresentationConfig.Phantom(List.of("minecraft:zombie"), 8, 20))).isFalse();
+            assertThat(scheduled).isEmpty();
+            assertThat(registry.getActiveCount()).isZero();
+            assertThat(records).hasSize(1);
+            assertThat(records.getFirst().getMessage()).contains("non-peaceful difficulty").doesNotContain("bridge unavailable");
+        } finally { logger.removeHandler(handler); }
+    }
+
     @Test void levelFloorsAndRaisedFloorsAreEnforced() {
         YamlConfiguration yaml = shipped();
         PresentationConfig config = PresentationConfig.load(yaml);

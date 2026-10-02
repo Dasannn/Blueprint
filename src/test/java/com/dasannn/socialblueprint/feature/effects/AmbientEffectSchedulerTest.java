@@ -300,7 +300,7 @@ class AmbientEffectSchedulerTest {
                 PsychosisLevel level = kills == 2 ? PsychosisLevel.MEDIUM : kills == 5 ? PsychosisLevel.HIGH : PsychosisLevel.EXTREME;
                 long base = chosen == AmbientEffectType.PARTICLES ? presentation.particles().durationTicks()
                         : presentation.durationTicks(chosen, snapshot.config().sounds());
-                long expected = Math.min(100, (long) Math.ceil(base * (kills == 2 ? 1 : kills == 5 ? 1.5 : 2)));
+                long expected = Math.min(chosen == AmbientEffectType.SKY ? 200 : 100, (long) Math.ceil(base * (kills == 2 ? 1 : kills == 5 ? 1.5 : 2)));
                 if (chosen == AmbientEffectType.PARTICLES) expected = Math.max(expected, 41);
                 local.tickAt(now);
                 assertThat(renderedDurations.getLast()).isEqualTo(expected);
@@ -369,6 +369,38 @@ class AmbientEffectSchedulerTest {
         setPsychosis(uuid, 5);
         scheduler.tickAt(1_000_000L);
         assertThat(dispatchedList).singleElement().satisfies(record -> assertThat(record.type()).isEqualTo(AmbientEffectType.SILVERFISH));
+    }
+
+    @Test
+    void peacefulPhantomSkipKeepsCapCooldownAndQuietReservationUntouched() {
+        UUID id = UUID.randomUUID();
+        Player base = createMockPlayer(id, "Peaceful");
+        org.bukkit.World world = (org.bukkit.World) Proxy.newProxyInstance(org.bukkit.World.class.getClassLoader(),
+                new Class<?>[]{org.bukkit.World.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("getDifficulty")) return org.bukkit.Difficulty.PEACEFUL;
+                    throw new AssertionError("Unexpected world access: " + method.getName());
+                });
+        Player player = (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+                (proxy, method, args) -> method.getName().equals("getWorld") ? world : method.invoke(base, args));
+        EffectsConfigSection current = configManager.config().effects();
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        EffectsConfigSection onlyPhantom = new EffectsConfigSection(current.checkInterval(), current.silverfish(), disabled, disabled, disabled);
+        RuntimeSnapshot before = configManager.snapshot();
+        configManager.snapshotReference().set(new RuntimeSnapshot(before.config().withEffects(onlyPhantom), before.messages()));
+        setPsychosis(id, 5);
+        AmbientEntityRegistry registry = new AmbientEntityRegistry();
+        var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                new FakeSilverfishService(null, registry, null));
+        var local = new AmbientEffectScheduler(null, configManager, profileService, dispatcher, () -> List.of(player));
+        for (long now : List.of(1_000_000L, 1_002_000L)) {
+            local.tickAt(now);
+            PlayerEffectState state = local.getState(id);
+            assertThat(state.getSessionCount(AmbientEffectType.SILVERFISH)).isZero();
+            assertThat(state.getLastFiredMillis(AmbientEffectType.SILVERFISH)).isZero();
+            assertThat(state.canStartEpisode(now)).isTrue();
+            assertThat(state.canFire(AmbientEffectType.SILVERFISH, onlyPhantom.silverfish(), now)).isTrue();
+            assertThat(registry.getActiveCount()).isZero();
+        }
     }
 
     @Test

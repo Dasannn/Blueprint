@@ -104,11 +104,13 @@ but now applies to partial text corruption rather than darkening.
 It no longer colours the message body. Status tells others how the community
 sees the speaker; it does not describe the speaker's state of mind.
 
-**SB-095.** Psychosis can corrupt the speaker's message by substituting letters,
-scrambling words or mangling characters. At medium Psychosis this happens
+**SB-095.** Psychosis can both darken the speaker's message body and corrupt it
+by substituting letters, scrambling words or mangling characters. Owner
+correction, 2026-10-01: darkening was intended alongside corruption, not replaced
+by it. At medium Psychosis this happens
 occasionally, at high more often, and at extreme frequently, with intact
 messages between episodes at every level (SB-097). The lowest level leaves
-messages intact. Every reader receives the **same corrupted text**, including
+messages intact. Every reader receives the **same text and body colour**, including
 the speaker: this is the speaker's voice failing, not a reader's hallucination.
 Governed by `docs/decisions/0006-psychosis-corrupts-the-speakers-chat.md`.
 
@@ -117,16 +119,28 @@ communicate. It never renders the whole line illegible, hides, blocks, delays or
 truncates it: a fully unreadable line would mute the player, turning a cosmetic
 effect into exclusion.
 The configurable `psychosis.chat.min-letters` defaults to 6; there is no word
-minimum. First and last words are protected only for messages of three or more
-words. Every other message stays intact; substitutions affect at most the
-level's `medium-extent` / `high-extent` / `extreme-extent` percent of letters
-and matching share of words (at least one eligible word for short phrases),
-defaulting to 20/35/50. Changes are spread across eligible words through swaps
-and substitutions. Extents are 1..50 and non-decreasing; at least 50% of letters
+minimum. Every word is a candidate, including the first and last. Every other
+message stays intact and uncoloured. Substitutions affect at most the level's
+`medium-extent` / `high-extent` / `extreme-extent` percent of letters, defaulting
+to 20/35/50. Up to `ceil(words * extent * 2 / 100)` words may be touched, capped
+at all words and the available letter budget. Spread that letter budget
+round-robin across the selected words through swaps and substitutions.
+Extents are 1..50 and non-decreasing; at least 50% of letters
 remain untouched even at Extreme, and at least one letter changes in a
 corrupted result. A zero-letter budget leaves the message intact. If a short
 message cannot be partially corrupted while
 remaining readable, it stays intact. Prefixes and the name hover are untouched.
+An episode uses the same alternating-message guard and per-level rate roll for
+both darkening and corruption, chosen once before rendering for all readers,
+including the speaker. Even when a short message has no safe letter change, an
+episode can darken its body. `psychosis.chat.medium-colour`, `high-colour` and
+`extreme-colour` default to `#AAAAAA`, `#666666` and `#303030`. Require `#RRGGBB`
+with relative sRGB luminance at least 0.025, rejecting black and near-black;
+higher levels must be no lighter than the preceding level. Colours are
+validated, live-editable and merged into older configurations without replacing
+owner values. Status never colours the body (SB-094). Apply the captured colour
+in the existing async renderer for vanilla/Paper chat with EssentialsX core;
+if another plugin replaces the renderer, leave it in control and log once.
 The frequency and extent are configurable, but no setting may remove these
 guards. Rater-supplied text is still stored as written and rendered as plain
 text under SB-083, never parsed for colour, formatting or click actions; chat
@@ -219,6 +233,9 @@ The legacy `silverfish` section is retained for upgrade safety. Its `mobs` list
 defaults to `[silverfish, zombie, skeleton, spider, creeper, enderman]`; one
 hostile living type is chosen randomly per episode and resolved by registry key.
 Unknown, non-living and non-hostile types fail load and live-edit validation.
+Hostile phantoms require non-peaceful difficulty. Peaceful worlds or a null mob
+factory result skip only that episode, consume no cap or cooldown, and log the
+difficulty requirement once instead of reporting an unavailable packet bridge.
 Place the fake at `distance-blocks` (default 8), outside the viewer's interaction
 reach with the serene apparition's separation and movement margin. Skip a
 viewer whose reach could touch the fake: packet-only living mobs remain
@@ -263,8 +280,8 @@ mechanic would be decorative. The command and its stored flag are removed.
 Madness effects stay private; serenity uses SB-120 visibility. All are
 cosmetic and incapable of touching status, Confidence or money (SB-100).
 
-**SB-102.** From **High**, the player sees a private night or storm for a few
-seconds, then their previous time and weather presentation returns. Use
+**SB-102.** From **High**, the player sees a private night or storm for up to
+ten seconds, then their previous time and weather presentation returns. Use
 `setPlayerTime` and `setPlayerWeather`; neither changes the world. No other
 player sees this sky. Restore the prior override, or normal world tracking if
 there was none, without overwriting a newer change by another plugin. It leaves
@@ -661,9 +678,14 @@ still depends on available effects whose own cooldowns and caps permit it.
 `effects.episodes.duration-scale.<medium|high|extreme>` defaults to
 1.0/1.5/2.0. Multipliers must be finite, at least 1.0 and non-decreasing.
 Every timed madness visual uses its level multiplier, rounded up to integer
-ticks and capped at the existing 100-tick ceiling: sky, particles,
-screen flash including fades, block/sign, victim
-ghost, toast, boss bar and phantom mobs. Particle emissions span the scaled
+ticks. Sky alone caps at 200 ticks; shipped `effects.sky.duration-ticks: 100`
+scales to 100/150/200 ticks (5/7.5/10 seconds) at Medium/High/Extreme, subject
+to its configured level floor (High by default). All other timed visuals keep
+the 100-tick ceiling: particles, screen flash including fades, block/sign,
+victim ghost, toast, boss bar and phantom mobs. The shipped Extreme interval
+and quiet floor are 400 ticks (20 seconds), longer than the 200-tick sky;
+quiet time begins after the scaled sky ends and restoration runs.
+Particle emissions span the scaled
 duration without increasing the configured count or audience budget. Their
 fixed native client tail remains a duration floor and ends before quiet time.
 The native momentary hurt animation and sound playback remain unscaled.
@@ -671,8 +693,12 @@ Restoration and quiet-time reservation use the same scaled duration.
 
 Chat corruption retains unchanged `psychosis.chat.<medium|high|extreme>-rate`
 and `min-letters`; per-level `medium-extent` / `high-extent` / `extreme-extent`
-default to 20/35/50 percent of letters and the matching share of words, bounded
-to 1..50 and non-decreasing. On upgrade, adopt a customised legacy
+default to 20/35/50 percent of letters, bounded to 1..50 and non-decreasing.
+Every word is eligible; the touched-word ceiling is
+`min(words, ceil(words * extent * 2 / 100))`, with the letter budget spread
+round-robin across selected words. Episode body colours use the three
+`psychosis.chat.<medium|high|extreme>-colour` leaves and SB-095 validation.
+On upgrade, adopt a customised legacy
 `psychosis.chat.extent` into all three missing extent keys, then retire it;
 an untouched legacy default adopts the new graded defaults. Alternating intact
 messages, shared output and at least 50% untouched letters remain mandatory.
@@ -681,7 +707,7 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 
 | Effect / clause | Keys and bounds |
 |---|---|
-| Sky / SB-102 | `mode` (`night` or `storm`), `duration-ticks` |
+| Sky / SB-102 | `mode` (`night` or `storm`), `duration-ticks` (1..200, default 100) |
 | Particles / SB-103 | `type`, `placement` (`around` or `beneath`), `count`, `radius-blocks`, `duration-ticks`; count and radius must be positive and finite |
 | Screen flash / SB-104 | `channel` (`title` or `action-bar`), `fade-in-ticks`, `duration-ticks`, `fade-out-ticks`; fades are nonnegative and included in total duration |
 | Source-less sounds / SB-105 | `sound-slot`, `offset.forward-blocks`, `offset.right-blocks`, `offset.up-blocks`, `playback-ticks`; finite recipient-relative offsets allow footsteps behind; playback ticks bound the audible tail after the last delayed layer |
@@ -691,11 +717,12 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 | Advancement toast / SB-109 | `icon`, `duration-ticks`; icon is visual only, not an item grant |
 | Boss bar / SB-110 | `colour`, `style`, `progress`, `duration-ticks`; progress lies in `[0, 1]` |
 | False death / SB-111 | `range-blocks`; positive finite range and a living, visible nearby subject required |
-| Phantom mob / SB-099 (`silverfish`) | `mobs` (nonempty hostile living registry-key list), `distance-blocks` (positive finite, default 8), `duration-ticks` (default 20); skip viewers within interaction reach |
+| Phantom mob / SB-099 (`silverfish`) | `mobs` (nonempty hostile living registry-key list), `distance-blocks` (positive finite, default 8), `duration-ticks` (default 20); skip viewers within interaction reach; requires non-peaceful difficulty, skips consume no cap or cooldown |
 | Custom/private chat / SB-115 | `max-visible-length` from 1 to 160; no custom-line list here |
 
 Cosmetic `duration-ticks` values are positive and at most 100 ticks (five
-seconds), including title fades. Sound episodes are finite: layer delays plus
+seconds), including title fades, except sky alone allows 200 ticks (ten seconds).
+Sound episodes are finite: layer delays plus
 `playback-ticks` total at most 100 ticks. Independent cooldowns are positive;
 session caps are nonnegative, with `0` delivering nothing. Particle count and
 radius are bounded by the configured values, never an unbounded stream. Invalid
@@ -904,8 +931,11 @@ Deliberate deletions, so no agent restores them as "missing functionality".
 - [ ] Medium, high and extreme Psychosis produce progressively more frequent
       episodes, with quiet intervals and intact chat between episodes even at
       extreme; no configuration makes them constant (SB-095, SB-097).
-- [ ] All readers see the same partially corrupted message; even short messages
-      remain usable, prefixes and hover stay intact, and rater text is never
+- [ ] All readers, including the speaker, see the same episode body colour and
+      partially corrupted message; every other message is intact and uncoloured,
+      first/last words are eligible and at least half the letters stay untouched;
+      even short messages remain usable, prefixes and hover stay intact, and
+      rater text is never
       parsed for colour (SB-095, SB-083).
 - [ ] A duel kill changes neither status nor Psychosis; a non-duel kill raises
       Psychosis and lowers status by the configured delta, once per pair

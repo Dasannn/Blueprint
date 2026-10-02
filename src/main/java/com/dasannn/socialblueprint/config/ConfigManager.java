@@ -638,6 +638,7 @@ public class ConfigManager {
         set.add("psychosis.chat.high-extent");
         set.add("psychosis.chat.extreme-extent");
         set.add("psychosis.chat.min-letters");
+        for (String level : List.of("medium", "high", "extreme")) set.add("psychosis.chat." + level + "-colour");
         set.add("psychosis.serenity.ceiling");
         set.add("psychosis.serenity.active-hours-to-ceiling");
         set.add("psychosis.serenity.idle-timeout-seconds");
@@ -781,6 +782,11 @@ public class ConfigManager {
         if ("psychosis.medium-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().mediumThreshold());
         if ("psychosis.high-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().highThreshold());
         if ("psychosis.extreme-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().extremeThreshold());
+        for (var level : List.of(com.dasannn.socialblueprint.domain.PsychosisLevel.MEDIUM,
+                com.dasannn.socialblueprint.domain.PsychosisLevel.HIGH, com.dasannn.socialblueprint.domain.PsychosisLevel.EXTREME)) {
+            if (("psychosis.chat." + level.name().toLowerCase(java.util.Locale.ROOT) + "-colour").equals(path))
+                return config.psychosis().chat().colour(level);
+        }
         if ("psychosis.chat.medium-rate".equals(path)) return String.valueOf(config.psychosis().chat().mediumRate());
         if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());
         if ("psychosis.chat.extreme-rate".equals(path)) return String.valueOf(config.psychosis().chat().extremeRate());

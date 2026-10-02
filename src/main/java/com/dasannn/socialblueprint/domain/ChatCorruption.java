@@ -25,8 +25,13 @@ public final class ChatCorruption {
 
     public static String corrupt(String message, PsychosisLevel level, long speakerSeed,
                                  long sequence, ChatCorruptionConfig config) {
-        String safe = plain(message);
-        if (!level.hasMadnessEffects() || (sequence & 1) != 0) return safe;
+        if (!isEpisode(message, level, speakerSeed, sequence, config)) return plain(message);
+        return corruptEpisode(message, level, speakerSeed, sequence, config);
+    }
+
+    public static boolean isEpisode(String message, PsychosisLevel level, long speakerSeed,
+                                    long sequence, ChatCorruptionConfig config) {
+        if (!level.hasMadnessEffects() || (sequence & 1) != 0) return false;
         Random random = new Random(seed(message, speakerSeed, sequence));
         int rate = switch (level) {
             case LOW, NEUTRAL, SERENITY -> 0;
@@ -34,7 +39,15 @@ public final class ChatCorruption {
             case HIGH -> config.highRate();
             case EXTREME -> config.extremeRate();
         };
-        if (random.nextInt(50) >= rate) return safe;
+        return random.nextInt(50) < rate;
+    }
+
+    /** Transform an already chosen episode; readability can still leave short text intact. */
+    public static String corruptEpisode(String message, PsychosisLevel level, long speakerSeed,
+                                        long sequence, ChatCorruptionConfig config) {
+        String safe = plain(message);
+        Random random = new Random(seed(message, speakerSeed, sequence));
+        random.nextInt(50); // Advance past the shared episode roll.
         var words = new ArrayList<int[]>();
         var matcher = WORD.matcher(safe);
         int letters = 0;
@@ -45,9 +58,8 @@ public final class ChatCorruption {
         if (words.isEmpty() || letters < config.minLetters()) return safe;
         int budget = (int) ((long) letters * config.extent(level) / 100);
         if (budget == 0) return safe; // No substitution fits the percentage bound.
-        int wordBudget = Math.max(1, words.size() * config.extent(level) / 100);
-        // Protect boundary words only for phrases of three or more words.
-        var candidates = new ArrayList<int[]>(words.size() >= 3 ? words.subList(1, words.size() - 1) : words);
+        int wordBudget = (int) Math.min(words.size(), ((long) words.size() * config.extent(level) * 2 + 99) / 100);
+        var candidates = new ArrayList<int[]>(words);
         Collections.shuffle(candidates, random);
         StringBuilder result = new StringBuilder(safe);
         // Select words first, then visit them in rounds so long words cannot monopolise the budget.

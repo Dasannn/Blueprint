@@ -113,6 +113,10 @@ psychosis:
     high-extent: 35
     extreme-extent: 50
     min-letters: 6
+    # Episode body colours; #RRGGBB, luminance >= 0.025, no lighter at higher levels.
+    medium-colour: '#AAAAAA'
+    high-colour: '#666666'
+    extreme-colour: '#303030'
   # Rolling evaluation window for counting PvP kills (default: 72 hours).
   window: 72h
 
@@ -327,7 +331,8 @@ effects:
     cooldown-ticks: 1200
     session-cap: 6
     mode: night
-    duration-ticks: 60
+    # Sky alone caps at 200 ticks: base 100 gives 5/7.5/10 seconds by level.
+    duration-ticks: 100
   particles:
     enabled: true
     minimum-level: medium
@@ -374,6 +379,7 @@ effects:
   # How often the effect scheduler checks online players with Psychosis (default: 1s).
   check-interval: 1s
 
+  # Requires non-peaceful difficulty; skipped episodes consume no cap or cooldown.
   # Timed packet-only hostile phantom outside interaction reach; High and Extreme only (SB-099)
   silverfish:
     cooldown: 10m
