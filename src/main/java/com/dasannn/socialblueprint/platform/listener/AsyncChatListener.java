@@ -250,11 +250,8 @@ public class AsyncChatListener implements Listener {
         Component line3 = messageRegistry.render(snapshot, "chat.hover-confidence",
                 Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence." + view.confidence().name().toLowerCase(Locale.ROOT))));
 
-        Component line4 = messageRegistry.render(snapshot, "chat.hover-psychosis",
-                Map.of("psychosis", messageRegistry.psychosisLabel(snapshot, view)));
-
-        Component serenity = messageRegistry.render(snapshot, "chat.hover-serenity",
-                Map.of("serenity", messageRegistry.serenityValue(view)));
+        Component line4 = messageRegistry.renderMentalState(snapshot,
+                messageRegistry.mentalStateLine(snapshot, view, "chat.hover-mental-state", false));
         Component line5 = messageRegistry.render(snapshot, "chat.hover-contributors",
                 Map.of("contributors", String.valueOf(view.contributors())));
 
@@ -265,8 +262,6 @@ public class AsyncChatListener implements Listener {
                 .append(line3)
                 .append(Component.newline())
                 .append(line4)
-                .append(Component.newline())
-                .append(serenity)
                 .append(Component.newline())
                 .append(line5);
     }

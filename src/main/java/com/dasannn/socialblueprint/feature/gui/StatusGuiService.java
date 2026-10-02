@@ -412,8 +412,7 @@ public class StatusGuiService {
         String localizedTier = messageRegistry.tierName(snapshot, tier);
         String localizedConfidence = view != null
                 ? messageRegistry.getRaw(snapshot, "confidence." + view.confidence().name().toLowerCase(Locale.ROOT)) : "";
-        String localizedPsychosis = view != null
-                ? messageRegistry.psychosisLabel(snapshot, view) : "";
+        var mentalState = messageRegistry.mentalStateLine(snapshot, view, "status.profile-mental-state", false);
         String targetName = view != null ? view.name() : "Player";
         UUID targetUuid = view != null ? view.playerId().uuid() : null;
 
@@ -421,8 +420,7 @@ public class StatusGuiService {
                 GuiLoreLine.ofKey("status.profile-tier", Map.of("tier", localizedTier, "prefix", prefix != null ? prefix : "")),
                 GuiLoreLine.ofKey("status.profile-status", Map.of("status", view != null ? String.valueOf(view.status()) : "0")),
                 GuiLoreLine.ofKey("status.profile-confidence", Map.of("confidence", localizedConfidence)),
-                GuiLoreLine.ofKey("status.profile-psychosis", Map.of("psychosis", localizedPsychosis)),
-                GuiLoreLine.ofKey("status.profile-serenity", Map.of("serenity", view != null ? messageRegistry.serenityValue(view) : "0.0")),
+                GuiLoreLine.ofKey(mentalState.key(), mentalState.placeholders()),
                 GuiLoreLine.ofKey("status.profile-contributors", Map.of("contributors", view != null ? String.valueOf(view.contributors()) : "0"))
         );
 

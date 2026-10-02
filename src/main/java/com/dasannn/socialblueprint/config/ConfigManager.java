@@ -227,6 +227,42 @@ public class ConfigManager {
         }
     }
 
+    private void adoptMentalStateMessages(Map<String, YamlConfiguration> beforeMerge) {
+        Map<String, String> aliases = Map.of(
+                "chat.hover-psychosis", "chat.hover-mental-state-psychosis",
+                "chat.hover-serenity", "chat.hover-mental-state-serenity",
+                "status.profile-psychosis", "status.profile-mental-state-psychosis",
+                "status.profile-serenity", "status.profile-mental-state-serenity");
+        for (var entry : beforeMerge.entrySet()) {
+            File file = new File(configFile.getParentFile(), "messages_" + entry.getKey() + ".yml");
+            YamlConfiguration before = entry.getValue();
+            YamlConfiguration merged = YamlConfiguration.loadConfiguration(file);
+            for (var alias : aliases.entrySet()) {
+                if (!before.isString(alias.getKey()) || before.contains(alias.getValue())) continue;
+                String old = before.getString(alias.getKey());
+                int placeholder = old.indexOf('{');
+                int colon = old.lastIndexOf(':', placeholder < 0 ? old.length() : placeholder);
+                String labelColours = messageColours(old.substring(0, colon < 0 ? old.length() : colon));
+                String valueColours = messageColours(old.substring(colon < 0 ? 0 : colon + 1,
+                        placeholder < 0 ? old.length() : placeholder));
+                if (valueColours.isEmpty()) valueColours = labelColours;
+                String text = merged.getString(alias.getValue());
+                if (!labelColours.isEmpty()) text = text.replace("&7", labelColours);
+                if (!valueColours.isEmpty()) text = text.replace("&f", valueColours);
+                try { YamlFileUpdater.updateLeafAndSave(file, alias.getValue(), "'" + text.replace("'", "''") + "'"); }
+                catch (IOException error) { throw new ConfigValidationException(alias.getValue(), error.getMessage()); }
+            }
+            removeObsoleteKeys(file, List.copyOf(aliases.keySet()));
+        }
+    }
+
+    private static String messageColours(String text) {
+        Matcher codes = Pattern.compile("(?i)&(?:#[0-9a-f]{6}|[0-9a-fk-or])").matcher(text);
+        StringBuilder result = new StringBuilder();
+        while (codes.find()) result.append(codes.group());
+        return result.toString();
+    }
+
     public CompletableFuture<RuntimeSnapshot> reloadAsync() {
         return CompletableFuture.supplyAsync(this::reload, ioExecutor);
     }
@@ -244,6 +280,7 @@ public class ConfigManager {
             Map<String, YamlConfiguration> messagesBeforeMerge = loadMessagesBeforeMerge();
             ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
             adoptPrivateTextMessages(messagesBeforeMerge);
+            adoptMentalStateMessages(messagesBeforeMerge);
             adoptEpisodeIntervals(beforeMerge);
             adoptPrivateTextLimits(beforeMerge);
             adoptChatExtents(beforeMerge);

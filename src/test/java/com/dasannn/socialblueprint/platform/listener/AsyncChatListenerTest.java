@@ -83,17 +83,15 @@ class AsyncChatListenerTest {
     }
 
     @Test
-    void sereneHoverUsesNeutralMadnessAndSeparateMagnitude() {
+    void sereneHoverUsesOneMentalStateLine() {
         var snapshot = configManager.snapshot();
         var view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Peaceful", 0,
                 Tier.PARTICULAR, ConfidenceLevel.UNKNOWN, PsychosisLevel.SERENITY, 7, 0.36);
         chatListener.buildHoverComponent(snapshot, view, Tier.PARTICULAR);
+        assertThat(messageRegistry.calls).hasSize(5);
         assertThat(messageRegistry.calls).anySatisfy(call -> {
-            assertThat(call.key()).isEqualTo("chat.hover-psychosis");
-            assertThat(call.values()).containsEntry("psychosis", messageRegistry.getRaw(snapshot, "psychosis.neutral.name"));
-        }).anySatisfy(call -> {
-            assertThat(call.key()).isEqualTo("chat.hover-serenity");
-            assertThat(call.values()).containsEntry("serenity", "0.4");
+            assertThat(call.key()).isEqualTo("chat.hover-mental-state-serenity");
+            assertThat(call.values()).containsExactlyEntriesOf(java.util.Map.of("value", "0.4"));
         }).anySatisfy(call -> {
             assertThat(call.key()).isEqualTo("chat.hover-contributors");
             assertThat(call.values()).containsEntry("contributors", "7");
@@ -103,19 +101,19 @@ class AsyncChatListenerTest {
     private void assertHoverInputsAndStructure(RuntimeSnapshot snapshot, Component hover) {
         var calls = messageRegistry.calls;
         assertThat(calls).extracting(HoverCall::key).containsExactly("chat.hover-status", "chat.hover-tier",
-                "chat.hover-confidence", "chat.hover-psychosis", "chat.hover-serenity", "chat.hover-contributors");
+                "chat.hover-confidence", "chat.hover-mental-state-psychosis", "chat.hover-contributors");
         assertThat(calls).extracting(HoverCall::values).containsExactly(
                 java.util.Map.of("status", "25"),
                 java.util.Map.of("tier", messageRegistry.getRaw(snapshot, "tiers.tier2")),
                 java.util.Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence.established")),
                 java.util.Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis.low")),
-                java.util.Map.of("serenity", "0.0"),
                 java.util.Map.of("contributors", "7"));
         assertThat(calls.get(1).components()).containsOnlyKeys("prefix").containsEntry("prefix",
                 ColorParser.parse(snapshot.config().tiers().prefix(Tier.HONORABLE)));
         assertThat(calls.get(0).components()).isEmpty();
         assertThat(calls.get(2).components()).isEmpty();
-        assertThat(calls.get(3).components()).isEmpty();
+        assertThat(calls.get(3).components()).containsOnlyKeys("psychosis").containsEntry("psychosis",
+                ColorParser.parse(messageRegistry.getRaw(snapshot, "psychosis.low")));
         assertThat(calls.get(4).components()).isEmpty();
         Component expected = calls.getFirst().rendered();
         for (int i = 1; i < calls.size(); i++) expected = expected.append(Component.newline()).append(calls.get(i).rendered());

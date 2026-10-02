@@ -718,8 +718,6 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         String confKey = "confidence." + view.confidence().name().toLowerCase(Locale.ROOT);
         String localizedConfidence = messageRegistry.getRaw(snapshot, confKey);
 
-        String localizedPsychosis = messageRegistry.psychosisLabel(snapshot, view);
-
         Component prefixComp = (prefix != null && !prefix.isEmpty())
                 ? ColorParser.parse(prefix)
                 : Component.empty();
@@ -733,10 +731,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 Map.of("status", String.valueOf(view.status()))));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-confidence",
                 Map.of("confidence", localizedConfidence)));
-        sender.sendMessage(messageRegistry.render(snapshot, "status.profile-psychosis",
-                Map.of("psychosis", localizedPsychosis)));
-        sender.sendMessage(messageRegistry.render(snapshot, "status.profile-serenity",
-                Map.of("serenity", messageRegistry.serenityValue(view))));
+        sender.sendMessage(messageRegistry.renderMentalState(snapshot,
+                messageRegistry.mentalStateLine(snapshot, view, "status.profile-mental-state", false)));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-contributors",
                 Map.of("contributors", String.valueOf(view.contributors()))));
     }
@@ -747,10 +743,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 .thenAccept(view -> mainThreadRunner.accept(() -> {
                     if (view.isEmpty()) sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found", Map.of("player", target)));
                     else {
-                        sender.sendMessage(messageRegistry.render(snapshot, "status.profile-psychosis",
-                                Map.of("psychosis", messageRegistry.psychosisLabel(snapshot, view.get()))));
-                        sender.sendMessage(messageRegistry.render(snapshot, "status.profile-serenity",
-                                Map.of("serenity", messageRegistry.serenityValue(view.get()))));
+                        sender.sendMessage(messageRegistry.renderMentalState(snapshot,
+                                messageRegistry.mentalStateLine(snapshot, view.get(), "status.profile-mental-state", true)));
                     }
                 })).exceptionally(error -> {
                     Logger.getLogger(StatusCommandExecutor.class.getName()).log(java.util.logging.Level.WARNING, "Could not read Psychosis", error);

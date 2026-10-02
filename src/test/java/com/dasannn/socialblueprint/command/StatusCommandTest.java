@@ -6,6 +6,9 @@ import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.domain.CombatContext;
 import com.dasannn.socialblueprint.domain.HonorKind;
 import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.domain.PlayerSocialView;
+import com.dasannn.socialblueprint.domain.ConfidenceLevel;
+import com.dasannn.socialblueprint.domain.Tier;
 import com.dasannn.socialblueprint.domain.PsychosisEvent;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import com.dasannn.socialblueprint.feature.profile.PlayerLookup;
@@ -58,18 +61,32 @@ class StatusCommandTest {
         commandExecutor.onCommand(player, null, "status", new String[]{"psychosis"});
         commandExecutor.lastExecution().join();
         assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
-            assertThat(call.key()).isEqualTo("status.profile-psychosis");
-            assertThat(call.placeholders()).containsKey("psychosis");
+            assertThat(call.key()).isEqualTo("status.profile-mental-state-neutral");
+            assertThat(call.placeholders()).isEmpty();
         });
-        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
-            assertThat(call.key()).isEqualTo("status.profile-serenity");
-            assertThat(call.placeholders()).containsEntry("serenity", "0.0");
-        });
-        assertThat(getMessages(player)).hasSize(2);
+        assertThat(getMessages(player)).hasSize(1);
         messageRegistry.clearCalls();
         Player denied = mockPlayer("Denied");
         commandExecutor.onCommand(denied, null, "status", new String[]{"psychosis"});
         assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> assertThat(call.key()).isEqualTo("commands.no-permission"));
+    }
+
+    @Test
+    void psychosisDetailShowsOneDecimalMagnitudeForOfflineConsoleTarget() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("offlinemind", new PlayerLookup.KnownPlayer(target, "OfflineMind", false));
+        profileService.mind().applyAsync(target, com.dasannn.socialblueprint.domain.MindInput.KILL,
+                new com.dasannn.socialblueprint.domain.MindInputConfig(true, 0, 34, 100), "test", Instant.now()).join();
+        List<String> output = new ArrayList<>();
+        CommandSender console = mockConsole(output);
+        commandExecutor.onCommand(console, null, "status", new String[]{"psychosis", "OfflineMind"});
+        commandExecutor.lastExecution().join();
+        assertThat(output).hasSize(1);
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-mental-state-psychosis-detail");
+            assertThat(call.placeholders()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "psychosis", messageRegistry.getRaw(configManager.snapshot(), "psychosis.medium"), "value", "34.0"));
+        });
     }
 
     @Test
@@ -207,9 +224,10 @@ class StatusCommandTest {
         }
 
         @Override
-        public Component render(com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot, String key, Map<String, String> placeholders) {
+        public Component render(com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot, String key, Map<String, String> placeholders,
+                                Map<String, Component> components) {
             renderedCalls.add(new RenderCall(key, placeholders != null ? Map.copyOf(placeholders) : Map.of(), false));
-            return super.render(snapshot, key, placeholders);
+            return super.render(snapshot, key, placeholders, components);
         }
     }
 
@@ -372,7 +390,7 @@ class StatusCommandTest {
         commandExecutor.lastExecution().join();
 
         List<String> messages = getMessages(player);
-        assertThat(messages).hasSize(7);
+        assertThat(messages).hasSize(6);
 
         // Line 1: Header
         assertThat(messages.get(0)).contains("&8--- &bSocial Status: &eSteve &8---");
@@ -382,10 +400,12 @@ class StatusCommandTest {
         assertThat(messages.get(2)).contains("&7Status Score: &f0");
         // Line 4: Confidence
         assertThat(messages.get(3)).contains("&7Confidence: &fUnknown");
-        // Line 5: Psychosis
-        assertThat(messages.get(4)).contains("&7Psychosis: &fNeutral");
-        // Line 7: Distinct raters
-        assertThat(messages.get(6)).contains("&7Rated by: &f0 players");
+        // Line 5: Mental state
+        assertThat(messages.get(4)).contains("&7Mental state: &fNeutral");
+        // Line 6: Distinct raters
+        assertThat(messages.get(5)).contains("&7Rated by: &f0 players");
+
+        assertPinnedMentalStateMessages(player, "Mental state: Psychosis Medium", "Mental state: Serenity 43.7/100");
     }
 
     @Test
@@ -399,7 +419,7 @@ class StatusCommandTest {
         commandExecutor.lastExecution().join();
 
         List<String> messages = getMessages(player);
-        assertThat(messages).hasSize(7);
+        assertThat(messages).hasSize(6);
 
         // Line 1: Header
         assertThat(messages.get(0)).contains("&8--- &bEstatus Social: &eSteve &8---");
@@ -409,10 +429,34 @@ class StatusCommandTest {
         assertThat(messages.get(2)).contains("&7Puntuaci\u00f3n de Estatus: &f0");
         // Line 4: Confidence
         assertThat(messages.get(3)).contains("&7Confianza: &fDesconocida");
-        // Line 5: Psychosis
-        assertThat(messages.get(4)).contains("&7Psicosis: &fNeutral");
-        // Line 7: Distinct raters
-        assertThat(messages.get(6)).contains("&7Valorado por: &f0 jugadores");
+        // Line 5: Mental state
+        assertThat(messages.get(4)).contains("&7Estado mental: &fNeutral");
+        // Line 6: Distinct raters
+        assertThat(messages.get(5)).contains("&7Valorado por: &f0 jugadores");
+
+        assertPinnedMentalStateMessages(player, "Estado mental: Psicosis Media", "Estado mental: Serenidad 43.7/100");
+    }
+
+    private void assertPinnedMentalStateMessages(Player player, String psychosis, String serenity) {
+        var snapshot = configManager.snapshot();
+        var view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Subject", 0, Tier.PARTICULAR,
+                ConfidenceLevel.UNKNOWN, com.dasannn.socialblueprint.domain.PsychosisLevel.MEDIUM, 0, 34);
+        var plain = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText();
+        for (String prefix : List.of("chat.hover-mental-state", "status.profile-mental-state")) {
+            assertThat(plain.serialize(messageRegistry.renderMentalState(snapshot,
+                    messageRegistry.mentalStateLine(snapshot, view, prefix, false)))).isEqualTo(psychosis);
+            var serene = new PlayerSocialView(view.playerId(), view.name(), view.status(), view.tier(),
+                    view.confidence(), com.dasannn.socialblueprint.domain.PsychosisLevel.SERENITY, 0, 43.7);
+            assertThat(plain.serialize(messageRegistry.renderMentalState(snapshot,
+                    messageRegistry.mentalStateLine(snapshot, serene, prefix, false)))).isEqualTo(serenity);
+        }
+        assertThat(plain.serialize(messageRegistry.renderMentalState(snapshot,
+                messageRegistry.mentalStateLine(snapshot, view, "status.profile-mental-state", true))))
+                .isEqualTo(psychosis + " (34.0/100)");
+        getMessages(player).clear();
+        commandExecutor.sendProfile(player, view, snapshot);
+        assertThat(getMessages(player)).hasSize(6);
+        assertThat(getMessages(player).get(4)).doesNotContain("34.0");
     }
 
     @Test
@@ -465,7 +509,7 @@ class StatusCommandTest {
                 .as("Bukkit player lookup must be executed on the command thread, never on the storage thread")
                 .isSameAs(commandThread);
 
-        assertThat(consoleMessages).hasSize(7);
+        assertThat(consoleMessages).hasSize(6);
         assertThat(consoleMessages.get(0)).contains("&8--- &bSocial Status: &eAlex &8---");
         assertThat(consoleMessages.get(1)).contains("&7Tier: [&a||&7] &fHonorable");
         assertThat(consoleMessages.get(2)).contains("&7Status Score: &f15");
@@ -504,15 +548,12 @@ class StatusCommandTest {
         commandExecutor.lastExecution().join();
 
         List<String> messages = getMessages(player);
-        assertThat(messages).hasSize(7);
+        assertThat(messages).hasSize(6);
         assertThat(messages.get(2)).contains("&7Status Score: &f0");
         assertThat(messages.get(3)).contains("&7Confidence: &fUnknown");
         assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
-            assertThat(call.key()).isEqualTo("status.profile-psychosis");
-            assertThat(call.placeholders()).containsEntry("psychosis", messageRegistry.getRaw(configManager.snapshot(), "psychosis.neutral.name"));
-        }).anySatisfy(call -> {
-            assertThat(call.key()).isEqualTo("status.profile-serenity");
-            assertThat(call.placeholders()).containsEntry("serenity", "0.0");
+            assertThat(call.key()).isEqualTo("status.profile-mental-state-neutral");
+            assertThat(call.placeholders()).isEmpty();
         }).anySatisfy(call -> {
             assertThat(call.key()).isEqualTo("status.profile-contributors");
             assertThat(call.placeholders()).containsEntry("contributors", "0");
@@ -606,7 +647,7 @@ class StatusCommandTest {
         assertThat(result).isTrue();
         commandExecutor.lastExecution().join();
 
-        assertThat(consoleMessages).hasSize(7);
+        assertThat(consoleMessages).hasSize(6);
         assertThat(consoleMessages.get(0)).contains("&8--- &bSocial Status: &eAlex &8---");
         // Status Score is derived only from valid event (+15)
         assertThat(consoleMessages.get(2)).contains("&7Status Score: &f15");

@@ -21,6 +21,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MessageRegistryTest {
 
+    @Test
+    void mentalStateTemplatesAndLevelColoursUseTheOtherLanguageAndWarnOnce() {
+        String key = "status.profile-mental-state-psychosis-detail";
+        var fallback = Map.of(key, "{psychosis} {value}", "psychosis.medium", "&#123456&lconfigured");
+        var registry = MessageRegistry.fromMaps(Map.of(), fallback, "es", testLogger);
+        var snapshot = registry.snapshot();
+        var view = new com.dasannn.socialblueprint.domain.PlayerSocialView(
+                com.dasannn.socialblueprint.domain.PlayerId.of(java.util.UUID.randomUUID()), "Subject", 0,
+                Tier.PARTICULAR, com.dasannn.socialblueprint.domain.ConfidenceLevel.UNKNOWN,
+                com.dasannn.socialblueprint.domain.PsychosisLevel.MEDIUM, 0, 34);
+        for (int i = 0; i < 2; i++) {
+            var line = registry.mentalStateLine(snapshot, view, "status.profile-mental-state", true);
+            assertThat(line.placeholders()).containsEntry("value", "34.0");
+            assertThat(registry.renderMentalState(snapshot, line)).isEqualTo(ColorParser.renderTemplate(
+                    fallback.get(key), Map.of("value", "34.0"),
+                    Map.of("psychosis", ColorParser.parse(fallback.get("psychosis.medium")))));
+        }
+        assertThat(registry.warnedKeys()).containsExactlyInAnyOrder(key, "psychosis.medium");
+        assertThat(loggedRecords).hasSize(2);
+    }
+
     @TempDir
     File tempDir;
 

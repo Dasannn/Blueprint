@@ -31,6 +31,9 @@ class LanguageFilesKeyDivergenceTest {
         Map<String, String> esMap = MessageRegistry.flattenKeys(esYaml);
         Map<String, String> enMap = MessageRegistry.flattenKeys(enYaml);
 
+        assertThat(esMap.values()).allSatisfy(text -> assertThat(text).doesNotContainIgnoringCase("Killing"));
+        assertThat(enMap.values()).allSatisfy(text -> assertThat(text).doesNotContainIgnoringCase("Killing"));
+
         Set<String> esKeys = new TreeSet<>(esMap.keySet());
         Set<String> enKeys = new TreeSet<>(enMap.keySet());
 

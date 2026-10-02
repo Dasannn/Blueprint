@@ -304,18 +304,17 @@ public class StatusGuiServiceTest {
     }
 
     @Test
-    void sereneHeadShowsSeparateLinesOfTheSameMetric() {
+    void sereneHeadShowsOneMentalStateLine() {
         var snapshot = configManager.snapshot();
         var view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Peaceful", 0,
                 Tier.PARTICULAR, ConfidenceLevel.UNKNOWN, PsychosisLevel.SERENITY, 7, 0.36);
         var head = guiService.computeAllPages(view, List.of(), Set.of(), null, snapshot)
                 .getFirst().get(StatusGuiService.SLOT_TOP_SUBJECT_HEAD);
-        assertThat(head.lore().get(3).key()).isEqualTo("status.profile-psychosis");
-        assertThat(head.lore().get(3).placeholders()).containsEntry("psychosis", messageRegistry.getRaw(snapshot, "psychosis.neutral.name"));
-        assertThat(head.lore().get(4).key()).isEqualTo("status.profile-serenity");
-        assertThat(head.lore().get(4).placeholders()).containsEntry("serenity", "0.4");
-        assertThat(head.lore().get(5).key()).isEqualTo("status.profile-contributors");
-        assertThat(head.lore().get(5).placeholders()).containsEntry("contributors", "7");
+        assertThat(head.lore()).hasSize(5);
+        assertThat(head.lore().get(3).key()).isEqualTo("status.profile-mental-state-serenity");
+        assertThat(head.lore().get(3).placeholders()).containsExactlyEntriesOf(Map.of("value", "0.4"));
+        assertThat(head.lore().get(4).key()).isEqualTo("status.profile-contributors");
+        assertThat(head.lore().get(4).placeholders()).containsEntry("contributors", "7");
     }
 
     @Test
@@ -332,16 +331,15 @@ public class StatusGuiServiceTest {
         assertThat(head.lore().get(2).key()).isEqualTo("status.profile-confidence");
         assertThat(head.lore().get(2).placeholders()).containsEntry("confidence",
                 messageRegistry.getRaw(snapshot, "confidence.established"));
-        assertThat(head.lore().get(3).key()).isEqualTo("status.profile-psychosis");
+        assertThat(head.lore().get(3).key()).isEqualTo("status.profile-mental-state-psychosis");
         assertThat(head.lore().get(3).placeholders()).containsEntry("psychosis",
                 messageRegistry.getRaw(snapshot, "psychosis.low"));
         assertThat(head.lore().get(0).placeholders()).doesNotContainValue("PARTICULAR");
         assertThat(head.lore().get(2).placeholders()).doesNotContainValue("ESTABLISHED");
         assertThat(head.lore().get(3).placeholders()).doesNotContainValue("LOW");
-        assertThat(head.lore().get(4).key()).isEqualTo("status.profile-serenity");
-        assertThat(head.lore().get(4).placeholders()).containsEntry("serenity", "0.0");
-        assertThat(head.lore().get(5).key()).isEqualTo("status.profile-contributors");
-        assertThat(head.lore().get(5).placeholders()).containsEntry("contributors", "1");
+        assertThat(head.lore()).hasSize(5);
+        assertThat(head.lore().get(4).key()).isEqualTo("status.profile-contributors");
+        assertThat(head.lore().get(4).placeholders()).containsEntry("contributors", "1");
     }
 
     @Test

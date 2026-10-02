@@ -63,17 +63,19 @@ class SerenityConfigTest {
             var registry = new MessageRegistry(folder.toFile(), language, null);
             var snapshot = registry.snapshot();
             var neutral = PlayerSocialView.neutral(PlayerId.of(UUID.randomUUID()), "Peaceful", snapshot.config().tiers().ladder());
-            assertThat(registry.psychosisLabel(snapshot, neutral)).isEqualTo(registry.getRaw(snapshot, "psychosis.neutral.name"));
-            assertThat(registry.serenityValue(neutral)).isEqualTo("0.0");
+            assertThat(registry.mentalStateLine(snapshot, neutral, "status.profile-mental-state", false).key())
+                    .isEqualTo("status.profile-mental-state-neutral");
             var serene = new PlayerSocialView(neutral.playerId(), neutral.name(), -100, neutral.tier(),
                     ConfidenceLevel.UNKNOWN, PsychosisLevel.SERENITY, 0, 43.75);
-            assertThat(registry.psychosisLabel(snapshot, serene)).isEqualTo(registry.getRaw(snapshot, "psychosis.neutral.name"));
-            assertThat(registry.serenityValue(serene)).isEqualTo("43.8");
+            var line = registry.mentalStateLine(snapshot, serene, "status.profile-mental-state", false);
+            assertThat(line.key()).isEqualTo("status.profile-mental-state-serenity");
+            assertThat(line.placeholders()).containsExactlyEntriesOf(Map.of("value", "43.8"));
             var mad = new PlayerSocialView(neutral.playerId(), neutral.name(), -100, neutral.tier(),
                     ConfidenceLevel.UNKNOWN, PsychosisLevel.HIGH, 0, 2);
-            assertThat(registry.psychosisLabel(snapshot, mad)).isEqualTo(registry.getRaw(snapshot, "psychosis.high"));
-            assertThat(registry.serenityValue(mad)).isEqualTo("0.0");
-            assertThat(snapshot.messages().bundledActiveMessages()).containsKeys("status.profile-serenity", "chat.hover-serenity",
+            var madLine = registry.mentalStateLine(snapshot, mad, "status.profile-mental-state", false);
+            assertThat(madLine.key()).isEqualTo("status.profile-mental-state-psychosis");
+            assertThat(madLine.placeholders()).containsExactlyEntriesOf(Map.of("psychosis", registry.getRaw(snapshot, "psychosis.high")));
+            assertThat(snapshot.messages().bundledActiveMessages()).containsKeys("status.profile-mental-state-serenity", "chat.hover-mental-state-serenity",
                     "gui.prompt-give-reason", "gui.reason-skip-word");
             assertThat(registry.getRaw(snapshot, "psychosis.serenity.name")).isEqualTo(language.equals("en") ? "Serenity" : "Serenidad");
             assertThat(serene.status()).isEqualTo(-100);
@@ -109,5 +111,46 @@ class SerenityConfigTest {
             assertThat(upgraded.contains("psychosis.serenity.name")).isTrue();
             assertThat(upgraded.contains("psychosis.serenity.detail")).isTrue();
         }
+    }
+
+    @Test void upgradeRetiresBothLinesPreservesMappedColoursAndExplicitNewKeys() throws Exception {
+        Map<String, String> aliases = Map.of(
+                "chat.hover-psychosis", "chat.hover-mental-state-psychosis",
+                "chat.hover-serenity", "chat.hover-mental-state-serenity",
+                "status.profile-psychosis", "status.profile-mental-state-psychosis",
+                "status.profile-serenity", "status.profile-mental-state-serenity");
+        for (String language : List.of("en", "es")) {
+            var texts = YamlConfiguration.loadConfiguration(new InputStreamReader(
+                    getClass().getClassLoader().getResourceAsStream("messages_" + language + ".yml"), StandardCharsets.UTF_8));
+            for (var alias : aliases.entrySet()) {
+                texts.set(alias.getValue(), null);
+                texts.set(alias.getKey(), "&#123456&lowner label: &d&o{" + (alias.getKey().endsWith("serenity") ? "serenity" : "psychosis") + "}");
+            }
+            // An operator who already adopted a new key wins over its legacy alias.
+            texts.set("chat.hover-mental-state-serenity", "&c{value}");
+            texts.set("status.profile-contributors", "&a{contributors}");
+            texts.save(folder.resolve("messages_" + language + ".yml").toFile());
+        }
+        var registry = new MessageRegistry(folder.toFile(), "en", null);
+        var manager = new ConfigManager(folder.resolve("config.yml").toFile(), registry, Runnable::run, null);
+        manager.initialize();
+        for (String language : List.of("en", "es")) {
+            var upgraded = YamlConfiguration.loadConfiguration(folder.resolve("messages_" + language + ".yml").toFile());
+            for (var alias : aliases.entrySet()) {
+                assertThat(upgraded.contains(alias.getKey())).isFalse();
+                if (!alias.getValue().equals("chat.hover-mental-state-serenity")) {
+                    assertThat(upgraded.getString(alias.getValue())).startsWith("&#123456&l").contains("&d&o");
+                    assertThat(upgraded.getString(alias.getValue())).doesNotContain("owner label");
+                }
+            }
+            assertThat(upgraded.getString("chat.hover-mental-state-serenity")).isEqualTo("&c{value}");
+            assertThat(upgraded.getString("status.profile-contributors")).isEqualTo("&a{contributors}");
+        }
+        String after = java.nio.file.Files.readString(folder.resolve("messages_en.yml"));
+        manager.reload();
+        assertThat(java.nio.file.Files.readString(folder.resolve("messages_en.yml"))).isEqualTo(after);
+        assertThat(manager.isEditableKey("status.profile-psychosis")).isFalse();
+        manager.set("status.profile-mental-state-serenity", "&b{value}");
+        assertThat(manager.get("status.profile-mental-state-serenity")).isEqualTo("&b{value}");
     }
 }

@@ -177,17 +177,21 @@ public class MessageRegistry {
         return tierName(snapshot(), tier);
     }
 
-    /** Direction and magnitude of the same Psychosis metric, reused by every display. */
-    public String psychosisLabel(RuntimeSnapshot snapshot, com.dasannn.socialblueprint.domain.PlayerSocialView view) {
-        return switch (view.psychosis()) {
-            case NEUTRAL, SERENITY -> getRaw(snapshot, "psychosis.neutral.name");
-            default -> getRaw(snapshot, "psychosis." + view.psychosis().name().toLowerCase(Locale.ROOT));
-        };
+    public com.dasannn.socialblueprint.domain.MentalStateLine mentalStateLine(
+            RuntimeSnapshot snapshot, com.dasannn.socialblueprint.domain.PlayerSocialView view,
+            String prefix, boolean detail) {
+        var line = com.dasannn.socialblueprint.domain.MentalStateLine.of(
+                view != null ? view.psychosis() : com.dasannn.socialblueprint.domain.PsychosisLevel.NEUTRAL,
+                view != null ? view.psychosisMagnitude() : 0, prefix, detail);
+        Map<String, String> values = new HashMap<>(line.placeholders());
+        if (line.levelKey() != null) values.put("psychosis", getRaw(snapshot, line.levelKey()));
+        return new com.dasannn.socialblueprint.domain.MentalStateLine(line.key(), line.levelKey(), Map.copyOf(values));
     }
 
-    public String serenityValue(com.dasannn.socialblueprint.domain.PlayerSocialView view) {
-        return String.format(Locale.ROOT, "%.1f", view.psychosis() == com.dasannn.socialblueprint.domain.PsychosisLevel.SERENITY
-                ? view.psychosisMagnitude() : 0);
+    public Component renderMentalState(RuntimeSnapshot snapshot, com.dasannn.socialblueprint.domain.MentalStateLine line) {
+        Map<String, Component> configuredValues = line.levelKey() != null
+                ? Map.of("psychosis", ColorParser.parse(line.placeholders().get("psychosis"))) : Map.of();
+        return render(snapshot, line.key(), line.placeholders(), configuredValues);
     }
 
     /**
