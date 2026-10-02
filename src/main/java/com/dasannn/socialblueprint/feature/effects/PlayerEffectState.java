@@ -44,6 +44,10 @@ public class PlayerEffectState {
         return nowMillis >= nextEpisodeMillis;
     }
 
+    synchronized long remainingEpisodeMillis(long nowMillis) {
+        return nowMillis >= nextEpisodeMillis ? 0 : nextEpisodeMillis - nowMillis;
+    }
+
     public synchronized void recordEpisode(long nowMillis, long durationMillis) {
         nextEpisodeMillis = nowMillis > Long.MAX_VALUE - durationMillis ? Long.MAX_VALUE : nowMillis + durationMillis;
     }

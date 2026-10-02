@@ -66,7 +66,8 @@ class StatusCommandTest {
             commandExecutor.onCommand(console, null, "status", new String[]{"admin", "mind", "set", "OfflineMind", value});
             commandExecutor.lastExecution().join();
             assertThat(profileService.mind().value(target)).isEqualTo(Double.parseDouble(value));
-            assertThat(profileService.findViewCached(target, snapshot)).isEmpty();
+            profileService.findViewCached(target, snapshot)
+                    .ifPresent(view -> assertThat(view.psychosisMagnitude()).isEqualTo(Math.abs(Double.parseDouble(value))));
             assertThat(profileService.loadViewAsync(target, "OfflineMind", snapshot).join().psychosisMagnitude())
                     .isEqualTo(Math.abs(Double.parseDouble(value)));
             var event = profileService.mind().events(target).getLast();

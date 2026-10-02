@@ -260,6 +260,20 @@ public class ConfigManager {
         }
     }
 
+    private void repairQuotedConnectionTemplates() {
+        for (String language : List.of("en", "es")) {
+            File file = new File(configFile.getParentFile(), "messages_" + language + ".yml");
+            YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+            for (String key : CatalogueLines.TEMPLATES) {
+                String value = yaml.getString(key);
+                if (value != null && value.length() >= 2 && value.startsWith("'") && value.endsWith("'")) {
+                    try { YamlFileUpdater.updateLeafAndSave(file, key, value.substring(1, value.length() - 1)); }
+                    catch (IOException error) { throw new ConfigValidationException(key, "Cannot repair quoted template: " + error.getMessage()); }
+                }
+            }
+        }
+    }
+
     private void adoptPrivateTextLimits(YamlConfiguration before) {
         for (String[] alias : List.of(new String[]{"private-chat", "whisper"}, new String[]{"fake-connection", "fake-announcement"})) {
             String target = "effects." + alias[0];
@@ -336,6 +350,7 @@ public class ConfigManager {
             }
             ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
             adoptPrivateTextMessages(messagesBeforeMerge);
+            repairQuotedConnectionTemplates();
             adoptMentalStateMessages(messagesBeforeMerge);
             adoptEpisodeIntervals(beforeMerge);
             adoptEffectLists(beforeMerge, messagesBeforeMerge);
@@ -879,6 +894,7 @@ public class ConfigManager {
                 "boss-bar.style", "boss-bar.progress", "boss-bar.duration-ticks", "false-death.range-blocks", "private-chat.max-visible-length"))
             set.add("effects." + key);
         set.add("effects.check-interval");
+        set.add("effects.debug");
         set.addAll(SerenityEffectsConfig.defaults().leafValues().keySet());
         set.add("effects.quiet-interval.medium");
         set.add("effects.quiet-interval.high");
@@ -1038,6 +1054,7 @@ public class ConfigManager {
             if ("effects.quiet-interval.high".equals(path)) return formatDuration(config.effects().highQuietInterval());
             if ("effects.quiet-interval.extreme".equals(path)) return formatDuration(config.effects().extremeQuietInterval());
             if ("effects.max-episode-ticks".equals(path)) return String.valueOf(config.effects().maxEpisodeTicks());
+            if ("effects.debug".equals(path)) return Boolean.toString(config.effects().debug());
             if ("effects.check-interval".equals(path)) return formatDuration(config.effects().checkInterval());
             if ("effects.silverfish.enabled".equals(path)) return String.valueOf(config.effects().silverfish().enabled());
             if ("effects.silverfish.cooldown".equals(path)) return formatDuration(config.effects().silverfish().cooldown());

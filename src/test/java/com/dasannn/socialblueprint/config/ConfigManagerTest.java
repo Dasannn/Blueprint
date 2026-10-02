@@ -48,6 +48,42 @@ class ConfigManagerTest {
     }
 
     @Test
+    void effectsDebugIsMergedEditableAndStrictlyBoolean() throws Exception {
+        assertThat(configManager.config().effects().debug()).isFalse();
+        YamlFileUpdater.removeLeafAndSave(configFile, "effects.debug");
+        configManager.reload();
+        assertThat(YamlConfiguration.loadConfiguration(configFile).get("effects.debug")).isEqualTo(false);
+        assertThat(configManager.isEditableKey("effects.debug")).isTrue();
+        configManager.set("effects.debug", "true");
+        assertThat(configManager.config().effects().debug()).isTrue();
+        assertThat(configManager.config().effects().scaled(com.dasannn.socialblueprint.domain.PsychosisLevel.HIGH).debug()).isTrue();
+        RuntimeSnapshot before = configManager.snapshot();
+        String disk = Files.readString(configFile.toPath());
+        assertThatThrownBy(() -> configManager.set("effects.debug", "maybe")).hasMessageContaining("effects.debug");
+        assertThat(configManager.snapshot()).isSameAs(before);
+        assertThat(Files.readString(configFile.toPath())).isEqualTo(disk);
+    }
+
+    @Test
+    void upgradeRepairsOnlyOuterConnectionQuotesInBothLanguages() throws Exception {
+        for (String language : List.of("en", "es")) {
+            File file = new File(tempDir, "messages_" + language + ".yml");
+            YamlFileUpdater.updateLeafAndSave(file, "effects.fake-connection.join", "'&a{player} owner's custom join'");
+            YamlFileUpdater.updateLeafAndSave(file, "effects.fake-connection.leave", language.equals("en") ? "'&b{player} owner's custom leave'" : "&b{player} owner's custom leave");
+        }
+        configManager.reload();
+        for (String language : List.of("en", "es")) {
+            File file = new File(tempDir, "messages_" + language + ".yml");
+            YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+            assertThat(yaml.getString("effects.fake-connection.join")).isEqualTo("&a{player} owner's custom join");
+            assertThat(yaml.getString("effects.fake-connection.leave")).isEqualTo("&b{player} owner's custom leave");
+            String repaired = Files.readString(file.toPath());
+            configManager.reload();
+            assertThat(Files.readString(file.toPath())).isEqualTo(repaired);
+        }
+    }
+
+    @Test
     @DisplayName("T-034: Atomic reload replaces snapshot wholesale")
     void atomicReloadReplacesSnapshotWholesale() {
         PluginConfig before = configManager.config();

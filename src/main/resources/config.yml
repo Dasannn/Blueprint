@@ -263,6 +263,7 @@ duel:
 # Private, cosmetic episodes triggered by Medium, High and Extreme Psychosis.
 # ==============================================================================
 effects:
+  debug: false
   # Serenity episode settings.
   serenity:
     episodes:

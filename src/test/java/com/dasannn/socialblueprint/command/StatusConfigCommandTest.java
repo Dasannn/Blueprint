@@ -100,6 +100,19 @@ class StatusConfigCommandTest {
     }
 
     @Test
+    void effectsDebugCanBeEnabledAndDisabledThroughStatusConfig() {
+        var admin = new MockSender("Admin", "socialblueprint.admin.config");
+        command.execute(admin, new String[]{"effects.debug", "true"});
+        assertThat(configManager.config().effects().debug()).isTrue();
+        assertThat(configManager.get("effects.debug")).isEqualTo("true");
+        command.execute(admin, new String[]{"effects.debug", "false"});
+        assertThat(configManager.config().effects().debug()).isFalse();
+        command.execute(admin, new String[]{"effects.debug", "maybe"});
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-failed");
+        assertThat(configManager.config().effects().debug()).isFalse();
+    }
+
+    @Test
     void uniqueSuffixesUseCanonicalValidationPersistenceAndAudit() {
         try (var engine = com.dasannn.socialblueprint.storage.StorageEngine.inMemory()) {
             engine.runMigrations();

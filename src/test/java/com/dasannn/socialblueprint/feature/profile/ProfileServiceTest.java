@@ -336,8 +336,9 @@ class ProfileServiceTest {
         // 2. Save reputation event
         reputationRepo.save(new ReputationEvent(actor, target, 20, HonorKind.POSITIVE, 500.0, null, Instant.now()));
 
-        // 3. View cache is invalidated automatically
-        assertThat(profileService.isCached(target)).isFalse();
+        // The repository listener queues a fresh view without waiting for a cache miss.
+        storage.submitAsync(() -> {}).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.findViewCached(target, snapshot).orElseThrow().status()).isEqualTo(20);
 
         // 4. Next chat view/load gets updated status 20
         PlayerSocialView view2 = profileService.loadViewAsync(target, "Target", snapshot).get();
@@ -359,8 +360,47 @@ class ProfileServiceTest {
         // 2. Save psychosis kill event
         psychosisRepo.save(new PsychosisEvent(killer, victim, CombatContext.OPEN, Instant.now()));
 
-        // 3. View cache is invalidated automatically
-        assertThat(profileService.isCached(killer)).isFalse();
+        storage.submitAsync(() -> {}).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.findViewCached(killer, snapshot).orElseThrow().psychosis()).isEqualTo(PsychosisLevel.LOW);
+    }
+
+    @Test
+    void invalidationDoesNotCoalesceNewRequestWithPreWriteLoad() throws Exception {
+        PlayerId id = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        var blocked = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var blocking = com.dasannn.socialblueprint.storage.StorageTestSupport.blockExecutor(storage, blocked, release);
+        CompletableFuture<PlayerSocialView> current;
+        CompletableFuture<Void> write;
+        try {
+            assertThat(blocked.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var old = profileService.loadViewAsync(id, "Joining", snapshot);
+            write = profileService.mind().setAsync(id, 60, PlayerId.CONSOLE, "Console", testClock.instant());
+            profileService.invalidate(id);
+            current = profileService.loadViewAsync(id, "Joining", snapshot);
+            assertThat(current).isNotSameAs(old);
+        } finally { release.countDown(); }
+        blocking.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        write.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(current.get(5, java.util.concurrent.TimeUnit.SECONDS).psychosisMagnitude()).isEqualTo(60);
+        storage.submitAsync(() -> {}).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.findViewCached(id, snapshot).orElseThrow().psychosisMagnitude()).isEqualTo(60);
+        assertThat(profileService.resolvePlayerAsync(id.toString(), snapshot).get(5, java.util.concurrent.TimeUnit.SECONDS)
+                .orElseThrow().psychosisMagnitude()).isEqualTo(60);
+    }
+
+    @Test
+    void mindWriteRefreshesJoinViewBeforeNextCacheOnlyTick() throws Exception {
+        PlayerId id = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        profileService.warmUp(id, "Joining", snapshot).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.findViewCached(id, snapshot).orElseThrow().psychosis()).isEqualTo(PsychosisLevel.NEUTRAL);
+        profileService.mind().setAsync(id, 60, PlayerId.CONSOLE, "Console", testClock.instant())
+                .get(5, java.util.concurrent.TimeUnit.SECONDS);
+        storage.submitAsync(() -> {}).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(profileService.findViewCached(id, snapshot).orElseThrow().psychosis()).isEqualTo(PsychosisLevel.SERENITY);
+        assertThat(profileService.getViewQuick(id, snapshot).psychosisMagnitude()).isEqualTo(60);
     }
 
     @Test

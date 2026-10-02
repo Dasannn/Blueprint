@@ -21,8 +21,16 @@ public record EffectsConfigSection(
         Duration extremeQuietInterval,
         int maxEpisodeTicks,
         PresentationConfig presentation,
-        SerenityEffectsConfig serenity
+        SerenityEffectsConfig serenity,
+        boolean debug
 ) {
+    public EffectsConfigSection(Duration checkInterval, SingleEffectConfig silverfish, SingleEffectConfig whisper,
+                                SingleEffectConfig creeper, SingleEffectConfig fakeAnnouncement, Duration medium,
+                                Duration high, Duration extreme, int maxEpisodeTicks, PresentationConfig presentation,
+                                SerenityEffectsConfig serenity) {
+        this(checkInterval, silverfish, whisper, creeper, fakeAnnouncement, medium, high, extreme,
+                maxEpisodeTicks, presentation, serenity, false);
+    }
     public EffectsConfigSection(Duration checkInterval, SingleEffectConfig silverfish, SingleEffectConfig whisper,
                                 SingleEffectConfig creeper, SingleEffectConfig fakeAnnouncement, Duration medium,
                                 Duration high, Duration extreme, int maxEpisodeTicks, PresentationConfig presentation) {
@@ -112,7 +120,7 @@ public record EffectsConfigSection(
     public EffectsConfigSection scaled(PsychosisLevel level) {
         return new EffectsConfigSection(checkInterval, silverfish, whisper, creeper, fakeAnnouncement,
                 mediumQuietInterval, highQuietInterval, extremeQuietInterval, maxEpisodeTicks,
-                presentation.scaled(level), serenity);
+                presentation.scaled(level), serenity, debug);
     }
 
     public SingleEffectConfig getEffect(AmbientEffectType type) {
@@ -141,6 +149,8 @@ public record EffectsConfigSection(
         if (section.contains("max-episode-ticks") && !section.isInt("max-episode-ticks")) {
             throw new ConfigValidationException("effects.max-episode-ticks", "Episode bound must be an integer");
         }
+        if (section.contains("debug") && !section.isBoolean("debug"))
+            throw new ConfigValidationException("effects.debug", "Must be a boolean");
         return new EffectsConfigSection(
                 DurationParser.parsePositive(section.getString("check-interval", "1s"), "effects.check-interval"),
                 loadEffect(section, "silverfish", "10m", 6),
@@ -150,7 +160,7 @@ public record EffectsConfigSection(
                 DurationParser.parseNonNegative(section.getString("quiet-interval.medium", "2m"), "effects.quiet-interval.medium"),
                 DurationParser.parseNonNegative(section.getString("quiet-interval.high", "1m"), "effects.quiet-interval.high"),
                 DurationParser.parseNonNegative(section.getString("quiet-interval.extreme", "20s"), "effects.quiet-interval.extreme"),
-                section.getInt("max-episode-ticks", 200), PresentationConfig.load(root), SerenityEffectsConfig.load(root));
+                section.getInt("max-episode-ticks", 200), PresentationConfig.load(root), SerenityEffectsConfig.load(root), section.getBoolean("debug", false));
     }
 
     private static SingleEffectConfig loadEffect(ConfigurationSection section, String key, String cooldownDefault, int capDefault) {

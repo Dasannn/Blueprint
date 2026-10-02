@@ -936,4 +936,93 @@ class AmbientEffectSchedulerTest {
             }
         }
     }
+    @Test void effectsDiagnosticsAreOptInAndDescribeDecisions() throws Exception {
+        var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                new FakeSilverfishService(null, new AmbientEntityRegistry(), null)) {
+            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection cfg, RuntimeSnapshot snapshot) {
+                return true;
+            }
+            @Override public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
+                    java.util.function.BooleanSupplier eligible) { return false; }
+        };
+        var scheduler = new AmbientEffectScheduler(null, configManager, profileService, dispatcher, () -> onlinePlayers);
+        var logs = new ArrayList<java.util.logging.LogRecord>();
+        var logger = Logger.getLogger(AmbientEffectScheduler.class.getName());
+        var handler = new java.util.logging.Handler() {
+            @Override public void publish(java.util.logging.LogRecord record) { logs.add(record); }
+            @Override public void flush() {}
+            @Override public void close() {}
+        };
+        logger.addHandler(handler);
+        try {
+            UUID uuid = UUID.randomUUID();
+            PlayerId id = PlayerId.of(uuid);
+            onlinePlayers.add(createMockPlayer(uuid, "DebugSubject"));
+            scheduler.tickAt(1_000_000);
+            assertThat(logs).isEmpty();
+            configManager.set("effects.debug", "true");
+            scheduler.tickAt(2_000_000);
+            assertThat(logs).anySatisfy(log -> assertThat(log.getMessage()).contains("no cached view"));
+            profileService.loadViewAsync(id, "DebugSubject", configManager.snapshot()).join();
+            scheduler.tickAt(2_001_000);
+            assertThat(logs).anySatisfy(log -> assertThat(log.getMessage()).contains("reason=neutral"));
+            profileService.mind().setAsync(id, 60, PlayerId.CONSOLE, "Console", Instant.now()).join();
+            profileService.loadViewAsync(id, "DebugSubject", configManager.snapshot()).join();
+            scheduler.tickAt(3_000_000);
+            assertThat(logs).anySatisfy(log -> assertThat(log.getMessage()).contains("serene magnitude=60.0", "candidates=", "delivered=false"));
+            profileService.mind().setAsync(id, -100, PlayerId.CONSOLE, "Console", Instant.now()).join();
+            profileService.loadViewAsync(id, "DebugSubject", configManager.snapshot()).join();
+            scheduler.tickAt(4_000_000);
+            scheduler.tickAt(4_001_000);
+            assertThat(logs).anySatisfy(log -> assertThat(log.getMessage()).contains("madness level=EXTREME eligible="));
+            assertThat(logs).anySatisfy(log -> assertThat(log.getMessage()).contains("madness level=EXTREME", "delivered="));
+            assertThat(logs).anySatisfy(log -> assertThat(log.getMessage()).contains("blocked remaining-ms=", "pending=", "victim-read="));
+            assertThat(logs).allSatisfy(log -> assertThat(log.getLevel()).isEqualTo(java.util.logging.Level.INFO));
+            configManager.set("effects.debug", "false");
+            logs.clear();
+            scheduler.tickAt(5_000_000);
+            assertThat(logs).isEmpty();
+        } finally { logger.removeHandler(handler); }
+    }
+
+    @Test void directionChangeCancelsPendingVictimReadWithoutReservingOrConsumingCaps() {
+        configManager.set("effects.victim-ghost.enabled", "true");
+        UUID uuid = UUID.randomUUID();
+        PlayerId id = PlayerId.of(uuid);
+        Player player = createMockPlayer(uuid, "Changing");
+        onlinePlayers.add(player);
+        var victim = new java.util.concurrent.CompletableFuture<Optional<VictimGhost>>();
+        var profiles = new ProfileService(storage, reputationRepo, psychosisRepo,
+                new ProfileRepository(storage), profileService.statusCache(), configManager, null, null) {
+            @Override public java.util.concurrent.CompletableFuture<Optional<VictimGhost>> findVictimGhostAsync(
+                    PlayerId killer, RuntimeSnapshot snapshot) { return victim; }
+        };
+        List<Runnable> completions = new ArrayList<>();
+        List<String> serene = new ArrayList<>();
+        var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                new FakeSilverfishService(null, new AmbientEntityRegistry(), null)) {
+            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection cfg, RuntimeSnapshot snapshot) {
+                throw new AssertionError("Cancelled victim read must not dispatch madness");
+            }
+            @Override public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
+                    java.util.function.BooleanSupplier eligible) { serene.add(effect); return true; }
+        };
+        var running = new AmbientEffectScheduler(null, configManager, profiles, dispatcher, () -> onlinePlayers, completions::add);
+        profiles.mind().setAsync(id, -100, PlayerId.CONSOLE, "Console", Instant.now()).join();
+        profiles.loadViewAsync(id, "Changing", configManager.snapshot()).join();
+        running.tickAt(1_000_000);
+        assertThat(victim).isNotDone();
+        assertThat(running.getState(uuid).canStartEpisode(1_000_000)).isTrue();
+        profiles.mind().setAsync(id, 60, PlayerId.CONSOLE, "Console", Instant.now()).join();
+        profiles.loadViewAsync(id, "Changing", configManager.snapshot()).join();
+        running.tickAt(1_001_000);
+        assertThat(serene).hasSize(1);
+        victim.complete(Optional.empty());
+        assertThat(completions).hasSize(1);
+        completions.getFirst().run();
+        for (AmbientEffectType effect : AmbientEffectType.values())
+            assertThat(running.getState(uuid).getSessionCount(effect)).isZero();
+        assertThat(serene).hasSize(1);
+    }
+
 }

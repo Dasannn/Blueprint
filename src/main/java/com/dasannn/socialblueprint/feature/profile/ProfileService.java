@@ -51,13 +51,13 @@ public class ProfileService {
     public static final int MAX_PENDING_LOADS = 1000;
 
     private record CachedView(PlayerSocialView view, Instant expiresAt, int generation, long configGeneration, RuntimeSnapshot snapshot) {}
-    private record LoadKey(PlayerId id, long configGeneration, RuntimeSnapshot snapshot) {
+    private record LoadKey(PlayerId id, int generation, long configGeneration, RuntimeSnapshot snapshot) {
         @Override public boolean equals(Object other) {
-            return other instanceof LoadKey key && id.equals(key.id) && configGeneration == key.configGeneration
+            return other instanceof LoadKey key && id.equals(key.id) && generation == key.generation && configGeneration == key.configGeneration
                     && snapshot == key.snapshot;
         }
         @Override public int hashCode() {
-            return 31 * (31 * id.hashCode() + Long.hashCode(configGeneration)) + System.identityHashCode(snapshot);
+            return 31 * (31 * (31 * id.hashCode() + generation) + Long.hashCode(configGeneration)) + System.identityHashCode(snapshot);
         }
     }
 
@@ -105,7 +105,7 @@ public class ProfileService {
         this.reputationRepository = Objects.requireNonNull(reputationRepository, "ReputationRepository must not be null");
         this.psychosisRepository = Objects.requireNonNull(psychosisRepository, "PsychosisRepository must not be null");
         this.mind = new com.dasannn.socialblueprint.storage.MindRepository(storageEngine);
-        this.mind.addInvalidationListener(this::invalidate);
+        this.mind.addInvalidationListener(this::invalidateAndRefresh);
         this.profileRepository = Objects.requireNonNull(profileRepository, "ProfileRepository must not be null");
         this.statusCache = Objects.requireNonNull(statusCache, "StatusCache must not be null");
         this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
@@ -116,9 +116,9 @@ public class ProfileService {
                 () -> java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime()), this.logger);
 
         // Connect repository writes directly to view cache invalidation
-        this.reputationRepository.addInvalidationListener(this::invalidate);
-        this.psychosisRepository.addInvalidationListener(this::invalidate);
-        this.psychosisRepository.addKillListener(event -> invalidate(event.killer()));
+        this.reputationRepository.addInvalidationListener(this::invalidateAndRefresh);
+        this.psychosisRepository.addInvalidationListener(this::invalidateAndRefresh);
+        this.psychosisRepository.addKillListener(event -> invalidateAndRefresh(event.killer()));
 
         // Connect configuration updates to view and status cache invalidation and TTL refresh (Finding 7)
         this.configManager.addSnapshotListener(snapshot -> {
@@ -171,24 +171,16 @@ public class ProfileService {
             return PlayerSocialView.neutral(PlayerId.of(new UUID(0, 0)), "Unknown", snapshot.config().tiers().ladder());
         }
 
-        CachedView cached;
         synchronized (loadLock) {
-            cached = viewCache.get(id);
-        }
-
-        if (cached != null) {
-            Instant now = clock.instant();
-            int currentGen = playerGenerations.getOrDefault(id, 0);
-            if (cached.generation() == currentGen && cached.configGeneration() == configGeneration
-                    && cached.snapshot() == snapshot && now.isBefore(cached.expiresAt())) {
-                return cached.view();
-            }
-            // Expired on read or generation moved: invalidate and queue background rebuild (Finding 2)
-            synchronized (loadLock) {
+            CachedView cached = viewCache.get(id);
+            if (cached != null) {
+                if (cached.generation() == playerGenerations.getOrDefault(id, 0)
+                        && cached.configGeneration() == configGeneration && cached.snapshot() == snapshot
+                        && clock.instant().isBefore(cached.expiresAt())) return cached.view();
                 if (cached.snapshot() == snapshot || cached.snapshot() != configManager.snapshot()) viewCache.remove(id, cached);
+                loadViewAsync(id, cached.view().name(), snapshot);
+                return PlayerSocialView.neutral(id, cached.view().name(), snapshot.config().tiers().ladder());
             }
-            loadViewAsync(id, cached.view().name(), snapshot);
-            return PlayerSocialView.neutral(id, cached.view().name(), snapshot.config().tiers().ladder());
         }
 
         // Neutral default per SB-005 and T-042
@@ -217,7 +209,7 @@ public class ProfileService {
         long requestEpoch;
         LoadKey key;
         synchronized (loadLock) {
-            key = new LoadKey(id, configGeneration, snapshot);
+            key = new LoadKey(id, playerGenerations.getOrDefault(id, 0), configGeneration, snapshot);
             CompletableFuture<PlayerSocialView> existing = inFlightLoads.get(key);
             if (existing != null) return existing;
 
@@ -229,7 +221,7 @@ public class ProfileService {
 
             future = new CompletableFuture<>();
             inFlightLoads.put(key, future);
-            loadGen = playerGenerations.getOrDefault(id, 0);
+            loadGen = key.generation();
             requestEpoch = quitEpoch.get();
         }
 
@@ -458,6 +450,25 @@ public class ProfileService {
 
     public CompletableFuture<Void> warmUp(PlayerId id, String name, TierLadder ladder) {
         return warmUp(id, name, configManager.snapshot());
+    }
+
+    // Repository writes rebuild known views immediately, rather than waiting for a scheduler/cache miss.
+    private void invalidateAndRefresh(PlayerId id) {
+        if (id == null) return;
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        synchronized (loadLock) {
+            CachedView cached = viewCache.get(id);
+            // ponytail: scan is bounded to 1000 loads; index by player if write throughput warrants it.
+            boolean loading = inFlightLoads.keySet().stream().anyMatch(key -> key.id().equals(id));
+            invalidate(id);
+            if (!evictedPlayers.contains(id) && (cached != null || loading)) {
+                loadViewAsync(id, cached != null ? cached.view().name() : id.toString(), snapshot)
+                        .exceptionally(error -> {
+                            logger.log(Level.WARNING, "Failed to refresh profile for " + id, error);
+                            return null;
+                        });
+            }
+        }
     }
 
     public void invalidate(PlayerId id) {
