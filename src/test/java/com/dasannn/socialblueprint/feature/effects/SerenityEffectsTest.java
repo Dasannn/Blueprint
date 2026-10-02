@@ -53,6 +53,44 @@ class SerenityEffectsTest {
         }
     }
 
+    @Test void apparitionStaysAheadAtConfiguredDistanceWithBoundedLateralOffset() {
+        for (double yaw : new double[]{0, 90, 180, 270, 37}) {
+            double radians = Math.toRadians(yaw);
+            for (double range : new double[]{1, 8, 20}) for (double sample : new double[]{0, .5, 1}) {
+                var offset = SereneEpisode.apparitionOffset(yaw, range, sample);
+                double forward = -Math.sin(radians) * offset.x() + Math.cos(radians) * offset.z();
+                double lateral = Math.cos(radians) * offset.x() + Math.sin(radians) * offset.z();
+                assertThat(forward).isCloseTo(range, within(1e-10));
+                assertThat(Math.abs(lateral)).isLessThanOrEqualTo(Math.min(.5, range * .1) + 1e-10);
+                assertThat(SereneEpisode.inView(yaw, 0, offset.x(), -.8, offset.z())).isTrue();
+                assertThat(SereneEpisode.inView(yaw + 180, 0, offset.x(), -.8, offset.z())).isFalse();
+            }
+        }
+        var centered = SereneEpisode.apparitionOffset(0, 8, .5);
+        assertThat(centered.x()).isZero();
+        assertThat(centered.z()).isEqualTo(8);
+        assertThat(SereneEpisode.inView(0, -90, 0, -.8, 8)).isFalse();
+        assertThat(SereneEpisode.inView(0, 0, Double.NaN, 0, 8)).isFalse();
+        for (double sample : new double[]{0, .5, 1}) {
+            var offset = SereneEpisode.apparitionOffset(0, 8, sample);
+            var animal = new SereneEpisode.Bounds(offset.x() - .6, 0, offset.z() - .6,
+                    offset.x() + .6, 1, offset.z() + .6);
+            assertThat(animal.outsideReach(0, 1.62, 0, 4)).isTrue();
+            assertThat(animal.outsideReach(offset.x(), 1.62, offset.z(), 4)).isFalse();
+        }
+    }
+
+    @Test void fullDawnDurationPrecedesQuietReservation() {
+        var config = SerenityEffectsConfig.defaults();
+        var sounds = SoundsConfigSection.defaults();
+        assertThat(SereneEpisode.durationTicks("dawn", config, sounds)).isEqualTo(200);
+        long reserved = SereneEpisode.reservationTicks("dawn", config, sounds);
+        assertThat(reserved).isEqualTo(200 + Math.max(config.intervalTicks(), config.quietTicks()));
+        var state = new PlayerEffectState(); state.recordSerene("dawn", 0, reserved);
+        assertThat(state.canStartEpisode(reserved * 50 - 1)).isFalse();
+        assertThat(state.canStartEpisode(reserved * 50)).isTrue();
+    }
+
     @Test void selectableAnimalModelsCannotEnterInteractionOrMovementSpace() {
         var animal = new SereneEpisode.Bounds(2.7, 0, -.3, 3.3, .85, .3);
         assertThat(animal.outsideReach(0, 1.62, 0, 4)).isFalse();

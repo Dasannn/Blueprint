@@ -201,14 +201,13 @@ public class AmbientEffectDispatcher {
                     yield true;
                 }
                 case "apparition" -> {
-                    double yaw = Math.toRadians(subject.getLocation().getYaw());
-                    Location at = subject.getLocation().clone().add(-Math.sin(yaw) * config.animalRange(),
-                            0, Math.cos(yaw) * config.animalRange());
-                    at.setYaw(subject.getLocation().getYaw() + 180F);
+                    Location at = apparitionGround(subject, config.animalRange());
+                    if (at == null) yield false;
                     boolean shown = false;
                     PrivateGhost subjectAnimal = PrivateGhost.animal(subject, at, animalKind,
                             silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(animalKind)));
-                    if (!safeAnimalViewer(subject, subjectAnimal.bounds())) yield false;
+                    if (!safeAnimalViewer(subject, subjectAnimal.bounds()) || !clearAnimalSpace(at, subjectAnimal.bounds())
+                            || !visibleAnimal(subject, subjectAnimal.bounds())) yield false;
                     for (Player viewer : audience) {
                         PrivateGhost animal = viewer.getUniqueId().equals(owner) ? subjectAnimal : PrivateGhost.animal(viewer, at, animalKind,
                                 silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(animalKind)));
@@ -253,6 +252,45 @@ public class AmbientEffectDispatcher {
                     sameWorld ? viewer.getLocation().distanceSquared(subject.getLocation()) : Double.POSITIVE_INFINITY));
         }
         return SereneEpisode.audience(subject.getUniqueId(), dawn, candidates, range);
+    }
+
+    private Location apparitionGround(Player subject, double range) {
+        Location origin = subject.getLocation();
+        var offset = SereneEpisode.apparitionOffset(origin.getYaw(), range, random.nextDouble());
+        Location probe = origin.clone().add(offset.x(), 2, offset.z());
+        if (!Double.isFinite(probe.getX()) || !Double.isFinite(probe.getZ())
+                || !probe.getWorld().isChunkLoaded(probe.getBlockX() >> 4, probe.getBlockZ() >> 4)) return null;
+        // ponytail: search only two blocks up/four down; skip cliffs, expand only if live terrain needs it.
+        var hit = probe.getWorld().rayTraceBlocks(probe, new org.bukkit.util.Vector(0, -1, 0), 6,
+                org.bukkit.FluidCollisionMode.ALWAYS, false);
+        if (hit == null || hit.getHitBlock() == null || hit.getHitBlock().isLiquid()) return null;
+        var point = hit.getHitPosition();
+        Location at = new Location(origin.getWorld(), point.getX(), point.getY() + .01, point.getZ());
+        at.setYaw((float) Math.toDegrees(Math.atan2(at.getX() - origin.getX(), origin.getZ() - at.getZ())));
+        return at;
+    }
+
+    private boolean clearAnimalSpace(Location at, SereneEpisode.Bounds bounds) {
+        var world = at.getWorld();
+        if (bounds.minY() < world.getMinHeight() || bounds.maxY() >= world.getMaxHeight()) return false;
+        // Conservative enclosing cubes also exclude fluids and complicated partial-block shapes.
+        for (int x = (int) Math.floor(bounds.minX()); x <= (int) Math.floor(bounds.maxX()); x++)
+            for (int z = (int) Math.floor(bounds.minZ()); z <= (int) Math.floor(bounds.maxZ()); z++) {
+                if (!world.isChunkLoaded(x >> 4, z >> 4)) return false;
+                for (int y = (int) Math.floor(bounds.minY()); y <= (int) Math.floor(bounds.maxY()); y++) {
+                    var block = world.getBlockAt(x, y, z);
+                    if (!block.isPassable() || block.isLiquid()) return false;
+                }
+            }
+        return true;
+    }
+
+    private boolean visibleAnimal(Player subject, SereneEpisode.Bounds bounds) {
+        Location eye = subject.getEyeLocation();
+        var toward = new org.bukkit.util.Vector((bounds.minX() + bounds.maxX()) / 2 - eye.getX(),
+                (bounds.minY() + bounds.maxY()) / 2 - eye.getY(), (bounds.minZ() + bounds.maxZ()) / 2 - eye.getZ());
+        return SereneEpisode.inView(eye.getYaw(), eye.getPitch(), toward.getX(), toward.getY(), toward.getZ())
+                && eye.getWorld().rayTraceBlocks(eye, toward, toward.length()) == null;
     }
 
     private boolean safeAnimalViewer(Player viewer, SereneEpisode.Bounds bounds) {

@@ -276,7 +276,7 @@ effects:
       cooldown-ticks: 6000
       session-cap: 12
       time-ticks: 23000
-      duration-ticks: 60
+      duration-ticks: 200
     source-less-sounds:
       enabled: true
       minimum-serenity: 1
@@ -308,7 +308,7 @@ effects:
       # Outside block reach: a packet-only animal is still pickable by the client,
       # so delivery skips any viewer whose reach could touch it (SB-124).
       range-blocks: 8
-      duration-ticks: 60
+      duration-ticks: 100
   advancement-toast:
     enabled: true
     minimum-level: medium

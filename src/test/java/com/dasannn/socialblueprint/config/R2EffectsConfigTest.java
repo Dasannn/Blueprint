@@ -169,6 +169,60 @@ class R2EffectsConfigTest {
         assertThat(Files.readString(folder.resolve("config.yml"))).isEqualTo(before);
     }
 
+    @Test void untouchedLegacyCatAdoptsNewDefaultsAndDawn() throws Exception {
+        var yaml = resource("config.yml");
+        yaml.set(LIST_KEYS.get(2), null);
+        yaml.set("effects.serenity.apparition.kind", "cat");
+        yaml.set("effects.serenity.dawn.duration-ticks", 60);
+        yaml.save(folder.resolve("config.yml").toFile());
+        var manager = manager(); manager.initialize();
+        assertThat(manager.config().effects().serenity().animals()).containsExactly("turtle", "fox", "armadillo", "bee");
+        assertThat(manager.config().effects().serenity().dawnDuration()).isEqualTo(200);
+        assertThat(YamlConfiguration.loadConfiguration(folder.resolve("config.yml").toFile())
+                .contains("effects.serenity.apparition.kind")).isFalse();
+        assertThat(folder.resolve("serenity-defaults-v1.flag")).exists();
+        String upgraded = Files.readString(folder.resolve("config.yml"));
+        manager.reload();
+        assertThat(Files.readString(folder.resolve("config.yml"))).isEqualTo(upgraded);
+    }
+
+    @Test void alreadyUpgradedCatIsRepairedOnceThenOwnerEditsSurviveRestart() throws Exception {
+        var yaml = resource("config.yml");
+        yaml.set(LIST_KEYS.get(2), List.of("cat"));
+        yaml.set("effects.serenity.dawn.duration-ticks", 60);
+        yaml.save(folder.resolve("config.yml").toFile());
+        var manager = manager(); manager.initialize();
+        assertThat(manager.config().effects().serenity().animals()).containsExactly("turtle", "fox", "armadillo", "bee");
+        assertThat(manager.config().effects().serenity().dawnDuration()).isEqualTo(200);
+        manager.set(LIST_KEYS.get(2), "[cat]");
+        manager.set("effects.serenity.dawn.duration-ticks", "60");
+        var restarted = manager(); restarted.initialize();
+        assertThat(restarted.config().effects().serenity().animals()).containsExactly("cat");
+        assertThat(restarted.config().effects().serenity().dawnDuration()).isEqualTo(60);
+    }
+
+    @Test void customLegacyKindAndDawnAreKept() throws Exception {
+        var yaml = resource("config.yml");
+        yaml.set(LIST_KEYS.get(2), null);
+        yaml.set("effects.serenity.apparition.kind", "wolf");
+        yaml.set("effects.serenity.dawn.duration-ticks", 80);
+        yaml.save(folder.resolve("config.yml").toFile());
+        var manager = manager(); manager.initialize();
+        assertThat(manager.config().effects().serenity().animals()).containsExactly("wolf");
+        assertThat(manager.config().effects().serenity().dawnDuration()).isEqualTo(80);
+    }
+
+    @Test void adoptionMarkerProtectsExplicitCatAndSixtyTickDawn() throws Exception {
+        var yaml = resource("config.yml");
+        yaml.set(LIST_KEYS.get(2), List.of("cat"));
+        yaml.set("effects.serenity.dawn.duration-ticks", 60);
+        yaml.save(folder.resolve("config.yml").toFile());
+        Files.writeString(folder.resolve("serenity-defaults-v1.flag"), "owner retained settings");
+        var manager = manager(); manager.initialize();
+        assertThat(manager.config().effects().serenity().animals()).containsExactly("cat");
+        assertThat(manager.config().effects().serenity().dawnDuration()).isEqualTo(60);
+    }
+
     @Test void upgradeRetiresScalarsWithoutReplacingAnExplicitOwnerList() throws Exception {
         var yaml = resource("config.yml");
         yaml.set(LIST_KEYS.get(0), List.of("end_rod")); yaml.set("effects.particles.type", "smoke");

@@ -194,8 +194,12 @@ public class ConfigManager {
                     new String[]{"effects.serenity.apparition.kind", "effects.serenity.apparition.kinds"})) {
                 if (!before.contains(keys[0])) continue;
                 if (!before.isString(keys[0])) throw new ConfigValidationException(keys[0], "Must be text");
-                if (!before.contains(keys[1])) YamlFileUpdater.updateLeafAndSave(configFile, keys[1],
-                        quotedList(List.of(before.getString(keys[0]))));
+                if (!before.contains(keys[1])) {
+                    String legacy = before.getString(keys[0]);
+                    List<String> adopted = keys[0].equals("effects.serenity.apparition.kind") && legacy.equalsIgnoreCase("cat")
+                            ? SerenityEffectsConfig.DEFAULT_ANIMALS : List.of(legacy);
+                    YamlFileUpdater.updateLeafAndSave(configFile, keys[1], quotedList(adopted));
+                }
                 YamlFileUpdater.removeLeafAndSave(configFile, keys[0]);
             }
             for (var entry : messages.entrySet()) {
@@ -221,6 +225,22 @@ public class ConfigManager {
                 if (medium >= 4800) YamlFileUpdater.updateLeafAndSave(configFile, low, Long.toString(Math.multiplyExact(medium, 2)));
             }
         } catch (IOException error) { throw new ConfigValidationException("effects", "Cannot adopt effect lists: " + error.getMessage()); }
+    }
+
+    private File serenityDefaultsFlag() { return new File(configFile.getParentFile(), "serenity-defaults-v1.flag"); }
+
+    private void adoptSerenityDefaults(YamlConfiguration before) {
+        if (serenityDefaultsFlag().exists()) return;
+        // R2 did not record owner edits. Repair the ambiguous singleton once, then preserve all edits.
+        try {
+            String kinds = "effects.serenity.apparition.kinds";
+            if (!before.contains("effects.serenity.apparition.kind") && before.get(kinds) instanceof List<?> list
+                    && list.equals(List.of("cat")))
+                YamlFileUpdater.updateLeafAndSave(configFile, kinds, quotedList(SerenityEffectsConfig.DEFAULT_ANIMALS));
+            String dawn = "effects.serenity.dawn.duration-ticks";
+            if (before.isInt(dawn) && before.getInt(dawn) == 60)
+                YamlFileUpdater.updateLeafAndSave(configFile, dawn, "200");
+        } catch (IOException error) { throw new ConfigValidationException("effects.serenity", "Cannot adopt defaults: " + error.getMessage()); }
     }
 
     private static String quotedList(List<String> values) {
@@ -354,6 +374,7 @@ public class ConfigManager {
             adoptMentalStateMessages(messagesBeforeMerge);
             adoptEpisodeIntervals(beforeMerge);
             adoptEffectLists(beforeMerge, messagesBeforeMerge);
+            adoptSerenityDefaults(beforeMerge);
             adoptPrivateTextLimits(beforeMerge);
             adoptChatExtents(beforeMerge);
             retireEffectsKeys();
@@ -366,6 +387,11 @@ public class ConfigManager {
             RuntimeSnapshot newSnapshot;
             try { newSnapshot = new RuntimeSnapshot(newConfig, newMessages, leafValues); }
             catch (ConfigValidationException error) { logger.warning(error.getMessage()); throw error; }
+            if (!serenityDefaultsFlag().exists()) {
+                try { Files.writeString(serenityDefaultsFlag().toPath(), "T-211 defaults adopted\n", StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE_NEW); }
+                catch (IOException error) { throw new ConfigValidationException("effects.serenity", "Cannot record defaults adoption: " + error.getMessage()); }
+            }
             snapshotRef.set(newSnapshot);
             notifySnapshotListeners(newSnapshot);
             return newSnapshot;

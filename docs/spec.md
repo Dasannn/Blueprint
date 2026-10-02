@@ -527,8 +527,16 @@ subject, visible to the subject and eligible nearby observers. Reuse SB-103's
 bounded visual delivery with the SB-120 audience; no entity, collision or
 world state is created. They neither illuminate blocks nor change light levels.
 
-**SB-124.** A **kindly apparition** of a cat, fox or wolf briefly looks at the
-serene subject and goes. It is a packet-only visual fake, visible to the subject
+**SB-124.** A **kindly apparition** chosen from SB-143's configured kind list
+briefly looks at the serene subject and goes. It appears on the ground ahead
+along the subject's look direction, at the configured forward distance with a
+small random lateral offset (at most half a block), facing the subject. Skip
+positions outside the subject's field of view, behind an obstruction or inside
+blocks; skip delivery to any recipient within interaction reach plus movement
+margin.
+Nearby observers see the same animal position from their own viewpoint.
+The shipped duration is 100 ticks (five seconds), within the 100-tick ceiling
+(owner, 2026-10-02). It is a packet-only visual fake, visible to the subject
 and eligible nearby observers. Reuse managed-fake cleanup and the phantom
 renderer; this is no real, tamed or summoned animal. It never collides, targets,
 follows, attacks, scares mobs, takes damage, responds to interaction, can be
@@ -678,7 +686,8 @@ still depends on available effects whose own cooldowns and caps permit it.
 `effects.episodes.duration-scale.<medium|high|extreme>` defaults to
 1.0/1.5/2.0. Multipliers must be finite, at least 1.0 and non-decreasing.
 Every timed madness visual uses its level multiplier, rounded up to integer
-ticks. Sky alone caps at 200 ticks; shipped `effects.sky.duration-ticks: 100`
+ticks. Madness sky and serene dawn cap at 200 ticks; shipped
+`effects.sky.duration-ticks: 100`
 scales to 100/150/200 ticks (5/7.5/10 seconds) at Medium/High/Extreme, subject
 to its configured level floor (High by default). All other timed visuals keep
 the 100-tick ceiling: particles, screen flash including fades, block/sign,
@@ -721,7 +730,9 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 | Custom/private chat / SB-115 | `max-visible-length` from 1 to 160; no custom-line list here |
 
 Cosmetic `duration-ticks` values are positive and at most 100 ticks (five
-seconds), including title fades, except sky alone allows 200 ticks (ten seconds).
+seconds), including title fades, except madness sky and serene dawn allow
+200 ticks (ten seconds). Dawn ships at 200 ticks; its full duration and
+restoration precede quiet time and the next episode (owner, 2026-10-02).
 Sound episodes are finite: layer delays plus
 `playback-ticks` total at most 100 ticks. Independent cooldowns are positive;
 session caps are nonnegative, with `0` delivering nothing. Particle count and
@@ -773,12 +784,22 @@ never the madness `minimum-level`. Additional behaviour keys reuse SB-116:
 
 | Effect / clause | Keys and bounds |
 |---|---|
-| Dawn / SB-121 | `time-ticks` (default `23000`, integer from 0 to 23999), `duration-ticks` (default `60`) |
+| Dawn / SB-121 | `time-ticks` (default `23000`, integer from 0 to 23999), `duration-ticks` (1..200, default `200`, ten seconds) |
 | Source-less sounds / SB-122 | `sound-slot` (default `serenity-clean`), finite `offset.forward-blocks`, `offset.right-blocks`, `offset.up-blocks` (default `0` each), `playback-ticks` (default `60`); slot uses SB-092 layers with clean bird/bell/water/murmur defaults |
 | Particles / SB-123 | `type` (default `end_rod`), `placement` (default `around`), `count` (default `8`), `radius-blocks` (default `1`), `duration-ticks` (default `40`); SB-116 bounds apply |
-| Apparition / SB-124 | `kind` (`cat`, `fox` or `wolf`, default `cat`), `range-blocks` (default `3`, positive finite), `duration-ticks` (default `60`); no real-entity, taming or combat settings |
+| Apparition / SB-124 | `kinds` (SB-143, default `[turtle, fox, armadillo, bee]`), `range-blocks` (default `8`, positive finite forward distance), `duration-ticks` (1..100, default `100`); no real-entity, taming or combat settings |
 
-Durations and total sound delays plus playback obey SB-116's 100-tick ceiling.
+Durations and total sound delays plus playback obey SB-116's 100-tick ceiling,
+except private dawn allows 200 ticks. On upgrade, legacy `apparition.kind: cat`
+(the R1 shipped default) adopts the new default list; a customised legacy kind
+adopts a one-entry list. Existing unmarked `apparition.kinds: [cat]` is repaired
+once; R2 recorded no owner-edit provenance, so this ambiguous singleton is
+considered untouched on the first T-211 load. A one-time
+`serenity-defaults-v1.flag` in plugin data records adoption after validation;
+once present, all owner lists, including `[cat]`, are preserved. Other lists
+are preserved even without the flag. The same first load adopts legacy dawn
+`duration-ticks: 60` as `200`, preserving customised durations. Subsequent owner
+edits to `60` remain valid and are kept (owner, 2026-10-02).
 Reload validates all values atomically, including thresholds against `C`, and
 cannot reset credited duration, session caps or cooldowns. Changing `H` or `C`
 recomputes serenity from already credited duration, clamped to the new `H`;

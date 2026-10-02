@@ -28,6 +28,24 @@ public final class SereneEpisode {
         }
     }
 
+    public record Offset(double x, double z) {}
+
+    /** Horizontal look direction at configured distance, with at most half a block of sideways variation. */
+    public static Offset apparitionOffset(double yawDegrees, double range, double randomUnit) {
+        double yaw = Math.toRadians(yawDegrees);
+        double lateral = (randomUnit * 2 - 1) * Math.min(.5, range * .1);
+        return new Offset(-Math.sin(yaw) * range + Math.cos(yaw) * lateral,
+                Math.cos(yaw) * range + Math.sin(yaw) * lateral);
+    }
+
+    public static boolean inView(double yawDegrees, double pitchDegrees, double dx, double dy, double dz) {
+        double yaw = Math.toRadians(yawDegrees), pitch = Math.toRadians(pitchDegrees);
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        double dot = -Math.sin(yaw) * Math.cos(pitch) * dx - Math.sin(pitch) * dy
+                + Math.cos(yaw) * Math.cos(pitch) * dz;
+        return Double.isFinite(length) && length > 0 && dot / length >= Math.cos(Math.toRadians(45));
+    }
+
     public static boolean allows(PsychosisLevel direction, double magnitude, SerenityEffectsConfig.Rule rule) {
         return direction == PsychosisLevel.SERENITY && rule.enabled() && Double.isFinite(magnitude)
                 && magnitude >= rule.minimumSerenity() && rule.sessionCap() > 0;

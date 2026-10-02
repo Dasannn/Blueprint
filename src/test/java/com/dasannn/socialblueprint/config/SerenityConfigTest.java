@@ -52,10 +52,27 @@ class SerenityConfigTest {
         assertThatThrownBy(() -> manager.set("effects.serenity.source-less-sounds.playback-ticks", "100"))
                 .hasMessageContaining("effects.serenity.source-less-sounds.playback-ticks");
         for (var bad : Map.of("episodes.quiet-ticks", 0, "dawn.time-ticks", 24000, "particles.count", 0,
-                "apparition.kinds", List.of("zombie"), "dawn.duration-ticks", 101).entrySet()) {
+                "apparition.kinds", List.of("zombie"), "dawn.duration-ticks", 201).entrySet()) {
             var invalid = shipped(); invalid.set("effects.serenity." + bad.getKey(), bad.getValue());
             assertThatThrownBy(() -> PluginConfig.load(invalid)).hasMessageContaining("effects.serenity." + bad.getKey());
         }
+    }
+
+    @Test void dawnAllowsTwoHundredTicksWhileApparitionKeepsOneHundredTickCeiling() {
+        assertThat(SerenityEffectsConfig.defaults().dawnDuration()).isEqualTo(200);
+        assertThat(SerenityEffectsConfig.defaults().animalDuration()).isEqualTo(100);
+        assertThat(PluginConfig.load(shipped()).effects().serenity().dawnDuration()).isEqualTo(200);
+        assertThat(PluginConfig.load(shipped()).effects().serenity().animalDuration()).isEqualTo(100);
+        for (int ticks : List.of(1, 60, 100, 101, 200)) {
+            var yaml = shipped(); yaml.set("effects.serenity.dawn.duration-ticks", ticks);
+            assertThat(SerenityEffectsConfig.load(yaml).dawnDuration()).isEqualTo(ticks);
+        }
+        for (int ticks : List.of(0, -1, 201)) {
+            var yaml = shipped(); yaml.set("effects.serenity.dawn.duration-ticks", ticks);
+            assertThatThrownBy(() -> SerenityEffectsConfig.load(yaml)).hasMessageContaining("dawn.duration-ticks");
+        }
+        var yaml = shipped(); yaml.set("effects.serenity.apparition.duration-ticks", 101);
+        assertThatThrownBy(() -> SerenityEffectsConfig.load(yaml)).hasMessageContaining("apparition.duration-ticks");
     }
 
     @Test void bothPinnedLanguagesLabelTheSameMetric() {
