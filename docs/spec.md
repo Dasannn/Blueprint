@@ -801,6 +801,14 @@ In order. Each becomes its own specification section when it is reached.
 3. Reputation Confidence as a displayed metric, with decay and recalculation.
 4. Vouching with a monetary guarantee.
 5. Integrations: trade warnings, CoreProtect, land claims, reputation event API.
+6. Dying as a Psychosis input (owner idea, 2026-10-01): decide the direction
+   (lowers madness, raises it, or resets the serenity streak) and which deaths
+   count, guarding against deliberate deaths used to clear madness.
+7. Votes affecting Psychosis or serenity: blocked by constitution §2.3 (no
+   metric derived from another) and open to brigading; requires an amendment
+   first.
+8. More configurable lists: several ghost labels, false-death templates,
+   particle types with a bounded client tail, and serene apparition kinds.
 
 ## 13. Removed from the baseline
 
