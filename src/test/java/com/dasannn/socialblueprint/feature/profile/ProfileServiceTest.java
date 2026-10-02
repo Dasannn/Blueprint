@@ -44,7 +44,8 @@ class ProfileServiceTest {
     void offlineProfileStillDisplaysPersistedSerenityAfterQuit() throws Exception {
         PlayerId id = PlayerId.of(UUID.randomUUID());
         RuntimeSnapshot snapshot = configManager.snapshot();
-        psychosisRepo.saveStreakAsync(id, 25 * 3_600_000d, 0).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        profileService.mind().applyAsync(id, com.dasannn.socialblueprint.domain.MindInput.CLEAN_DAY,
+                new com.dasannn.socialblueprint.domain.MindInputConfig(true, 43.75, 1, 1), "test", baseTime).get(5, java.util.concurrent.TimeUnit.SECONDS);
         profileService.warmUp(id, "Peaceful", snapshot).get(5, java.util.concurrent.TimeUnit.SECONDS);
         profileService.evict(id);
         PlayerSocialView view = profileService.loadViewAsync(id, "Peaceful", snapshot).get(5, java.util.concurrent.TimeUnit.SECONDS);

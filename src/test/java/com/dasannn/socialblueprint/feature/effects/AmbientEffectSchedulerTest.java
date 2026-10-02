@@ -66,7 +66,8 @@ class AmbientEffectSchedulerTest {
         Player player = createMockPlayer(uuid, "Serene");
         onlinePlayers.add(player);
         PlayerId id = PlayerId.of(uuid);
-        psychosisRepo.saveStreakAsync(id, 50 * 3_600_000d, 0).join();
+        profileService.mind().applyAsync(id, com.dasannn.socialblueprint.domain.MindInput.CLEAN_DAY,
+                new com.dasannn.socialblueprint.domain.MindInputConfig(true, 50, 50, 1), "test", Instant.now()).join();
         profileService.loadViewAsync(id, "Serene", configManager.snapshot()).join();
         List<String> serene = new ArrayList<>();
         var registry = new AmbientEntityRegistry();

@@ -12,9 +12,15 @@ public record PlayerProfile(
         PlayerId id,
         String lastKnownName,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        double mindValue
 ) {
+    public PlayerProfile(PlayerId id, String lastKnownName, Instant createdAt, Instant updatedAt) {
+        this(id, lastKnownName, createdAt, updatedAt, 0);
+    }
+
     public PlayerProfile {
+        MindState.requireValue(mindValue);
         Objects.requireNonNull(id, "PlayerId must not be null");
         Objects.requireNonNull(lastKnownName, "lastKnownName must not be null");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
@@ -26,7 +32,7 @@ public record PlayerProfile(
     }
 
     public PlayerProfile withName(String newName, Instant now) {
-        return new PlayerProfile(id, newName, createdAt, now);
+        return new PlayerProfile(id, newName, createdAt, now, mindValue);
     }
 
 }

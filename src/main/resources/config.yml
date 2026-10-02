@@ -93,17 +93,75 @@ decay:
   cache-ttl: 60s
 
 # ==============================================================================
-# Killing Psychosis (SB-004, T-014)
+# Psychosis mental state (SB-130 through SB-137)
 #
-# Psychosis measures open-world PvP killing frequency over a rolling time window.
+# Psychosis describes mental state. Bad inputs unsettle it; good inputs calm it.
 # Kills inside consensual duels affect neither social status nor Killing Psychosis.
-# If these thresholds are too aggressive for an active PvP server, raise them below.
+# The signed value persists until an input changes it; elapsed time never expires it.
 # ==============================================================================
 psychosis:
+  # Mental state: -100 psychosis, 0 Neutral, +100 serenity. Inputs never spill past 0.
+  levels:
+    low: 0 # Fixed boundary: any psychosis above 0 is Low.
+    medium: 20
+    high: 50
+    extreme: 80
+  inputs:
+    # Bad inputs use drain while serene and weight at Neutral or in psychosis.
+    kill:
+      enabled: true
+      serene-drain: 25
+      psychosis-weight: 10
+    death:
+      enabled: true
+      serene-drain: 10
+      psychosis-weight: 6
+    near-death:
+      enabled: true
+      serene-drain: 3
+      psychosis-weight: 2
+      health: 4 # Health points; re-arm above this threshold.
+    sleepless-night:
+      enabled: true
+      serene-drain: 2
+      psychosis-weight: 2
+    # Good inputs use gain at Neutral/serenity and cure in psychosis.
+    clean-day:
+      enabled: true
+      gain: 1
+      cure: 1
+      cap: 1 # Credits per rolling 24 real hours.
+      active-minutes: 30
+    sleep:
+      enabled: true
+      gain: 0.5
+      cure: 1
+      cap: 2 # Nights per rolling 24 real hours.
+    fishing:
+      enabled: true
+      gain: 0.02
+      cure: 0.02
+    breeding:
+      enabled: true
+      gain: 0.02
+      cure: 0.02
+    feeding:
+      enabled: true
+      gain: 0.02
+      cure: 0.02
+    planting:
+      enabled: true
+      gain: 0.02
+      cure: 0.02
+    harvesting:
+      enabled: true
+      gain: 0.02
+      cure: 0.02
+    peaceful:
+      cap: 25 # Shared by fishing, breeding, feeding, planting and harvesting.
   serenity:
-    ceiling: 100
-    active-hours-to-ceiling: 100
-    idle-timeout-seconds: 300
+    ceiling: 100 # Preserved presentation bound; the signed value is always capped at 100.
+    idle-timeout-seconds: 300 # Qualifying activity timeout; time alone earns no serenity.
   # Percentages; every other message and at least 50% of letters stay intact.
   chat:
     medium-rate: 10
@@ -117,21 +175,6 @@ psychosis:
     medium-colour: '#AAAAAA'
     high-colour: '#666666'
     extreme-colour: '#303030'
-  # Rolling evaluation window for counting PvP kills (default: 72 hours).
-  window: 72h
-
-  # Kill count threshold to reach 'Medium' psychosis (default: 2 kills).
-  # Represents an occasional player-killer within the window.
-  medium-threshold: 2
-
-  # Kill count threshold to reach 'High' psychosis (default: 5 kills).
-  # Represents a frequent, dangerous PvP combatant within the window.
-  high-threshold: 5
-
-  # Kill count threshold to reach 'Extreme' psychosis (default: 10 kills).
-  # Represents a notorious, aggressive killer on a PvP rampage within the window.
-  extreme-threshold: 10
-
 # ==============================================================================
 # Honor Economy (SB-050, SB-054, Decision 0001)
 # ==============================================================================
@@ -164,6 +207,7 @@ honor:
 # Action-to-permission node mapping resolved at check time.
 # ==============================================================================
 permissions:
+  admin-mind: socialblueprint.admin.mind
   show: "socialblueprint.show"
   show-others: "socialblueprint.show.others"
   give-reputation: "socialblueprint.give"

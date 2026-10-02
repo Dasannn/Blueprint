@@ -221,3 +221,12 @@ gui:
     reason: '&7Razón escrita:'
     confirm: '&aConfirmar'
     cancel: '&cCancelar'
+
+# Administrative mental-state resets (SB-137).
+mind-admin:
+  usage: '&eUso: /status admin mind reset <jugador> | reset-all [confirm]'
+  reset: '&aEstado mental de {player} restablecido a Neutral.'
+  confirm: '&eRepite /status admin mind reset-all confirm en 30 segundos para restablecer a todos los jugadores guardados.'
+  confirm-expired: '&cNo hay confirmación activa. Ejecuta /status admin mind reset-all de nuevo.'
+  reset-all: '&aEstado mental restablecido a Neutral para {count} jugadores guardados.'
+  failed: '&cNo se pudo restablecer el estado mental. Revisa el registro del servidor.'

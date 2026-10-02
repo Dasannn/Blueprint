@@ -1,36 +1,12 @@
 package com.dasannn.socialblueprint.domain;
 
-import java.time.Duration;
-import java.util.Objects;
-
-/**
- * Configuration for Killing Psychosis rolling window and thresholds per SB-004, SB-005, and T-014.
- */
-public record PsychosisConfig(
-        Duration window,
-        int mediumThreshold,
-        int highThreshold,
-        int extremeThreshold
-) {
+/** SB-131: thresholds are psychosis magnitudes, never kill counts. */
+public record PsychosisConfig(double mediumThreshold, double highThreshold, double extremeThreshold) {
     public PsychosisConfig {
-        Objects.requireNonNull(window, "Window duration must not be null");
-        if (window.isNegative() || window.isZero()) {
-            throw new IllegalArgumentException("Window duration must be strictly positive, got " + window);
-        }
-        if (mediumThreshold <= 0) {
-            throw new IllegalArgumentException("mediumThreshold must be > 0, got " + mediumThreshold);
-        }
-        if (highThreshold <= mediumThreshold) {
-            throw new IllegalArgumentException("highThreshold must be > mediumThreshold, got "
-                    + highThreshold + " <= " + mediumThreshold);
-        }
-        if (extremeThreshold <= highThreshold) {
-            throw new IllegalArgumentException("extremeThreshold must be > highThreshold, got "
-                    + extremeThreshold + " <= " + highThreshold);
-        }
+        if (!Double.isFinite(mediumThreshold) || !Double.isFinite(highThreshold) || !Double.isFinite(extremeThreshold)
+                || mediumThreshold <= 0 || highThreshold <= mediumThreshold
+                || extremeThreshold <= highThreshold || extremeThreshold > 100)
+            throw new IllegalArgumentException("Psychosis thresholds must strictly increase inside (0, 100]");
     }
-
-    public static PsychosisConfig defaults() {
-        return new PsychosisConfig(Duration.ofHours(72), 2, 5, 10);
-    }
+    public static PsychosisConfig defaults() { return new PsychosisConfig(20, 50, 80); }
 }

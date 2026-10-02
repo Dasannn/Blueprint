@@ -1,7 +1,6 @@
 package com.dasannn.socialblueprint.feature.profile;
 
-import com.dasannn.socialblueprint.config.ConfigManager;
-import com.dasannn.socialblueprint.config.MessageRegistry;
+import com.dasannn.socialblueprint.config.*;
 import com.dasannn.socialblueprint.domain.*;
 import com.dasannn.socialblueprint.storage.*;
 import org.junit.jupiter.api.Test;
@@ -9,90 +8,60 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.*;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 
 class SerenityServiceTest {
     @TempDir Path folder;
-    private static final Instant NOW = Instant.parse("2026-10-01T00:00:00Z");
+    private static final Instant NOW=Instant.parse("2026-10-01T00:00:00Z");
     private ConfigManager manager() {
-        var messages = new MessageRegistry(folder.toFile(), "en", null);
-        var manager = new ConfigManager(folder.resolve("config.yml").toFile(), messages, Runnable::run, null);
-        manager.initialize();
-        return manager;
+        var messages=new MessageRegistry(folder.toFile(),"en",null);
+        var manager=new ConfigManager(folder.resolve("config.yml").toFile(),messages,Runnable::run,null);
+        manager.initialize();return manager;
     }
-
-    @Test void creditSurvivesReloadQuitAndRejoinWithoutOfflineCredit() {
-        var manager = manager();
-        AtomicLong time = new AtomicLong();
-        try (StorageEngine storage = StorageEngine.inMemory()) {
-            storage.runMigrations();
-            var repository = new PsychosisRepository(storage);
-            var service = new SerenityService(storage, repository, manager, Clock.fixed(NOW, ZoneOffset.UTC), time::get,
-                    Logger.getAnonymousLogger());
-            PlayerId id = PlayerId.of(UUID.randomUUID());
-            service.join(id).join();
-            time.set(1000); service.tick();
-            assertThat(service.creditMillis(id, 0)).isZero();
-            service.activity(id);
-            time.set(2000); service.tick();
-            assertThat(service.creditMillis(id, 0)).isEqualTo(1000);
-            service.join(id).join(); // duplicate warm-up must not reset earned time
-            service.setAfk(id, true);
-            service.activity(id);
-            time.set(3000); service.tick();
-            assertThat(service.creditMillis(id, 0)).isEqualTo(1000);
-            manager.set("psychosis.serenity.ceiling", "50");
-            assertThat(service.creditMillis(id, 0)).isEqualTo(1000);
-            service.leave(id).join();
-            time.set(1_000_000);
-            service.join(id).join();
-            time.set(1_001_000); service.tick();
-            assertThat(service.creditMillis(id, 0)).isEqualTo(1000);
-            assertThat(repository.loadStreak(id).activeMillis()).isEqualTo(1000);
-            manager.set("psychosis.serenity.active-hours-to-ceiling", Double.toString(0.5 / 3600));
-            service.flush().join();
-            assertThat(service.creditMillis(id, 0)).isEqualTo(500);
-            assertThat(repository.loadStreak(id).activeMillis()).isEqualTo(500);
-            manager.set("psychosis.serenity.active-hours-to-ceiling", "100");
-            assertThat(service.creditMillis(id, 0)).isEqualTo(500);
+    @Test void activitySurvivesReloadButNeverCreditsMindAndOfflineTimeEarnsNothing() {
+        var manager=manager();var time=new AtomicLong();
+        try(var storage=StorageEngine.inMemory()) {
+            storage.runMigrations();var repository=new PsychosisRepository(storage);var mind=new MindRepository(storage);
+            var service=new SerenityService(storage,repository,manager,Clock.fixed(NOW,ZoneOffset.UTC),time::get,Logger.getAnonymousLogger());
+            PlayerId player=PlayerId.of(UUID.randomUUID());service.join(player).join();
+            time.set(1000);service.tick();assertThat(service.creditMillis(player,0)).isZero();
+            service.activity(player);time.set(2000);service.tick();assertThat(service.creditMillis(player,0)).isEqualTo(1000);
+            service.join(player).join();service.setAfk(player,true);service.activity(player);time.set(3000);service.tick();
+            assertThat(service.creditMillis(player,0)).isEqualTo(1000);
+            manager.set("psychosis.serenity.idle-timeout-seconds","100");
+            assertThat(service.creditMillis(player,0)).isEqualTo(1000);
+            service.flush().join();assertThat(mind.value(player)).isZero();assertThat(mind.events(player)).isEmpty();
+            assertThat(repository.loadStreak(player).activeMillis()).isZero();
+            service.leave(player).join();time.set(1_000_000);service.join(player).join();time.set(1_001_000);service.tick();
+            assertThat(service.creditMillis(player,0)).isZero();assertThat(mind.value(player)).isZero();
             service.shutdown();
         }
     }
-
-    @Test void blockedStorageDoesNotBlockActivityTickOrImmediateKillReset() throws Exception {
-        var manager = manager();
-        AtomicLong time = new AtomicLong();
-        try (StorageEngine storage = StorageEngine.inMemory()) {
-            storage.runMigrations();
-            var repository = new PsychosisRepository(storage);
-            var service = new SerenityService(storage, repository, manager, Clock.fixed(NOW, ZoneOffset.UTC), time::get,
-                    Logger.getAnonymousLogger());
-            PlayerId id = PlayerId.of(UUID.randomUUID()), victim = PlayerId.of(UUID.randomUUID());
-            service.join(id).join(); service.activity(id);
-            time.set(1000); service.tick();
-            CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
-            storage.submitAsync(() -> {
-                entered.countDown();
-                try { if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Test barrier timed out"); }
-                catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new IllegalStateException(ex); }
-            });
-            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+    @Test void blockedStorageDoesNotBlockActivityAndKillOnlyAppliesAfterCommit() throws Exception {
+        var manager=manager();var time=new AtomicLong();
+        try(var storage=StorageEngine.inMemory()) {
+            storage.runMigrations();var repository=new PsychosisRepository(storage);var mind=new MindRepository(storage);
+            var service=new SerenityService(storage,repository,manager,Clock.fixed(NOW,ZoneOffset.UTC),time::get,Logger.getAnonymousLogger());
+            PlayerId player=PlayerId.of(UUID.randomUUID()),victim=PlayerId.of(UUID.randomUUID());
+            mind.applyAsync(player,MindInput.SLEEP,new MindInputConfig(true,30,1,2),"test",NOW).join();
+            service.join(player).join();service.activity(player);time.set(1000);service.tick();
+            CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
+            storage.submitAsync(() -> {entered.countDown();try{if(!release.await(5,TimeUnit.SECONDS))throw new IllegalStateException("Barrier timed out");}
+                catch(InterruptedException ex){Thread.currentThread().interrupt();throw new IllegalStateException(ex);}});
+            assertThat(entered.await(5,TimeUnit.SECONDS)).isTrue();
+            CompletableFuture<PsychosisEvent> open;
             try {
-                time.set(2000); service.tick();
-                var pendingFlush = service.flush();
-                assertThat(pendingFlush.isDone()).isFalse();
-                var duel = repository.saveAsync(new PsychosisEvent(id, victim, CombatContext.DUEL, NOW));
-                assertThat(service.creditMillis(id, 0)).isEqualTo(2000);
-                var open = repository.saveAsync(new PsychosisEvent(id, victim, CombatContext.OPEN, NOW));
-                assertThat(service.creditMillis(id, 0)).isZero();
-                assertThat(duel.isDone()).isFalse(); assertThat(open.isDone()).isFalse();
-            } finally { release.countDown(); }
-            service.flush().join();
-            assertThat(repository.loadStreak(id).activeMillis()).isZero();
+                time.set(2000);service.tick();assertThat(service.creditMillis(player,0)).isEqualTo(2000);
+                assertThat(service.flush().isDone()).isTrue();
+                var duel=repository.saveAsync(new PsychosisEvent(player,victim,CombatContext.DUEL,NOW));
+                open=repository.saveAsync(new PsychosisEvent(player,victim,CombatContext.OPEN,NOW));
+                assertThat(duel.isDone()).isFalse();assertThat(open.isDone()).isFalse();
+                assertThat(service.creditMillis(player,0)).isEqualTo(2000);
+            } finally {release.countDown();}
+            open.join();assertThat(mind.value(player)).isEqualTo(5);assertThat(mind.events(player)).hasSize(2);
             service.shutdown();
         }
     }

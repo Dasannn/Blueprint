@@ -20,7 +20,7 @@ class SerenityConfigTest {
     }
 
     @Test void eachCurveLeafRejectsInvalidNumbersByExactPath() {
-        for (String leaf : List.of("ceiling", "active-hours-to-ceiling", "idle-timeout-seconds")) {
+        for (String leaf : List.of("ceiling", "idle-timeout-seconds")) {
             String key = "psychosis.serenity." + leaf;
             for (Object bad : List.of(0, -1, Double.NaN, Double.POSITIVE_INFINITY, "invalid")) {
                 var yaml = shipped(); yaml.set(key, bad);
@@ -99,7 +99,7 @@ class SerenityConfigTest {
         var registry = new MessageRegistry(folder.toFile(), "en", null);
         var manager = new ConfigManager(folder.resolve("config.yml").toFile(), registry, Runnable::run, null);
         manager.initialize();
-        assertThat(manager.snapshot().config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(90));
+        assertThat(manager.legacyMindConversion().window()).isEqualTo(java.time.Duration.ofHours(90));
         assertThat(manager.snapshot().config().psychosis().serenity()).isEqualTo(SerenityConfig.DEFAULT);
         assertThat(manager.snapshot().config().sounds().get("serenity-clean").layers()).hasSize(3);
         for (String language : List.of("en", "es")) {

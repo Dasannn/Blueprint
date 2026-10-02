@@ -97,16 +97,21 @@ public final class PsychosisRepository {
     public PsychosisEvent save(PsychosisEvent event) {
         Objects.requireNonNull(event, "Event must not be null");
         notifyKill(event);
-        PsychosisEvent persisted = engine.execute(conn -> saveTransactional(conn, event));
+        PsychosisEvent persisted = engine.execute(conn -> saveTransactional(conn, event, com.dasannn.socialblueprint.domain.MindInput.KILL.defaults()));
         notifyKill(persisted);
         notifyInvalidation(persisted.killer());
         return persisted;
     }
 
     public CompletableFuture<PsychosisEvent> saveAsync(PsychosisEvent event) {
+        return saveAsync(event, com.dasannn.socialblueprint.domain.MindInput.KILL.defaults());
+    }
+
+    public CompletableFuture<PsychosisEvent> saveAsync(PsychosisEvent event, com.dasannn.socialblueprint.domain.MindInputConfig input) {
         Objects.requireNonNull(event, "Event must not be null");
+        Objects.requireNonNull(input);
         notifyKill(event);
-        return engine.executeAsync(conn -> saveTransactional(conn, event))
+        return engine.executeAsync(conn -> saveTransactional(conn, event, input))
                 .thenApply(persisted -> {
                     notifyKill(persisted);
                     notifyInvalidation(persisted.killer());
@@ -114,12 +119,12 @@ public final class PsychosisRepository {
                 });
     }
 
-    private PsychosisEvent saveTransactional(Connection conn, PsychosisEvent event) throws SQLException {
+    private PsychosisEvent saveTransactional(Connection conn, PsychosisEvent event, com.dasannn.socialblueprint.domain.MindInputConfig input) throws SQLException {
         boolean auto = conn.getAutoCommit();
-        if (!auto) return saveInternal(conn, event);
+        if (!auto) return saveInternal(conn, event, input);
         try {
             conn.setAutoCommit(false);
-            PsychosisEvent saved = saveInternal(conn, event);
+            PsychosisEvent saved = saveInternal(conn, event, input);
             conn.commit();
             return saved;
         } catch (SQLException | RuntimeException ex) {
@@ -129,11 +134,14 @@ public final class PsychosisRepository {
     }
 
     PsychosisEvent saveInternal(Connection conn, PsychosisEvent event) throws SQLException {
+        return saveInternal(conn, event, com.dasannn.socialblueprint.domain.MindInput.KILL.defaults());
+    }
+
+    PsychosisEvent saveInternal(Connection conn, PsychosisEvent event,
+            com.dasannn.socialblueprint.domain.MindInputConfig input) throws SQLException {
         if (event.context() == CombatContext.OPEN) {
-            try (PreparedStatement reset = conn.prepareStatement("UPDATE psychosis_streak SET active_millis = 0 WHERE player_uuid = ?")) {
-                reset.setString(1, event.killer().toString());
-                reset.executeUpdate();
-            }
+            MindRepository.applyInternal(conn, event.killer(), com.dasannn.socialblueprint.domain.MindInput.KILL,
+                    input, event.victim().toString(), event.createdAt());
         }
         String sql = """
             INSERT INTO psychosis_event (killer_uuid, victim_uuid, context, created_at)

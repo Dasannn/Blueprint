@@ -36,12 +36,17 @@ public final class MigrationRunner {
     }
 
     public static MigrationRunner withDefaultMigrations() {
+        return withDefaultMigrations(com.dasannn.socialblueprint.domain.LegacyMindConversion.DEFAULT, java.time.Clock.systemUTC());
+    }
+
+    public static MigrationRunner withDefaultMigrations(com.dasannn.socialblueprint.domain.LegacyMindConversion legacy, java.time.Clock clock) {
         return new MigrationRunner(List.of(
                 new Migration_1_InitialSchema(),
                 new Migration_2_RaterReveal(),
                 new Migration_3_KillPenaltyClaim(),
                 new Migration_4_PendingCompensation(),
-                new Migration_5_Serenity()
+                new Migration_5_Serenity(),
+                new Migration_6_MindState(legacy, clock)
         ));
     }
 
