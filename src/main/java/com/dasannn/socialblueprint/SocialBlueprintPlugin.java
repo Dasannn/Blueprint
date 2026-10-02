@@ -367,9 +367,9 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 updateFolder,
                 currentVersion,
                 pluginJar,
-                java.net.http.HttpClient.newBuilder()
-                        .connectTimeout(java.time.Duration.ofSeconds(10))
-                        .build(),
+                // Not a separate client: UpdateService's own default follows
+                // GitHub's asset redirect, and this one silently did not.
+                null,
                 getLogger(),
                 auditRepository
         );
