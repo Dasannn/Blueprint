@@ -1,27 +1,27 @@
 # SocialBlueprint
 
-SocialBlueprint adds a social reputation layer to a Minecraft Paper server: community honor shapes a player's social status, Killing Psychosis reflects their recent PvP killing, and sanctioned duels distinguish consensual fights from open-world kills. Profiles, rating history, chat prefixes, and cosmetic episodes make these separate metrics visible without turning reputation into combat power.
+SocialBlueprint adds a social reputation layer to a Minecraft Paper server: community honor shapes a player's social status, Psychosis tracks a persistent mental state from madness through Neutral to serenity, and sanctioned duels distinguish consensual fights from open-world kills. Profiles, rating history, chat prefixes, and cosmetic episodes make these separate metrics visible without turning reputation into combat power.
 
 ## Download
 
-**[Download SocialBlueprint v1.0 (.jar)](https://github.com/Dasannn/Blueprint/releases/download/v1.0/SocialBlueprint-1.0.jar)**
+**[Download SocialBlueprint v2.0 (.jar)](https://github.com/Dasannn/Blueprint/releases/download/v2.0/SocialBlueprint-2.0.jar)**
 
-[v1.0 release page](https://github.com/Dasannn/Blueprint/releases/tag/v1.0) · [All releases](https://github.com/Dasannn/Blueprint/releases)
+[v2.0 release page](https://github.com/Dasannn/Blueprint/releases/tag/v2.0) · [All releases](https://github.com/Dasannn/Blueprint/releases)
 
 Download the companion `.sha256` file from the release assets. Compute the jar's SHA-256 and compare the full 64-character hash with the entry for that jar in the checksum file:
 
 ```powershell
-Get-FileHash .\SocialBlueprint-1.0.jar -Algorithm SHA256
-Get-Content .\SocialBlueprint-1.0.jar.sha256
+Get-FileHash .\SocialBlueprint-2.0.jar -Algorithm SHA256
+Get-Content .\SocialBlueprint-2.0.jar.sha256
 ```
 
 On Linux, for a checksum file containing a hash and filename:
 
 ```sh
-sha256sum -c SocialBlueprint-1.0.jar.sha256
+sha256sum -c SocialBlueprint-2.0.jar.sha256
 ```
 
-If the file contains only the hash, compare it with `sha256sum SocialBlueprint-1.0.jar`. Install only when the hashes match.
+If the file contains only the hash, compare it with `sha256sum SocialBlueprint-2.0.jar`. Install only when the hashes match.
 
 ## Requirements
 
@@ -45,7 +45,7 @@ The data folder contains:
 | --- | --- |
 | `config.yml` | Behavior, thresholds, permissions, costs, and effects |
 | `messages_en.yml`, `messages_es.yml` | English and Spanish text, tier names, GUI labels, and hallucination lines |
-| `socialblueprint.db` | Local SQLite profiles, reputation/kill events, duels, reveals, serenity accounting, and audit history |
+| `socialblueprint.db` | Local SQLite profiles, reputation/kill events, mental state and its event log, duels, reveals, and audit history |
 | `.defaults/` | Plugin-managed message baselines used when merging upgrades; do not edit |
 | `config.yml.bak-<version>` | Configuration backup created when an upgrade adds missing defaults |
 
@@ -83,43 +83,57 @@ Status is derived from recorded reputation changes. New players begin at `0`, wi
 
 ### Honor and history
 
-Giving or taking honor changes status by `+1` or `−1` per accepted rating. It costs the actor **500** economy units initially. Ratings issued across all targets in the preceding **1 hour** raise the cost through multipliers `1`, `1.5`, `2`, then `3` (the last multiplier applies thereafter). The same actor-target pair has a **24-hour** cooldown and a cap of **3 positive and 3 negative ratings**, counted separately over **7 days**. Self-rating is rejected.
+Giving or taking honor changes status by `+1` or `−1` per accepted rating. It costs the actor **500** economy units initially. Ratings issued across all targets in the preceding **1 hour** raise the cost through multipliers `1`, `1.5`, `2`, then `3` (the last multiplier applies thereafter). The same actor-target pair has a **24-hour** cooldown and a cap of **3 positive and 3 negative ratings**, counted separately over **7 days**. Self-rating is rejected. Commands and GUI rejections show the time left until another rating is allowed; profile rating buttons show whether you can rate now or how long you must wait.
 
-Taking honor requires a reason; giving honor accepts an optional reason. Reasons are limited to **100 characters** and rendered as inert plain text. Profile GUI buttons prompt for the reason in chat and open a confirmation chest showing the target, exact cost, and reason. Confirmation lasts **60 seconds**; command ratings also support `/status confirm`. Payment and the recorded rating share the same honor path, with compensation handling for failed writes.
+Both giving and taking honor require a written reason, with at least **3 visible characters** by default and at most **100 characters**. Reasons are rendered as inert plain text. Profile GUI buttons prompt for the reason in chat and open a confirmation chest showing the target, exact cost, and reason. Confirmation lasts **60 seconds**; command ratings also support `/status confirm`. Payment and the recorded rating share the same honor path, with compensation handling for failed writes.
 
-The profile chest includes paginated rating history, signed changes, dates, and reasons. Rater names are hidden until revealed for **100** economy units by default; the reveal is remembered for that viewer. Administrative `/status history` provides text history.
+The word filter replaces listed whole words with **`bobba`** in public chat and displayed reasons. Matching ignores case and accents, and both language lists apply regardless of the active language. Original reasons remain stored.
+
+The profile chest includes paginated rating history, signed changes, dates, and reasons. Rater names are hidden until revealed for **100** economy units by default; the reveal is remembered for that viewer. Administrative `/status history` provides text history. Administrators can revoke a rating with `/status admin revoke <player> <id>`, use `/status admin revoke <player> last` for the latest revocable rating, or shift-click its history column and confirm. Admin history shows the exact revoke command. Revocation preserves the event and audit trail, removes its status contribution, and reverses any mental-state delta it applied within the scale bounds. It refunds no money and restores no rating allowance. Revoked entries are hidden from ordinary viewers and marked for administrators with revoke permission.
 
 ### Kills and sanctioned duels
 
-An eligible open-world kill records Killing Psychosis independently of the status penalty. The default penalty is **−1 status**, limited to one penalty per killer/victim pair every **30 minutes** and **10 total automatic status loss per killer in 7 days**. Owners can exempt worlds from the status penalty. These penalty limits do not limit eligible kill evidence or protect a serenity streak.
+An eligible open-world kill affects Psychosis independently of the status penalty. The default penalty is **−1 status**, limited to one penalty per killer/victim pair every **30 minutes** and **10 total automatic status loss per killer in 7 days**. Owners can exempt worlds from the status penalty. These penalty limits do not suppress the mental-state input.
 
 Duels support one-on-one fights, multiple opponents, and teams using `vs`. All invited participants must accept; challenges expire after **60 seconds**. Kills within the sanctioned duel context change neither status nor Psychosis. Leaving forfeits. Disconnecting within **10 seconds** of combat damage is classified as combat logging, with immediate forfeiture, audit, and a configured broadcast or notification. Other disconnects allow **30 seconds** to reconnect before forfeiture.
 
-### Killing Psychosis and private madness
+### Mental state and private madness
 
-Eligible non-duel kills count in a rolling **72-hour** window. Zero kills is neutral; madness levels are `Low` (1 kill), `Medium` (2), `High` (5), and `Extreme` (10). Recovery follows kill expiry, independently of status and Confidence.
+One persistent scale runs from **Psychosis 100 → Neutral → Serenity 100**. Players are never mad and serene at once. Good actions gradually cure psychosis, then build serenity; bad actions drain serenity, then raise psychosis. Each action stops at Neutral rather than spilling into the opposite direction. Actions change the state by their configured amounts rather than resetting it outright, and elapsed time does not erase it. Accepted duels are excluded from gameplay inputs.
 
-Medium and higher levels can trigger private episodes, with increasing frequency, quiet intervals, per-effect cooldowns, and session caps:
+| Input | Default change | Rolling 24-hour cap |
+| --- | --- | --- |
+| Player kill | Drain 25 serenity or add 10 psychosis | None |
+| Death from any cause | Drain 10 serenity or add 6 psychosis | None |
+| Near-death: damage crosses down to at most 4 health points (two hearts), while alive | Drain 3 serenity or add 2 psychosis; re-arms above 4 health | None |
+| Sleepless Overworld night, active for at least half its nominal length | Drain 2 serenity or add 2 psychosis | None |
+| Clean day: 24 real hours since the last bad action or clean-day credit, including at least 30 active minutes | Cure 1 psychosis or gain 1 serenity | 1 credit |
+| Sleep through a night | Cure 1 psychosis or gain 0.5 serenity | 2 nights |
+| Fishing, breeding, feeding, planting, harvesting | Cure 0.02 psychosis or gain 0.02 serenity | 25 actions shared across all five |
+| Positive / negative ratings received | Positive: cure/gain 2; negative: drain/add 2 | 3 received ratings shared across both signs |
 
-| Catalogue | Cosmetic presentation |
-| --- | --- |
-| Sounds and whispers | Creeper fuse sounds, sounds without a visible source, and private chat lines |
-| Screen and UI | Title/action-bar flashes, boss bars, and a hurt flash without damage |
-| World appearance | Private night sky, particles, temporary equivalent block appearances, and sign text |
-| Apparitions | Harmless packet-only hostile mobs and ghosts drawn from the killer's own eligible victim history |
-| Fake notices | Self-only join/leave messages and false death messages requiring another visible living player |
+Peaceful actions mean catching fish, breeding animals, feeding into love mode or baby growth, planting crops on farmland, and harvesting mature crops. Fishing requires recent non-fishing activity, so AFK farms earn nothing. Offline and idle/AFK time earn nothing; active time alone gives no credit. Qualifying activity includes player-driven movement and gameplay interactions, with a default **300-second** idle timeout; chat and passive transport do not qualify. Ratings beyond the mental-state cap still change status. Administrative adjustments and system penalties do not apply the rating input.
 
-Effects respect their minimum madness level and restore temporary appearances during cleanup. Phantom mobs have no real server entity, damage, collision, or drops, and appear outside the viewer's reach; they need a non-Peaceful difficulty, since Minecraft cannot create hostile mobs on Peaceful. The false advancement toast is configured but not shown: Paper 26.3 cannot display one without granting a real advancement. Block illusions preserve interaction behavior. There is no nausea effect, inventory deception, or player `/status effects` opt-out.
+Psychosis levels use magnitude: **Low** above 0 and below 20, **Medium** from 20, **High** from 50, and **Extreme** from 80 to 100. Neutral triggers no episodes.
+
+| Level | Eligible cosmetic effects with shipped defaults | Maximum effects started together |
+| --- | --- | --- |
+| Low | Particles, title/action-bar flashes, sourceless sounds, self-only fake join/leave messages, boss bars, private whispers and custom lines | 1 |
+| Medium | Low catalogue plus creeper fuse sounds; chat corruption begins | 2 |
+| High | Also private night sky, equivalent block appearances, sign text, hurt flashes without damage, victim ghosts, harmless hostile phantoms, and false death notices | 3 |
+| Extreme | High catalogue, with more frequent episodes and longer bounded visuals | 4 |
+
+Effects retain their individual level floors, cooldowns, session caps and quiet intervals; fewer play when fewer are eligible. Temporary appearances restore during cleanup. Phantom mobs have no real server entity, damage, collision or drops, and appear outside interaction reach; hostile phantoms require non-Peaceful difficulty. Victim ghosts use the player's eligible victim history; false death notices require another visible living player and rotate through configured lines. The advancement toast is configured but not delivered: Paper 26.3 cannot show one without granting a real advancement. There is no nausea, inventory deception, or player `/status effects` opt-out.
 
 **Chat corruption and darkening** affect occasional messages from Medium/High/Extreme speakers at default rates of **10%/25%/40%**, with corruption extents of **20%/35%/50%**. All readers see the same altered body. Alternating messages remain intact, at least half the letters stay unchanged, and messages shorter than 6 letters are skipped. Only episode bodies darken; prefixes and hover remain intact. Social status does not drive corruption or madness effects.
 
 ### Serenity, chat, and language
 
-**Serenity is the peaceful direction of Psychosis**, not a fourth metric. After eligible kills leave the rolling window, active peaceful play earns serenity; offline time and idle time do not. Movement with player input, mining, building, accepted interactions, and inventory actions qualify; chat and passive movement do not. The idle timeout defaults to **300 seconds**, and an `afk` metadata flag pauses accrual. An eligible non-duel kill resets accumulated serenity, even when a status penalty is capped or exempt.
+**Serenity is the peaceful direction of the same mental state.** It brings private dawn, clean sounds, gentle particles, and friendly animal apparitions selected from turtles, foxes, armadillos and bees by default. Apparitions follow at a safe distance (default **6 blocks**) and cannot be harmed or interacted with. All are cosmetic packet-only visuals, with no companions, buffs, healing or rewards. Serenity episodes play one effect at a time.
 
-The curve is `ceiling × (2x − x²)`, where `x` is credited active hours divided by the hours needed to reach the ceiling, clamped to `0…1`. Defaults reach a ceiling of **100** after **100 active hours**, with diminishing returns. Serene sounds, particles, and harmless animal apparitions can be shared with eligible nearby observers (default range **16 blocks**); dawn remains private. No serene title is shown.
+Eligible nearby observers can hear the sounds and see particles and apparitions within **16 blocks** by default, respecting visibility and world boundaries. Dawn remains private. No serene title or chat corruption appears.
 
-Chat carries the tier prefix and a name hover with status, tier, Confidence, Psychosis, serenity, and how many distinct players rated them. If another plugin owns the chat renderer, SocialBlueprint leaves that renderer in control, so its chat presentation may not appear.
+Chat carries the tier prefix and a name hover with status, tier, Confidence, one mental-state line, and how many distinct players rated them. If another plugin owns the chat renderer, SocialBlueprint leaves that renderer in control, so its chat presentation may not appear.
 
 English and Spanish message files are bundled. Colors use Essentials-style `&` codes, including hex colors. Owners can edit behavior and messages live in-game. The GitHub updater stages verified releases for the next restart.
 
@@ -132,13 +146,13 @@ English and Spanish message files are bundled. Colors use Essentials-style `&` c
 | `/status` | Open your profile chest | `socialblueprint.show` |
 | `/status <player>` | View another profile (text for console) | `socialblueprint.show.others` |
 | `/status info <player>` | Alias for viewing another profile | `socialblueprint.show.others` |
-| `/status psychosis [player]` | Show Psychosis and serenity | `socialblueprint.show` for self; `socialblueprint.show.others` with a target |
-| `/status give <player> [reason]` | Preview a positive rating; alias: `trust` | `socialblueprint.give` |
+| `/status psychosis [player]` | Show the mental state | `socialblueprint.show` for self; `socialblueprint.show.others` with a target |
+| `/status give <player> <reason>` | Preview a positive rating; alias: `trust` | `socialblueprint.give` |
 | `/status take <player> <reason>` | Preview a negative rating; aliases: `remove`, `distrust` | `socialblueprint.take` |
-| `/status <player> + [reason]` | Legacy positive-rating syntax | `socialblueprint.give` |
+| `/status <player> + <reason>` | Legacy positive-rating syntax | `socialblueprint.give` |
 | `/status <player> - <reason>` | Legacy negative-rating syntax | `socialblueprint.take` |
 | `/status confirm` | Confirm your pending rating; rechecks its action permission | `socialblueprint.give` or `socialblueprint.take` |
-| `/status history [player]` | Administrative text history; console must name a target | `socialblueprint.admin.adjust` (console is always allowed) |
+| `/status history [player]` | Administrative text history; console must name a target | `socialblueprint.admin.adjust` or `socialblueprint.admin.revoke` (console is always allowed) |
 | `/status duel <opponent> [opponent…]` | Challenge one or more opponents | `socialblueprint.duel` |
 | `/status duel <ally…> vs <opponent…>` | Team challenge; sender joins the first side | `socialblueprint.duel` |
 | `/status duel accept [challenger]` | Accept a challenge; alias: `/status accept [challenger]` | `socialblueprint.duel` |
@@ -147,11 +161,17 @@ English and Spanish message files are bundled. Colors use Essentials-style `&` c
 | `/status admin give <player> [amount]` | Add status; amount defaults to 1 | `socialblueprint.admin.adjust` |
 | `/status admin take <player> [amount]` | Subtract status; amount defaults to 1 | `socialblueprint.admin.adjust` |
 | `/status admin reset <player>` | Reset status through a compensating event | `socialblueprint.admin.adjust` |
+| `/status admin revoke <player> <id\|last>` | Revoke a rating by id or the latest revocable rating | `socialblueprint.admin.revoke` |
+| `/status admin mind set <player> <value>` | Set a finite value from -100 (Psychosis) to +100 (Serenity) | `socialblueprint.admin.mind` |
+| `/status admin mind reset <player>` | Reset one online or offline player to Neutral | `socialblueprint.admin.mind` |
+| `/status admin mind reset-all [confirm]` | Reset all stored players; repeat with `confirm` within 30 seconds | `socialblueprint.admin.mind` |
+| `/status admin features` | Open the live input/effect toggle chest in-game | `socialblueprint.admin.features` |
 | `/status import [file]` | Import PlayerStatus; alias: `/status admin import [file]` | `socialblueprint.admin.import` |
 | `/status config [get] <key>` | Read a supported behavior or message key | `socialblueprint.admin.config` |
 | `/status config [set] <key> <value>` | Validate, save, and apply a supported key | `socialblueprint.admin.config` |
 | `/status config reload` | Reload YAML files | `socialblueprint.admin.config` |
 | `/status version` | Check running and available versions | `socialblueprint.version` |
+| `/status update check` | Check releases without downloading | `socialblueprint.admin.update` |
 | `/status update` | Download and stage a verified update | `socialblueprint.admin.update` |
 
 ## Permissions
@@ -169,7 +189,10 @@ English and Spanish message files are bundled. Colors use Essentials-style `&` c
 | `socialblueprint.admin.config` | Operators | Configuration and message editing/reload |
 | `socialblueprint.admin.import` | Operators | Legacy import |
 | `socialblueprint.admin.update` | Operators | Stage updates |
-| `socialblueprint.admin` | Operators | All four administrative nodes |
+| `socialblueprint.admin.mind` | Operators | Mental-state set/reset operations |
+| `socialblueprint.admin.features` | Operators | Live feature toggle GUI |
+| `socialblueprint.admin.revoke` | Operators | Rating revocation and revoked-history visibility |
+| `socialblueprint.admin` | Operators | All administrative nodes |
 | `socialblueprint.*` | Operators | All declared SocialBlueprint action permissions |
 
 Legacy grants remain supported:
@@ -200,15 +223,19 @@ See the complete [default config.yml](src/main/resources/config.yml) for every e
 | `honor.cooldown-per-pair`, `.max-per-target`, `.cap-window` | `24h`, `3`, `7d` | Pair frequency and signed caps |
 | `history.reveal-cost` | `100.0` | Reveal a rater's name |
 | `kill-penalty.delta`, `.pair-cooldown`, `.cap-window`, `.max-loss`, `.exempt-worlds` | `-1`, `30m`, `7d`, `10`, `[]` | Automatic status penalty; delta `0` disables it |
-| `psychosis.window`; `.medium-threshold`, `.high-threshold`, `.extreme-threshold` | `72h`; `2`, `5`, `10` | Rolling kill evidence |
+| `psychosis.levels.low`, `.medium`, `.high`, `.extreme` | `0`, `20`, `50`, `80` | Mental-state level boundaries; Low starts above zero |
+| `psychosis.inputs.<id>.*` | Enabled; amounts and caps above | Individual mental-state inputs |
+| `honor.reason.min-length` | `3` | Minimum visible reason length |
+| `chat-filter.enabled`, `.words.en`, `.words.es` | `true`, English/Spanish word lists | Chat and reason filtering |
 | `psychosis.chat.<level>-rate`, `.<level>-extent` | Rates `10/25/40`, extents `20/35/50` | Corruption probability and amount |
 | `psychosis.chat.<level>-colour`, `.min-letters` | `#AAAAAA/#666666/#303030`, `6` | Episode body color and minimum text length |
-| `psychosis.serenity.ceiling`, `.active-hours-to-ceiling`, `.idle-timeout-seconds` | `100`, `100`, `300` | Peaceful progression |
+| `psychosis.serenity.ceiling`, `.idle-timeout-seconds` | `100`, `300` | Presentation bound and qualifying activity timeout |
 | `duel.challenge-timeout`, `.attack-context-window` | `60s`, `30s` | Challenge expiry and recorded attack context |
 | `duel.disconnect.combat-log-window`, `.reconnect-grace-period`, `.action` | `10s`, `30s`, `broadcast` | Disconnect classification and social response (`broadcast` or `notify`) |
 | `effects.check-interval`, `.max-episode-ticks` | `1s`, `200` | Scheduler and bounded sound episodes |
-| `effects.episodes.<level>.interval-ticks` | `2400/1200/400` | Madness episode cadence |
-| `effects.quiet-interval.<level>` | `2m/1m/20s` | Silence floors between madness episodes |
+| `effects.episodes.<level>.interval-ticks`, `.max-concurrent` | Low/Medium/High/Extreme: `4800/2400/1200/400`, `1/2/3/4` | Madness cadence and simultaneous effects |
+| `effects.debug` | `false` | Log scheduler eligibility, delivery and skip reasons |
+| `effects.quiet-interval.<medium\|high\|extreme>` | `2m/1m/20s` | Silence floors between madness episodes |
 | `effects.<effect>.*` | Enabled catalogue entries; level floors, cooldowns, caps, and durations vary | Individual cosmetic episodes |
 | `effects.serenity.observer-range-blocks`, `.episodes.interval-ticks` | `16`, `6000` | Nearby audience and serene cadence |
 | `sounds.*` | Named sound slots and layered lists | Keys, volume, pitch, category, and layer delays; empty keys silence sounds |
@@ -225,9 +252,15 @@ Duration keys accept `d`, `h`, `m`, and `s`; a bare number means seconds. Keys e
 /status config get honor.cost
 /status config set honor.cost 750
 /status config language en
+/status config peaceful.cap 25
+/status config effects.debug true
 /status config tiers.tier1.prefix &7[&a|&7]
 /status config reload
 ```
+
+Unique dot-separated key suffixes work too: `peaceful.cap` resolves to `psychosis.inputs.peaceful.cap`. Ambiguous suffixes list matching full keys; tab completion offers short unique forms.
+
+`/status admin features` toggles inputs, madness effects, chat corruption and serenity effects through the same saved, validated live-edit path. Changes apply immediately and are audited; an effect already playing finishes and cleans up normally. Mind set/reset commands support console and offline players and are audited. Reset restarts the clean-day clock but preserves used 24-hour caps.
 
 Live edits validate before applying and persist to disk. Unsupported keys and invalid values are rejected. Manual YAML edits take effect with `/status config reload`.
 
@@ -238,19 +271,21 @@ The [English](src/main/resources/messages_en.yml) and [Spanish](src/main/resourc
 /status config effects.private-chat.custom-lines ['&8The walls remember.', '&7Something is watching.']
 ```
 
-Operators can add custom hallucinations in `effects.private-chat.custom-lines` (empty by default). Other catalogue lists include `effects.private-chat.lines`, `effects.sign.lines`, `effects.screen-flash.lines`, `effects.advancement-toast.lines`, and `effects.boss-bar.lines`. Fake-connection and false-death templates live under `effects.fake-connection.join`, `.leave`, and `effects.false-death.line`.
+Operators can add custom hallucinations in `effects.private-chat.custom-lines` (empty by default). Other catalogue lists include `effects.private-chat.lines`, `effects.sign.lines`, `effects.screen-flash.lines`, `effects.advancement-toast.lines`, and `effects.boss-bar.lines`. Fake-connection and false-death templates live under `effects.fake-connection.join`, `.leave`, and `effects.false-death.lines`.
 
 Custom/private-chat, toast, and boss-bar lines must be nonblank, validly colored, single-line, noninteractive text: no control characters, line separators, or click/hover/action directives. Private chat is limited by `effects.private-chat.max-visible-length` (default **160 visible characters**); toast and boss-bar lines are bounded at 160. Validation reserves 16 characters for `{player}` in these lists. Custom lines additionally reject English/Spanish server-notice, moderation, permission, economy, and reward wording and currency symbols, preventing imitation of authoritative notices. Load and live-edit errors identify the offending key/list entry. Edit both language files when providing text for both languages.
 
 ## Updating
 
-1. Run `/status version` to check the running version against GitHub releases.
-2. Run `/status update` with administrative permission to download the selected release.
+1. Run `/status update check` (admin) or `/status version` to check the running version against GitHub releases.
+2. Run `/status update` with administrative permission to download and stage a **strictly newer** release. Equal or older releases are not staged.
 3. Restart the server after the success message.
 
 `update.channel: stable` checks the latest stable release; `beta` also considers prereleases. Startup checks are enabled, but automatic downloading is off by default. Downloads require SHA-256 verification and JAR validation before staging. Missing or mismatched checksums reject the update.
 
 The verified jar goes into Paper's update folder, normally `plugins/update/`, using the current plugin jar's filename when available. The running jar is left in place until restart. Network or release-check failures are reported without preventing startup.
+
+Upgrading from **1.0** converts existing data automatically: eligible kills in the old window become Psychosis `min(100, 10 * kills)`; otherwise credited serenity keeps its old curve value, and other players start Neutral. Existing kill history is retained, and conversion records a mental-state event without inventing playtime. Back up the stopped server's data folder first.
 
 ## Building from source
 
@@ -266,20 +301,19 @@ On Windows:
 .\mvnw.cmd clean verify
 ```
 
-The jar is `target/SocialBlueprint-1.0.jar`. On systems where in-process javac fails, use `./mvnw clean verify -Dmaven.compiler.fork=true`.
+The jar is `target/SocialBlueprint-2.0.jar`. On systems where in-process javac fails, use `./mvnw clean verify -Dmaven.compiler.fork=true`.
 
 ## Roadmap — not shipped
 
-The spec's [Later releases](docs/spec.md#12-later-releases) list includes older entries that are now implemented: reasons/history, profile cost confirmation, Confidence, and decay are described above. Remaining ideas include:
+The spec's [Later releases](docs/spec.md#12-later-releases) lists these remaining items:
 
-- Public comments with a mandatory-reason workflow and the Bobba profanity filter beyond the current rating reasons.
+- Further Reputation Confidence decay and recalculation work; its displayed label stays unchanged.
 - Vouching backed by a monetary guarantee.
 - Trade warnings, CoreProtect, land-claim integrations, and a reputation event API.
-- Deaths as a Psychosis input; direction and anti-abuse rules remain undecided.
-- Votes affecting Psychosis or serenity; this requires a constitutional amendment before implementation.
-- More configurable ghost labels, false-death templates, particle choices, and serene apparition kinds beyond the current settings.
+- Further votes affecting mental state, still listed as blocked by the constitution and open to brigading; the capped received-honor input described above is approved and shipped.
+- Advancement toast delivery if Paper later supports a grant-free toast.
 
-These are plans, not v1.0 capabilities or release commitments.
+These are plans, not v2.0 capabilities or release commitments.
 
 ## License
 
