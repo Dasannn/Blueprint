@@ -180,8 +180,12 @@ public class UpdateService {
         this.updateFolderSupplier = Objects.requireNonNull(updateFolderSupplier, "updateFolderSupplier must not be null");
         this.currentVersionSupplier = Objects.requireNonNull(currentVersionSupplier, "currentVersionSupplier must not be null");
         this.currentJarSupplier = currentJarSupplier != null ? currentJarSupplier : () -> null;
+        // NORMAL follows GitHub's asset redirect to its download host but never
+        // from HTTPS to HTTP. The default (NEVER) left every asset at a 302,
+        // so no checksum or jar could ever be fetched from a real release.
         this.httpClient = httpClient != null ? httpClient : HttpClient.newBuilder()
                 .connectTimeout(DEFAULT_HTTP_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         this.logger = logger != null ? logger : Logger.getLogger(UpdateService.class.getName());
         this.allowInsecureHttpForTesting = allowInsecureHttpForTesting;
