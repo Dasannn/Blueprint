@@ -12,6 +12,59 @@ import java.util.stream.Collectors;
 /** Plain decisions; no player, registry object, metric write or mechanical modifier. */
 public final class SereneEpisode {
     private SereneEpisode() {}
+    public static final double REACH_MARGIN = 1;
+    public record Position(UUID world, double x, double y, double z, double yaw) {
+        public double distanceSquared(Position other) {
+            double dx = x - other.x, dy = y - other.y, dz = z - other.z;
+            return dx * dx + dy * dy + dz * dz;
+        }
+    }
+    public record Follow(boolean ended, Position position) {}
+
+    public static boolean followEnds(Position previousSubject, Position subject, boolean teleported) {
+        return teleported || !previousSubject.world().equals(subject.world())
+                || previousSubject.distanceSquared(subject) > 24 * 24;
+    }
+
+    /** Beside/behind the look direction; bounded steps, with immediate radial retreat inside the guard. */
+    public static Position followCandidate(Position subject, Position last, double distance, double guard, int ticks) {
+        double yaw = Math.toRadians(subject.yaw());
+        double targetX = subject.x() + Math.sin(yaw - Math.PI / 4) * distance;
+        double targetZ = subject.z() - Math.cos(yaw - Math.PI / 4) * distance;
+        double dx = targetX - last.x(), dz = targetZ - last.z();
+        double length = Math.hypot(dx, dz), step = Math.min(1, ticks * .4 / Math.max(length, .0001));
+        double x = last.x() + dx * step, z = last.z() + dz * step;
+        double radial = Math.hypot(x - subject.x(), z - subject.z());
+        if (radial <= guard) {
+            double oldRadius = Math.hypot(last.x() - subject.x(), last.z() - subject.z());
+            if (oldRadius > guard) {
+                double oldAngle = Math.atan2(last.x() - subject.x(), subject.z() - last.z());
+                double targetAngle = yaw - Math.PI / 4;
+                double turn = Math.atan2(Math.sin(targetAngle - oldAngle), Math.cos(targetAngle - oldAngle));
+                double angle = oldAngle + Math.copySign(Math.min(Math.abs(turn), Math.min(.5, ticks * .4 / distance)), turn);
+                x = subject.x() + Math.sin(angle) * distance;
+                z = subject.z() - Math.cos(angle) * distance;
+                return new Position(subject.world(), x, subject.y(), z,
+                        Math.toDegrees(Math.atan2(x - subject.x(), subject.z() - z)));
+            }
+            double angle = radial < .0001 ? yaw - Math.PI / 4 : Math.atan2(last.x() - subject.x(), subject.z() - last.z());
+            x = subject.x() + Math.sin(angle) * distance;
+            z = subject.z() - Math.cos(angle) * distance;
+        }
+        return new Position(subject.world(), x, subject.y(), z,
+                Math.toDegrees(Math.atan2(x - subject.x(), subject.z() - z)));
+    }
+
+    /** A null probe means no standable, clear surface: preserve the last safe position. */
+    public static Follow follow(Position previousSubject, Position subject, Position last, Position ground,
+                                double guard, boolean teleported) {
+        if (followEnds(previousSubject, subject, teleported)) return new Follow(true, last);
+        if (ground == null || !subject.world().equals(ground.world())
+                || Math.hypot(ground.x() - subject.x(), ground.z() - subject.z()) <= guard)
+            ground = last;
+        return new Follow(false, new Position(ground.world(), ground.x(), ground.y(), ground.z(),
+                Math.toDegrees(Math.atan2(ground.x() - subject.x(), subject.z() - ground.z()))));
+    }
     public record Candidate(UUID id, boolean online, boolean sameWorld, boolean visible,
                             boolean vanished, double distanceSquared) {}
     public record Bounds(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {

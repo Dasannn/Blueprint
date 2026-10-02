@@ -80,6 +80,68 @@ class SerenityEffectsTest {
         }
     }
 
+    private SereneEpisode.Position point(UUID world, double x, double y, double z, double yaw) {
+        return new SereneEpisode.Position(world, x, y, z, yaw);
+    }
+
+    @Test void apparitionFollowsBehindAtDistanceAndFacesTheSubject() {
+        UUID world = UUID.randomUUID();
+        for (double yaw : new double[]{0, 90, 180, 270, 37}) {
+            var subject = point(world, 10, 64, 20, yaw);
+            var last = point(world, 10, 64, 28, 0);
+            for (int i = 0; i < 40; i++) {
+                var proposed = SereneEpisode.followCandidate(subject, last, 6, 4.75, 5);
+                var ground = point(world, proposed.x(), 64.01, proposed.z(), 0);
+                var decision = SereneEpisode.follow(subject, subject, last, ground, 4.75, false);
+                assertThat(decision.ended()).isFalse();
+                assertThat(Math.hypot(decision.position().x() - subject.x(), decision.position().z() - subject.z())).isGreaterThan(4.75);
+                last = decision.position();
+            }
+            double dx = last.x() - subject.x(), dz = last.z() - subject.z();
+            assertThat(Math.hypot(dx, dz)).isCloseTo(6, within(1e-8));
+            double radians = Math.toRadians(yaw);
+            assertThat(-Math.sin(radians) * dx + Math.cos(radians) * dz).isLessThan(0);
+            assertThat(last.yaw()).isCloseTo(Math.toDegrees(Math.atan2(dx, -dz)), within(1e-8));
+        }
+    }
+
+    @Test void approachedApparitionBacksOffAndMissingGroundKeepsLastPosition() {
+        UUID world = UUID.randomUUID();
+        var previous = point(world, 0, 64, 0, 0);
+        var subject = point(world, 0, 64, 5, 0);
+        var last = point(world, 0, 64.01, 6, 180);
+        var proposed = SereneEpisode.followCandidate(subject, last, 6, 4.75, 5);
+        var next = SereneEpisode.follow(previous, subject, last, proposed, 4.75, false);
+        assertThat(next.ended()).isFalse();
+        assertThat(Math.hypot(next.position().x() - subject.x(), next.position().z() - subject.z())).isCloseTo(6, within(1e-8));
+        assertThat(SereneEpisode.follow(previous, subject, last, null, 4.75, false).position()).isEqualTo(last);
+        assertThat(SereneEpisode.follow(previous, subject, last, subject, 4.75, false).position()).isEqualTo(last);
+    }
+
+    @Test void followEndsOnTeleportWorldChangeOrMoreThanTwentyFourBlocksInOneUpdate() {
+        UUID world = UUID.randomUUID();
+        var subject = point(world, 0, 64, 0, 0);
+        var last = point(world, 0, 64, 6, 0);
+        assertThat(SereneEpisode.follow(subject, subject, last, null, 4.75, true).ended()).isTrue();
+        assertThat(SereneEpisode.follow(subject, point(UUID.randomUUID(), 0, 64, 0, 0), last, null, 4.75, false).ended()).isTrue();
+        assertThat(SereneEpisode.follow(subject, point(world, 24.001, 64, 0, 0), last, null, 4.75, false).ended()).isTrue();
+        assertThat(SereneEpisode.follow(subject, point(world, 0, 88.001, 0, 0), last, null, 4.75, false).ended()).isTrue();
+        assertThat(SereneEpisode.follow(subject, point(world, 24, 64, 0, 0), last, null, 4.75, false).ended()).isFalse();
+    }
+
+    @Test void apparitionReservesItsFullDurationBeforeQuietTime() {
+        var yaml = new org.bukkit.configuration.MemoryConfiguration();
+        yaml.set("effects.serenity.apparition.duration-ticks", 400);
+        var config = SerenityEffectsConfig.load(yaml);
+        var sounds = SoundsConfigSection.defaults();
+        assertThat(SereneEpisode.durationTicks("apparition", config, sounds)).isEqualTo(400);
+        long reservation = SereneEpisode.reservationTicks("apparition", config, sounds);
+        assertThat(reservation).isEqualTo(400 + Math.max(config.intervalTicks(), config.quietTicks()));
+        var state = new PlayerEffectState(); state.recordSerene("apparition", 0, reservation);
+        assertThat(state.canStartEpisode(reservation * 50 - 1)).isFalse();
+        assertThat(state.canStartEpisode(reservation * 50)).isTrue();
+    }
+
     @Test void fullDawnDurationPrecedesQuietReservation() {
         var config = SerenityEffectsConfig.defaults();
         var sounds = SoundsConfigSection.defaults();
@@ -175,6 +237,56 @@ class SerenityEffectsTest {
         scheduled.getFirst().action().run();
         assertThat(ownCleanup).hasValue(1);
         assertThat(observerCleanup).hasValue(1);
+    }
+
+    @Test @SuppressWarnings("unchecked")
+    void ordinaryMovementPreservesSereneAnimalAndEpisodeCleanupCancelsTrackedTasks() throws Exception {
+        UUID owner = UUID.randomUUID();
+        for (String ending : List.of("expiry", "quit", "world-change", "disable", "direction")) {
+            var registry = new AmbientEntityRegistry();
+            List<Scheduled> scheduled = new ArrayList<>();
+            var dispatcher = new AmbientEffectDispatcher(null,
+                    MessageRegistry.fromMaps(Map.of(), Map.of(), "en", null), null,
+                    new FakeSilverfishService(null, registry, null), (action, delay) -> {
+                        boolean[] cancelled = {false};
+                        scheduled.add(new Scheduled(action, cancelled));
+                        return () -> cancelled[0] = true;
+                    });
+            AtomicInteger removed = new AtomicInteger();
+            var animal = new ActiveEntityEntry(owner, 901, null, UUID.randomUUID(), null, removed::incrementAndGet);
+            registry.register(animal);
+            var field = AmbientEffectDispatcher.class.getDeclaredField("sereneAnimals");
+            field.setAccessible(true);
+            var animals = (Map<UUID, Map<UUID, ActiveEntityEntry>>) field.get(dispatcher);
+            animals.put(owner, new HashMap<>(Map.of(owner, animal)));
+            var viewers = new HashMap<UUID, Runnable>();
+            viewers.put(owner, () -> { registry.cleanDespawn(animal); animals.remove(owner); });
+            assertThat(dispatcher.startSereneAudience(owner, viewers, 400)).isTrue();
+            var listener = new AmbientEffectsListener(registry, null, dispatcher);
+            var player = (org.bukkit.entity.Player) java.lang.reflect.Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class[]{org.bukkit.entity.Player.class},
+                    (proxy, method, args) -> method.getName().equals("getUniqueId") ? owner : null);
+            var at = new org.bukkit.Location(null, 0, 0, 0);
+            listener.onPlayerMove(new org.bukkit.event.player.PlayerMoveEvent(player, at, at));
+            assertThat(removed).hasValue(0);
+            assertThat(viewers).containsKey(owner);
+            AtomicBoolean eligible = new AtomicBoolean(true);
+            if (ending.equals("direction")) assertThat(dispatcher.guardDirection(owner, eligible::get, 400)).isTrue();
+            switch (ending) {
+                case "expiry" -> scheduled.getFirst().action().run();
+                case "quit" -> listener.cleanupPlayer(owner, true);
+                case "world-change" -> listener.cleanupPlayer(owner, false);
+                case "disable" -> dispatcher.cancelAllPending();
+                case "direction" -> { eligible.set(false); scheduled.getLast().action().run(); }
+                default -> throw new AssertionError(ending);
+            }
+            assertThat(removed).hasValue(1);
+            assertThat(registry.getActiveCount()).isZero();
+            assertThat(dispatcher.hasPending(owner)).isFalse();
+            scheduled.forEach(task -> task.action().run());
+            assertThat(removed).hasValue(1);
+            assertThat(dispatcher.hasPending(owner)).isFalse();
+        }
     }
 
     @Test void directionChangesCancelPendingDeliveryAndRestoreWithoutResettingLimits() {

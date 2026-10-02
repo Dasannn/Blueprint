@@ -308,7 +308,9 @@ effects:
       # Outside block reach: a packet-only animal is still pickable by the client,
       # so delivery skips any viewer whose reach could touch it (SB-124).
       range-blocks: 8
-      duration-ticks: 100
+      duration-ticks: 300
+      follow-update-ticks: 5
+      follow-distance-blocks: 6
   advancement-toast:
     enabled: true
     minimum-level: medium

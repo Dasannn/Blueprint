@@ -58,11 +58,11 @@ class SerenityConfigTest {
         }
     }
 
-    @Test void dawnAllowsTwoHundredTicksWhileApparitionKeepsOneHundredTickCeiling() {
+    @Test void dawnAllowsTwoHundredTicksAndApparitionAllowsFourHundred() {
         assertThat(SerenityEffectsConfig.defaults().dawnDuration()).isEqualTo(200);
-        assertThat(SerenityEffectsConfig.defaults().animalDuration()).isEqualTo(100);
+        assertThat(SerenityEffectsConfig.defaults().animalDuration()).isEqualTo(300);
         assertThat(PluginConfig.load(shipped()).effects().serenity().dawnDuration()).isEqualTo(200);
-        assertThat(PluginConfig.load(shipped()).effects().serenity().animalDuration()).isEqualTo(100);
+        assertThat(PluginConfig.load(shipped()).effects().serenity().animalDuration()).isEqualTo(300);
         for (int ticks : List.of(1, 60, 100, 101, 200)) {
             var yaml = shipped(); yaml.set("effects.serenity.dawn.duration-ticks", ticks);
             assertThat(SerenityEffectsConfig.load(yaml).dawnDuration()).isEqualTo(ticks);
@@ -71,8 +71,48 @@ class SerenityConfigTest {
             var yaml = shipped(); yaml.set("effects.serenity.dawn.duration-ticks", ticks);
             assertThatThrownBy(() -> SerenityEffectsConfig.load(yaml)).hasMessageContaining("dawn.duration-ticks");
         }
-        var yaml = shipped(); yaml.set("effects.serenity.apparition.duration-ticks", 101);
+        var yaml = shipped(); yaml.set("effects.serenity.apparition.duration-ticks", 401);
         assertThatThrownBy(() -> SerenityEffectsConfig.load(yaml)).hasMessageContaining("apparition.duration-ticks");
+    }
+
+    @Test void apparitionBoundsAndFollowLeavesAreValidated() {
+        var defaults = SerenityEffectsConfig.defaults();
+        assertThat(defaults.followUpdateTicks()).isEqualTo(5);
+        assertThat(defaults.followDistance()).isEqualTo(6);
+        for (int ticks : List.of(1, 60, 100, 300, 400)) {
+            var yaml = shipped(); yaml.set("effects.serenity.apparition.duration-ticks", ticks);
+            assertThat(SerenityEffectsConfig.load(yaml).animalDuration()).isEqualTo(ticks);
+        }
+        for (String leaf : List.of("duration-ticks", "follow-update-ticks", "follow-distance-blocks")) {
+            List<?> invalid = switch (leaf) {
+                case "duration-ticks" -> List.of(0, -1, 401, 1.5, "bad");
+                case "follow-update-ticks" -> List.of(0, -1, 21, 1.5, "bad");
+                default -> List.of(0, 4, Double.NaN, Double.POSITIVE_INFINITY, "bad");
+            };
+            for (Object bad : invalid) {
+                var yaml = shipped(); yaml.set("effects.serenity.apparition." + leaf, bad);
+                assertThatThrownBy(() -> SerenityEffectsConfig.load(yaml)).hasMessageContaining("apparition." + leaf);
+            }
+        }
+    }
+
+    @Test void durationUpgradeAdoptsOldDefaultsOnceAndPreservesCustomDurations() throws Exception {
+        for (int old : List.of(60, 100, 75, 200, 400)) {
+            Path data = java.nio.file.Files.createDirectory(folder.resolve("duration-" + old));
+            var yaml = shipped(); yaml.set("effects.serenity.apparition.duration-ticks", old);
+            yaml.save(data.resolve("config.yml").toFile());
+            // A server which already received T-211 must still receive the follow defaults.
+            java.nio.file.Files.writeString(data.resolve("serenity-defaults-v1.flag"), "already adopted");
+            var registry = new MessageRegistry(data.toFile(), "en", null);
+            var manager = new ConfigManager(data.resolve("config.yml").toFile(), registry, Runnable::run, null);
+            manager.initialize();
+            assertThat(manager.snapshot().config().effects().serenity().animalDuration())
+                    .isEqualTo(old == 60 || old == 100 ? 300 : old);
+            manager.set("effects.serenity.apparition.duration-ticks", "60");
+            manager.reload();
+            assertThat(manager.snapshot().config().effects().serenity().animalDuration()).isEqualTo(60);
+            assertThat(data.resolve("serenity-follow-v1.flag")).exists();
+        }
     }
 
     @Test void bothPinnedLanguagesLabelTheSameMetric() {

@@ -54,6 +54,7 @@ public class AmbientEffectDispatcher {
     private final Map<UUID, Runnable> activeSoundStops = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, Runnable>> sereneViewers = new java.util.HashMap<>();
     private final Map<UUID, Map<UUID, ActiveEntityEntry>> sereneAnimals = new java.util.HashMap<>();
+    private final Map<UUID, ApparitionFollow> apparitionFollows = new java.util.HashMap<>();
     private final Map<UUID, java.util.function.BooleanSupplier> directionGuards = new java.util.HashMap<>();
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
     private final java.util.logging.Logger logger;
@@ -203,6 +204,7 @@ public class AmbientEffectDispatcher {
                 case "apparition" -> {
                     Location at = apparitionGround(subject, config.animalRange());
                     if (at == null) yield false;
+                    Map<UUID, PrivateGhost> movingAnimals = new java.util.HashMap<>();
                     boolean shown = false;
                     PrivateGhost subjectAnimal = PrivateGhost.animal(subject, at, animalKind,
                             silverfishService.resolveEntityType(org.bukkit.NamespacedKey.minecraft(animalKind)));
@@ -224,11 +226,13 @@ public class AmbientEffectDispatcher {
                             }
                         });
                         animal.show();
-                        if (!watchAnimal(owner, viewer, animal, viewers, ticks)) {
-                            cancelPending(owner);
-                            yield false;
-                        }
+                        movingAnimals.put(viewerId, animal);
                         shown = true;
+                    }
+                    if (shown) {
+                        var follow = new ApparitionFollow(subject, at, movingAnimals, viewers, config);
+                        apparitionFollows.put(owner, follow);
+                        if (!follow.schedule(ticks)) { cancelPending(owner); yield false; }
                     }
                     yield shown;
                 }
@@ -257,7 +261,11 @@ public class AmbientEffectDispatcher {
     private Location apparitionGround(Player subject, double range) {
         Location origin = subject.getLocation();
         var offset = SereneEpisode.apparitionOffset(origin.getYaw(), range, random.nextDouble());
-        Location probe = origin.clone().add(offset.x(), 2, offset.z());
+        return apparitionGround(origin, origin.getX() + offset.x(), origin.getZ() + offset.z());
+    }
+
+    private Location apparitionGround(Location origin, double x, double z) {
+        Location probe = new Location(origin.getWorld(), x, origin.getY() + 2, z);
         if (!Double.isFinite(probe.getX()) || !Double.isFinite(probe.getZ())
                 || !probe.getWorld().isChunkLoaded(probe.getBlockX() >> 4, probe.getBlockZ() >> 4)) return null;
         // ponytail: search only two blocks up/four down; skip cliffs, expand only if live terrain needs it.
@@ -294,25 +302,119 @@ public class AmbientEffectDispatcher {
     }
 
     private boolean safeAnimalViewer(Player viewer, SereneEpisode.Bounds bounds) {
-        var reach = viewer.getAttribute(org.bukkit.attribute.Attribute.ENTITY_INTERACTION_RANGE);
-        if (reach == null) return false;
-        Location eye = viewer.getEyeLocation();
-        var body = viewer.getBoundingBox();
-        // Packet-only mobs remain pickable in vanilla. Never place one in interaction reach.
-        // Include a movement margin; movement/teleport handlers also remove the owned visual immediately.
-        return bounds.separatedFrom(new SereneEpisode.Bounds(body.getMinX(), body.getMinY(), body.getMinZ(),
-                body.getMaxX(), body.getMaxY(), body.getMaxZ()))
-                && bounds.outsideReach(eye.getX(), eye.getY(), eye.getZ(), reach.getValue() + 1);
+        return safeAnimalViewerAt(viewer, bounds, viewer.getLocation());
     }
 
-    private boolean watchAnimal(UUID owner, Player viewer, PrivateGhost animal, Map<UUID, Runnable> viewers, long remaining) {
-        return scheduleTracked(owner, () -> {
-            if (sereneViewers.get(owner) != viewers || !viewers.containsKey(viewer.getUniqueId())) return;
-            if (!safeAnimalViewer(viewer, animal.bounds())) {
-                Runnable cleanup = viewers.remove(viewer.getUniqueId());
+    private static SereneEpisode.Position position(Location at) {
+        return new SereneEpisode.Position(at.getWorld().getUID(), at.getX(), at.getY(), at.getZ(), at.getYaw());
+    }
+
+    private final class ApparitionFollow {
+        final Player subject;
+        final Map<UUID, PrivateGhost> animals;
+        final Map<UUID, Runnable> viewers;
+        final com.dasannn.socialblueprint.config.SerenityEffectsConfig config;
+        Location last, previousSubject;
+
+        ApparitionFollow(Player subject, Location at, Map<UUID, PrivateGhost> animals, Map<UUID, Runnable> viewers,
+                         com.dasannn.socialblueprint.config.SerenityEffectsConfig config) {
+            this.subject = subject; this.last = at; this.previousSubject = subject.getLocation();
+            this.animals = animals; this.viewers = viewers; this.config = config;
+        }
+
+        boolean schedule(long remaining) {
+            int delay = config.followUpdateTicks();
+            if (remaining <= delay) return true;
+            return scheduleTracked(subject.getUniqueId(), () -> {
+                if (apparitionFollows.get(subject.getUniqueId()) != this) return;
+                update(subject.getLocation());
+                if (apparitionFollows.get(subject.getUniqueId()) == this && !schedule(remaining - delay))
+                    cancelPending(subject.getUniqueId());
+            }, delay);
+        }
+
+        void update(Location origin) {
+            UUID owner = subject.getUniqueId();
+            var direction = directionGuards.get(owner);
+            if (!subject.isOnline() || (direction != null && !direction.getAsBoolean())) { cancelPending(owner); return; }
+            if (SereneEpisode.followEnds(position(previousSubject), position(origin), false)) { cancelPending(owner); return; }
+            var reach = subject.getAttribute(org.bukkit.attribute.Attribute.ENTITY_INTERACTION_RANGE);
+            if (reach == null || !Double.isFinite(reach.getValue())) { cancelPending(owner); return; }
+            // Enclose the widest configured animal plus the existing reach/movement margin.
+            double guard = reach.getValue() + SereneEpisode.REACH_MARGIN + .75;
+            double distance = Math.max(config.followDistance(), guard + .25);
+            var candidate = SereneEpisode.followCandidate(position(origin), position(last), distance, guard, config.followUpdateTicks());
+            Location ground = apparitionGround(origin, candidate.x(), candidate.z());
+            PrivateGhost model = animals.values().stream().findFirst().orElse(null);
+            if (ground != null && model != null && (!clearAnimalSpace(ground, model.boundsAt(ground))
+                    || !clearAnimalPath(last, ground, model))) ground = null;
+            var decision = SereneEpisode.follow(position(previousSubject), position(origin), position(last),
+                    ground == null ? null : position(ground), guard, false);
+            previousSubject = origin.clone();
+            Location next = new Location(origin.getWorld(), decision.position().x(), decision.position().y(),
+                    decision.position().z(), (float) decision.position().yaw(), 0);
+            try {
+                for (var entry : animals.entrySet()) {
+                    if (!viewers.containsKey(entry.getKey())) continue;
+                    Player viewer = subject.getServer().getPlayer(entry.getKey());
+                    Location viewerAt = entry.getKey().equals(owner) ? origin : viewer == null ? null : viewer.getLocation();
+                    var destinationBounds = entry.getValue().boundsAt(next);
+                    if (!entry.getKey().equals(owner)) {
+                        var oldBounds = entry.getValue().bounds();
+                        destinationBounds = new SereneEpisode.Bounds(Math.min(oldBounds.minX(), destinationBounds.minX()),
+                                Math.min(oldBounds.minY(), destinationBounds.minY()), Math.min(oldBounds.minZ(), destinationBounds.minZ()),
+                                Math.max(oldBounds.maxX(), destinationBounds.maxX()), Math.max(oldBounds.maxY(), destinationBounds.maxY()),
+                                Math.max(oldBounds.maxZ(), destinationBounds.maxZ()));
+                    }
+                    if (viewer == null || !safeAnimalViewerAt(viewer, destinationBounds, viewerAt)) {
+                        if (entry.getKey().equals(owner)) { cancelPending(owner); return; }
+                        Runnable cleanup = viewers.remove(entry.getKey());
+                        if (cleanup != null) cleanup.run();
+                    } else entry.getValue().move(next);
+                }
+                last = next;
+            } catch (ReflectiveOperationException | RuntimeException failure) { cancelPending(owner); }
+        }
+    }
+
+    private boolean clearAnimalPath(Location from, Location to, PrivateGhost model) {
+        // Probe the swept body too: client interpolation must not walk through a wall.
+        // ponytail: cap a sweep at 24 blocks; longer retreats end safely, expand only if live terrain requires it.
+        if (from.distanceSquared(to) > 24 * 24) return false;
+        int steps = Math.max(1, (int) Math.ceil(from.distance(to) * 4));
+        for (int i = 1; i < steps; i++) {
+            Location at = from.clone().add((to.getX() - from.getX()) * i / steps,
+                    (to.getY() - from.getY()) * i / steps, (to.getZ() - from.getZ()) * i / steps);
+            if (!clearAnimalSpace(at, model.boundsAt(at))) return false;
+        }
+        return true;
+    }
+
+    private boolean safeAnimalViewerAt(Player viewer, SereneEpisode.Bounds bounds, Location at) {
+        var reach = viewer.getAttribute(org.bukkit.attribute.Attribute.ENTITY_INTERACTION_RANGE);
+        if (reach == null || at == null || !at.getWorld().equals(viewer.getWorld())) return false;
+        Location current = viewer.getLocation(), eye = viewer.getEyeLocation();
+        double dx = at.getX() - current.getX(), dy = at.getY() - current.getY(), dz = at.getZ() - current.getZ();
+        var body = viewer.getBoundingBox();
+        return bounds.separatedFrom(new SereneEpisode.Bounds(body.getMinX() + dx, body.getMinY() + dy, body.getMinZ() + dz,
+                body.getMaxX() + dx, body.getMaxY() + dy, body.getMaxZ() + dz))
+                && bounds.outsideReach(eye.getX() + dx, eye.getY() + dy, eye.getZ() + dz, reach.getValue() + SereneEpisode.REACH_MARGIN);
+    }
+
+    void moveAnimalViewer(Player viewer, Location destination) {
+        removePrivateAnimalViewer(viewer.getUniqueId());
+        if (destination == null) return;
+        var own = apparitionFollows.get(viewer.getUniqueId());
+        if (own != null && own.animals.containsKey(viewer.getUniqueId()) && (SereneEpisode.followEnds(position(own.previousSubject), position(destination), false)
+                || !safeAnimalViewerAt(viewer, own.animals.get(viewer.getUniqueId()).bounds(), destination))) own.update(destination);
+        for (var entry : java.util.List.copyOf(apparitionFollows.values())) {
+            if (entry == own) continue;
+            PrivateGhost animal = entry.animals.get(viewer.getUniqueId());
+            if (animal != null && !safeAnimalViewerAt(viewer, animal.bounds(), destination)) {
+                Runnable cleanup = entry.viewers.remove(viewer.getUniqueId());
                 if (cleanup != null) cleanup.run();
-            } else if (remaining > 1 && !watchAnimal(owner, viewer, animal, viewers, remaining - 1)) cancelPending(owner);
-        }, 1);
+            }
+        }
     }
 
     private void pruneSereneAudience(Player subject, boolean dawn, double range, Map<UUID, Runnable> viewers) {
@@ -338,6 +440,7 @@ public class AmbientEffectDispatcher {
 
     private void endSereneAudience(UUID owner, Map<UUID, Runnable> viewers) {
         if (sereneViewers.remove(owner, viewers)) {
+            apparitionFollows.remove(owner);
             viewers.values().forEach(Runnable::run);
             viewers.clear();
         }
@@ -357,10 +460,15 @@ public class AmbientEffectDispatcher {
         }
     }
 
-    void removeAnimalViewer(UUID id) {
+    private void removePrivateAnimalViewer(UUID id) {
         for (ActivePresentationEntry entry : silverfishService.registry().presentationsFor(id))
             if (entry.type() == AmbientEffectType.SILVERFISH || entry.type() == AmbientEffectType.VICTIM_GHOST)
                 silverfishService.registry().cleanPresentation(entry);
+    }
+
+    void removeAnimalViewer(UUID id) {
+        removePrivateAnimalViewer(id);
+        if (apparitionFollows.containsKey(id)) cancelPending(id);
         for (UUID owner : Set.copyOf(sereneAnimals.keySet())) {
             Map<UUID, ActiveEntityEntry> animals = sereneAnimals.get(owner);
             if (animals != null && animals.containsKey(id)) {
@@ -889,6 +997,7 @@ public class AmbientEffectDispatcher {
             return;
         }
         directionGuards.remove(playerId);
+        apparitionFollows.remove(playerId);
         removeSereneViewer(playerId);
         Map<UUID, Runnable> viewers = sereneViewers.remove(playerId);
         if (viewers != null) viewers.values().forEach(Runnable::run);

@@ -10,7 +10,7 @@ import java.util.Locale;
 public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double observerRange,
                                     Map<String, Rule> rules, int dawnTime, int dawnDuration,
                                     PresentationConfig.Sounds sounds, PresentationConfig.Particles particles,
-                                    java.util.List<String> animals, double animalRange, int animalDuration) {
+                                    java.util.List<String> animals, double animalRange, int animalDuration, int followUpdateTicks, double followDistance) {
     public static final java.util.List<String> DEFAULT_ANIMALS = java.util.List.of("turtle", "fox", "armadillo", "bee");
     public static final Set<String> EFFECTS = Set.of("dawn", "source-less-sounds", "particles", "apparition");
     public record Rule(boolean enabled, double minimumSerenity, long cooldownTicks, int sessionCap) {}
@@ -55,7 +55,11 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                         choice(root, "particles.placement", "around", Set.of("around", "beneath")),
                         integer(root, "particles.count", 8, 1, PresentationConfig.MAX_PARTICLE_COUNT), number(root, "particles.radius-blocks", 1, true), integer(root, "particles.duration-ticks", 40, 1, 100)),
                 PresentationConfig.choices(root, path("apparition.kinds"), DEFAULT_ANIMALS, Set.of("turtle", "fox", "armadillo", "bee", "cat", "wolf")),
-                number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 100, 1, 100));
+                number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 300, 1, 400),
+                integer(root, "apparition.follow-update-ticks", 5, 1, 20),
+                number(root, "apparition.follow-distance-blocks", 6, true));
+        if (result.followDistance() <= 3 + com.dasannn.socialblueprint.feature.effects.SereneEpisode.REACH_MARGIN)
+            fail("apparition.follow-distance-blocks", "Must exceed interaction reach plus margin");
         ConfigurationSection section = root.getConfigurationSection("effects.serenity");
         if (section != null) for (String key : section.getKeys(true)) {
             if (!section.isConfigurationSection(key) && !result.leafValues().containsKey(path(key))) fail(key, "Unknown key");
@@ -82,7 +86,8 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                 Map.entry("particles.types", particles.types()), Map.entry("particles.placement", particles.placement()),
                 Map.entry("particles.count", particles.count()), Map.entry("particles.radius-blocks", particles.radius()),
                 Map.entry("particles.duration-ticks", particles.durationTicks()), Map.entry("apparition.kinds", animals),
-                Map.entry("apparition.range-blocks", animalRange), Map.entry("apparition.duration-ticks", animalDuration));
+                Map.entry("apparition.range-blocks", animalRange), Map.entry("apparition.duration-ticks", animalDuration),
+                Map.entry("apparition.follow-update-ticks", followUpdateTicks), Map.entry("apparition.follow-distance-blocks", followDistance));
         details.forEach((key, value) -> values.put(path(key), value.toString()));
         return Map.copyOf(values);
     }

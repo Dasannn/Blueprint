@@ -508,6 +508,7 @@ versa; they cannot bypass quiet intervals. Quit, world change, disable, relog
 and restart leave no fake or override, and no episode resumes. Neither the
 subject nor observers receive buffs, healing, protection, mob calming, loot,
 collision, targets, companions or altered game capabilities (SB-100).
+The packet-only visual follow in SB-124 is permitted; it creates no companion.
 
 **SB-121.** A serene subject briefly sees a **private dawn**, after which their
 prior time presentation returns, or normal world tracking if there was no
@@ -528,20 +529,30 @@ bounded visual delivery with the SB-120 audience; no entity, collision or
 world state is created. They neither illuminate blocks nor change light levels.
 
 **SB-124.** A **kindly apparition** chosen from SB-143's configured kind list
-briefly looks at the serene subject and goes. It appears on the ground ahead
-along the subject's look direction, at the configured forward distance with a
-small random lateral offset (at most half a block), facing the subject. Skip
-positions outside the subject's field of view, behind an obstruction or inside
-blocks; skip delivery to any recipient within interaction reach plus movement
-margin.
-Nearby observers see the same animal position from their own viewpoint.
-The shipped duration is 100 ticks (five seconds), within the 100-tick ceiling
-(owner, 2026-10-02). It is a packet-only visual fake, visible to the subject
-and eligible nearby observers. Reuse managed-fake cleanup and the phantom
-renderer; this is no real, tamed or summoned animal. It never collides, targets,
-follows, attacks, scares mobs, takes damage, responds to interaction, can be
-bred/tamed, drops items/XP or affects spawning. The look and departure are
-bounded visual animation only; they cannot obstruct movement or interaction.
+appears on standable ground ahead along the subject's look direction, at the
+configured forward distance with a small lateral offset (at most half a block),
+facing the subject. Skip initial positions outside the subject's field of view,
+behind an obstruction or inside blocks; skip recipients within interaction reach
+plus the existing one-block movement margin.
+While present, it visually follows a ground point beside/behind the subject at
+`follow-distance-blocks` (default 6), facing the subject. Move every
+`follow-update-ticks` (default 5) with smooth relative-move/teleport packets;
+living models use their client walking animation where supported. Keep the
+last position if no standable, clear surface exists within two blocks up/four
+down; the swept body must also remain clear of blocks. Back off immediately
+when approached, keeping outside actual interaction reach plus movement margin
+and the model's footprint. If no safe retreat exists, remove the episode.
+Teleport, world change or movement farther than 24 blocks in one update ends
+the episode through normal cleanup. Nearby eligible observers see the same
+position and movement; leaving range/visibility or approaching within reach
+removes their visual. Quit, disable and direction change cancel every follow
+update and remove the visual.
+The shipped duration is 300 ticks (15 seconds), configurable from 1 to 400 ticks
+(20 seconds). The full duration precedes quiet time and the next episode
+(owner, 2026-10-02). It remains a packet-only fake with no server entity,
+collision, AI, target, damage or interaction. It cannot be tamed/bred, drop
+items/XP, scare mobs or affect spawning. This bounded visual follow is no
+companion or mechanical advantage (SB-100).
 
 ## 7. Honor economy
 
@@ -731,7 +742,8 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 
 Cosmetic `duration-ticks` values are positive and at most 100 ticks (five
 seconds), including title fades, except madness sky and serene dawn allow
-200 ticks (ten seconds). Dawn ships at 200 ticks; its full duration and
+200 ticks (ten seconds), and serene apparition allows 400 ticks (20 seconds),
+shipped at 300 ticks. Dawn ships at 200 ticks; its full duration and
 restoration precede quiet time and the next episode (owner, 2026-10-02).
 Sound episodes are finite: layer delays plus
 `playback-ticks` total at most 100 ticks. Independent cooldowns are positive;
@@ -787,10 +799,14 @@ never the madness `minimum-level`. Additional behaviour keys reuse SB-116:
 | Dawn / SB-121 | `time-ticks` (default `23000`, integer from 0 to 23999), `duration-ticks` (1..200, default `200`, ten seconds) |
 | Source-less sounds / SB-122 | `sound-slot` (default `serenity-clean`), finite `offset.forward-blocks`, `offset.right-blocks`, `offset.up-blocks` (default `0` each), `playback-ticks` (default `60`); slot uses SB-092 layers with clean bird/bell/water/murmur defaults |
 | Particles / SB-123 | `type` (default `end_rod`), `placement` (default `around`), `count` (default `8`), `radius-blocks` (default `1`), `duration-ticks` (default `40`); SB-116 bounds apply |
-| Apparition / SB-124 | `kinds` (SB-143, default `[turtle, fox, armadillo, bee]`), `range-blocks` (default `8`, positive finite forward distance), `duration-ticks` (1..100, default `100`); no real-entity, taming or combat settings |
+| Apparition / SB-124 | `kinds` (SB-143, default `[turtle, fox, armadillo, bee]`), `range-blocks` (default `8`, positive finite forward distance), `duration-ticks` (1..400, default `300`), `follow-update-ticks` (1..20, default `5`), `follow-distance-blocks` (positive finite, greater than the default interaction reach plus one-block margin, default `6`; actual player reach is guarded at delivery); no real-entity, taming or combat settings |
 
 Durations and total sound delays plus playback obey SB-116's 100-tick ceiling,
-except private dawn allows 200 ticks. On upgrade, legacy `apparition.kind: cat`
+except private dawn allows 200 ticks and apparition allows 400 ticks. On upgrade,
+an untouched previous apparition duration of 60 or 100 adopts 300; other
+custom durations are preserved. `serenity-follow-v1.flag` records this adoption
+after validation so subsequent edits, including 60 or 100, survive reload.
+On upgrade, legacy `apparition.kind: cat`
 (the R1 shipped default) adopts the new default list; a customised legacy kind
 adopts a one-entry list. Existing unmarked `apparition.kinds: [cat]` is repaired
 once; R2 recorded no owner-edit provenance, so this ambiguous singleton is

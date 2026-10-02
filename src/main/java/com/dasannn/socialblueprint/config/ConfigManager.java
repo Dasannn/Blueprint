@@ -227,6 +227,16 @@ public class ConfigManager {
         } catch (IOException error) { throw new ConfigValidationException("effects", "Cannot adopt effect lists: " + error.getMessage()); }
     }
 
+    private void adoptApparitionDuration(YamlConfiguration before) {
+        File flag = new File(configFile.getParentFile(), "serenity-follow-v1.flag");
+        if (flag.exists()) return;
+        String key = "effects.serenity.apparition.duration-ticks";
+        try {
+            if (before.isInt(key) && (before.getInt(key) == 60 || before.getInt(key) == 100))
+                YamlFileUpdater.updateLeafAndSave(configFile, key, "300");
+        } catch (IOException error) { throw new ConfigValidationException(key, "Cannot adopt duration: " + error.getMessage()); }
+    }
+
     private File serenityDefaultsFlag() { return new File(configFile.getParentFile(), "serenity-defaults-v1.flag"); }
 
     private void adoptSerenityDefaults(YamlConfiguration before) {
@@ -375,6 +385,7 @@ public class ConfigManager {
             adoptEpisodeIntervals(beforeMerge);
             adoptEffectLists(beforeMerge, messagesBeforeMerge);
             adoptSerenityDefaults(beforeMerge);
+            adoptApparitionDuration(beforeMerge);
             adoptPrivateTextLimits(beforeMerge);
             adoptChatExtents(beforeMerge);
             retireEffectsKeys();
@@ -391,6 +402,12 @@ public class ConfigManager {
                 try { Files.writeString(serenityDefaultsFlag().toPath(), "T-211 defaults adopted\n", StandardCharsets.UTF_8,
                         java.nio.file.StandardOpenOption.CREATE_NEW); }
                 catch (IOException error) { throw new ConfigValidationException("effects.serenity", "Cannot record defaults adoption: " + error.getMessage()); }
+            }
+            File followFlag = new File(configFile.getParentFile(), "serenity-follow-v1.flag");
+            if (!followFlag.exists()) {
+                try { Files.writeString(followFlag.toPath(), "T-213 defaults adopted\n", StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE_NEW); }
+                catch (IOException error) { throw new ConfigValidationException("effects.serenity", "Cannot record follow adoption: " + error.getMessage()); }
             }
             snapshotRef.set(newSnapshot);
             notifySnapshotListeners(newSnapshot);

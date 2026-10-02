@@ -50,17 +50,21 @@ public class AmbientEffectsListener implements Listener {
         cleanupPlayer(event.getPlayer().getUniqueId(), false);
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerMove(org.bukkit.event.player.PlayerMoveEvent event) {
+        if (event instanceof org.bukkit.event.player.PlayerTeleportEvent) return;
+        if (dispatcher != null) {
+            dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+            dispatcher.moveAnimalViewer(event.getPlayer(), event.getTo());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerTeleport(org.bukkit.event.player.PlayerTeleportEvent event) {
         if (dispatcher != null) {
             dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
             dispatcher.removeAnimalViewer(event.getPlayer().getUniqueId());
         }
-    }
-
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onPlayerTeleport(org.bukkit.event.player.PlayerTeleportEvent event) {
-        if (dispatcher != null) dispatcher.removeAnimalViewer(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.LOWEST)

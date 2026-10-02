@@ -14,7 +14,10 @@ final class PrivateGhost {
     private final Method send;
     private final Object spawn, metadata, remove;
     private final ActiveEntityEntry entry;
-    private final SereneEpisode.Bounds bounds;
+    private SereneEpisode.Bounds bounds;
+    private Location position;
+    private final Object entity;
+    private Object movementCodec;
 
     PrivateGhost(Player player, Location at, Component label, Object entityType) throws ReflectiveOperationException {
         this(player, at, label, entityType, null);
@@ -36,8 +39,9 @@ final class PrivateGhost {
         Class<?> display = mob ? null : Class.forName(animal == null
                 ? "net.minecraft.world.entity.Display$TextDisplay" : "net.minecraft.world.entity.decoration.Mannequin");
         Object world = handle.getClass().getMethod("level").invoke(handle);
-        Object entity = mob ? createMob(entityType, world)
+        entity = mob ? createMob(entityType, world)
                 : display.getConstructor(type, level).newInstance(entityType, world);
+        position = at.clone();
         display = entity.getClass();
         display.getMethod("setPos", double.class, double.class, double.class).invoke(entity, at.getX(), at.getY(), at.getZ());
         display.getMethod("setUUID", UUID.class).invoke(entity, UUID.randomUUID());
@@ -101,6 +105,47 @@ final class PrivateGhost {
 
     ActiveEntityEntry entry() { return entry; }
     SereneEpisode.Bounds bounds() { return bounds; }
+    SereneEpisode.Bounds boundsAt(Location at) {
+        double dx = at.getX() - position.getX(), dy = at.getY() - position.getY(), dz = at.getZ() - position.getZ();
+        return new SereneEpisode.Bounds(bounds.minX() + dx, bounds.minY() + dy, bounds.minZ() + dz,
+                bounds.maxX() + dx, bounds.maxY() + dy, bounds.maxZ() + dz);
+    }
+
+    /** Client interpolation drives the living model's walking animation; the unregistered entity is never ticked. */
+    void move(Location at) throws ReflectiveOperationException {
+        Class<?> vector = Class.forName("net.minecraft.world.phys.Vec3");
+        Class<?> codec = Class.forName("net.minecraft.network.protocol.game.VecDeltaCodec");
+        if (movementCodec == null) {
+            movementCodec = codec.getConstructor().newInstance();
+            codec.getMethod("setBase", vector).invoke(movementCodec,
+                    vector.getConstructor(double.class, double.class, double.class)
+                            .newInstance(position.getX(), position.getY(), position.getZ()));
+        }
+        Object next = vector.getConstructor(double.class, double.class, double.class).newInstance(at.getX(), at.getY(), at.getZ());
+        Object delta = codec.getMethod("tryEncode", vector).invoke(movementCodec, next);
+        byte yaw = (byte) Math.floor(at.getYaw() * 256 / 360);
+        Object packet;
+        if (delta != null) {
+            packet = Class.forName("net.minecraft.network.protocol.game.ClientboundMoveEntityPacket$PosRot")
+                    .getConstructor(int.class, Class.forName("net.minecraft.network.protocol.game.VecDelta"), byte.class, byte.class, boolean.class)
+                    .newInstance(entry.entityId(), delta, yaw, (byte) 0, true);
+        } else {
+            Class<?> rotation = Class.forName("net.minecraft.world.entity.PositionMoveRotation");
+            Object change = rotation.getConstructor(vector, vector, float.class, float.class)
+                    .newInstance(next, vector.getField("ZERO").get(null), at.getYaw(), 0f);
+            packet = Class.forName("net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket")
+                    .getConstructor(int.class, rotation, java.util.Set.class, boolean.class)
+                    .newInstance(entry.entityId(), change, java.util.Set.of(), true);
+        }
+        send.invoke(connection, packet);
+        Object head = Class.forName("net.minecraft.network.protocol.game.ClientboundRotateHeadPacket")
+                .getConstructor(Class.forName("net.minecraft.world.entity.Entity"), byte.class).newInstance(entity, yaw);
+        send.invoke(connection, head);
+        codec.getMethod("setBase", vector).invoke(movementCodec, next);
+        bounds = boundsAt(at);
+        position = at.clone();
+    }
+
     void show() throws ReflectiveOperationException { send.invoke(connection, spawn); send.invoke(connection, metadata); }
     private void remove() {
         try { send.invoke(connection, remove); }
