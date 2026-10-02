@@ -54,6 +54,7 @@ public class AmbientEffectDispatcher {
     private final Map<UUID, Runnable> activeSoundStops = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, Runnable>> sereneViewers = new java.util.HashMap<>();
     private final Map<UUID, Map<UUID, ActiveEntityEntry>> sereneAnimals = new java.util.HashMap<>();
+    private final Map<UUID, ActivePresentationEntry> phantoms = new java.util.HashMap<>();
     private final Map<UUID, java.util.function.BooleanSupplier> directionGuards = new java.util.HashMap<>();
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
     private final java.util.logging.Logger logger;
@@ -132,7 +133,7 @@ public class AmbientEffectDispatcher {
             case SIGN -> dispatchBlock(player, config.presentation().sign(), true, snapshot);
             case HURT_FLASH -> dispatchHurt(player, config.presentation(), snapshot);
             case VICTIM_GHOST -> false; // Requires the asynchronous killer-history read before rendering.
-            case SILVERFISH -> dispatchSilverfish(player);
+            case SILVERFISH -> dispatchSilverfish(player, config.presentation().phantom());
             case WHISPER -> dispatchWhisper(player, snapshot);
             case CREEPER_SOUND -> {
                 dispatchCreeperSound(player, config, snapshot);
@@ -303,6 +304,8 @@ public class AmbientEffectDispatcher {
     }
 
     void removeAnimalViewer(UUID id) {
+        ActivePresentationEntry phantom = phantoms.remove(id);
+        if (phantom != null) silverfishService.registry().cleanPresentation(phantom);
         for (UUID owner : Set.copyOf(sereneAnimals.keySet())) {
             Map<UUID, ActiveEntityEntry> animals = sereneAnimals.get(owner);
             if (animals != null && animals.containsKey(id)) {
@@ -457,8 +460,18 @@ public class AmbientEffectDispatcher {
             Location origin = player.getLocation();
             for (int i = 0; i < config.count(); i++) {
                 ParticlePoint point = ParticlePoint.at(config, i);
-                for (Player viewer : audience)
-                    viewer.spawnParticle(particle, origin.clone().add(point.x(), point.y(), point.z()), 1, 0, 0, 0, 0);
+                Runnable emit = () -> {
+                    for (Player viewer : audience)
+                        if (viewer.isOnline() && viewer.getWorld().equals(origin.getWorld())
+                                && (!sereneViewers.containsKey(player.getUniqueId())
+                                || sereneViewers.get(player.getUniqueId()).containsKey(viewer.getUniqueId()))) viewer.spawnParticle(particle, origin.clone().add(point.x(), point.y(), point.z()), 1, 0, 0, 0, 0);
+                };
+                long delay = config.emissionDelay(i);
+                if (delay == 0) emit.run();
+                else if (!scheduleTracked(player.getUniqueId(), emit, delay)) {
+                    cancelPending(player.getUniqueId());
+                    return false;
+                }
             }
             return true;
         } catch (RuntimeException failure) {
@@ -507,15 +520,60 @@ public class AmbientEffectDispatcher {
         return true;
     }
 
-    private boolean dispatchSilverfish(Player player) {
-        double angle = random.nextDouble() * 2 * Math.PI;
-        double distance = 1.5 + random.nextDouble() * 2.0;
-        double dx = Math.cos(angle) * distance;
-        double dz = Math.sin(angle) * distance;
+    private boolean dispatchSilverfish(Player player, PresentationConfig.Phantom config) {
+        String mob = config.mobs().get(random.nextInt(config.mobs().size()));
+        double yaw = Math.toRadians(player.getLocation().getYaw());
+        Location at = player.getLocation().clone().add(-Math.sin(yaw) * config.distance(), 0,
+                Math.cos(yaw) * config.distance());
+        at.setYaw(player.getLocation().getYaw() + 180F);
+        UUID owner = player.getUniqueId();
+        try {
+            PrivateGhost phantom = PrivateGhost.animal(player, at, mob,
+                    silverfishService.resolveEntityType(org.bukkit.NamespacedKey.fromString(mob)));
+            if (!safeAnimalViewer(player, phantom.bounds())) return false;
+            if (!showPhantom(phantom.entry(), config.durationTicks(), () -> {
+                try { phantom.show(); }
+                catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+            })) return false;
+            ActivePresentationEntry entry = phantoms.get(owner);
+            if (!watchPhantom(player, phantom, entry, config.durationTicks())) {
+                removeAnimalViewer(owner);
+                return false;
+            }
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            cancelPending(owner);
+            if (warnedKeys.add("phantom-bridge")) logger.warning("Private phantom bridge unavailable: " + failure.getMessage());
+            return false;
+        }
+    }
 
-        Location at = player.getLocation().clone().add(dx, 0, dz);
-        ActiveEntityEntry entry = silverfishService.spawnSilverfish(player, at);
-        return entry != null;
+    // Plain lifecycle seam: register before spawn, retain until expiry, and remove on interrupted delivery.
+    boolean showPhantom(ActiveEntityEntry phantom, long ticks, Runnable sendSpawn) {
+        UUID owner = phantom.targetPlayerId();
+        AmbientEntityRegistry registry = silverfishService.registry();
+        registry.register(phantom);
+        try {
+            ActivePresentationEntry entry = startPresentation(owner, AmbientEffectType.SILVERFISH, ticks, () -> {
+                registry.cleanDespawn(phantom);
+                phantoms.remove(owner);
+            });
+            if (entry == null) return false;
+            phantoms.put(owner, entry);
+            sendSpawn.run();
+            return true;
+        } catch (RuntimeException failure) {
+            cancelPending(owner);
+            return false;
+        }
+    }
+
+    private boolean watchPhantom(Player viewer, PrivateGhost phantom, ActivePresentationEntry entry, long remaining) {
+        return scheduleTracked(viewer.getUniqueId(), () -> {
+            if (phantoms.get(viewer.getUniqueId()) != entry) return;
+            if (!viewer.isOnline() || !safeAnimalViewer(viewer, phantom.bounds())) removeAnimalViewer(viewer.getUniqueId());
+            else if (remaining > 1 && !watchPhantom(viewer, phantom, entry, remaining - 1)) removeAnimalViewer(viewer.getUniqueId());
+        }, 1);
     }
 
     private boolean dispatchWhisper(Player player, RuntimeSnapshot snapshot) {

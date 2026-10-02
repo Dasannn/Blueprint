@@ -53,6 +53,7 @@ class ChatCorruptionTest {
                 String output = ChatCorruption.corrupt(input, PsychosisLevel.EXTREME, 123, sequence, config);
                 assertThat(output.length()).isEqualTo(input.length());
                 assertThat(output).startsWith(words[0] + " ").endsWith(" " + words[words.length - 1]);
+                assertThat(output.length()).isEqualTo(input.length());
                 int changed = 0;
                 for (int i = 0; i < input.length(); i++) if (input.charAt(i) != output.charAt(i)) changed++;
                 assertThat(changed).isLessThanOrEqualTo(letters / 4);
@@ -66,8 +67,7 @@ class ChatCorruptionTest {
 
     @Test
     void shortAndUnicodeMessagesStayReadableAtEveryLevel() {
-        for (String input : new String[]{"", "hi", "help me now", "a b c d", "one extraordinarilylongword three",
-                "\u4f60\u597d \u4e16\u754c", "\ud83d\ude00 help me now", "e\u0301 a b c"}) {
+        for (String input : new String[]{"", "hi", "a b c d", "\u4f60\u597d \u4e16\u754c", "e\u0301 a b c"}) {
             for (PsychosisLevel level : PsychosisLevel.values()) {
                 for (int sequence = 0; sequence < 100; sequence++) {
                     assertThat(ChatCorruption.corrupt(input, level, 0, sequence,
@@ -75,6 +75,32 @@ class ChatCorruptionTest {
                 }
             }
         }
+    }
+
+    @Test
+    void oneTwoAndThreeWordPhrasesCorruptWithinBudgetAndMinimumIsConfigurable() {
+        var config = new ChatCorruptionConfig(10, 25, 50, 20, 6);
+        for (String input : new String[]{"abcdef", "go home", "help me now", "one extraordinarilylongword three", "\ud83d\ude00 help me now"}) {
+            int letters = (int) input.codePoints().filter(Character::isLetter).count();
+            for (int sequence = 0; sequence < 20; sequence++) {
+                String output = ChatCorruption.corrupt(input, PsychosisLevel.EXTREME, 0, sequence, config);
+                assertThat(output.length()).isEqualTo(input.length());
+                int changed = 0;
+                for (int i = 0; i < input.length(); i++) if (input.charAt(i) != output.charAt(i)) changed++;
+                assertThat(changed).isLessThanOrEqualTo(letters * config.extent() / 100);
+                if ((sequence & 1) == 0) assertThat(changed).isPositive();
+                else assertThat(output).isEqualTo(input);
+                String[] words = input.split(" ");
+                if (words.length >= 3) assertThat(output).startsWith(words[0] + " ").endsWith(" " + words[words.length - 1]);
+            }
+            assertThat(ChatCorruption.corrupt(input, PsychosisLevel.EXTREME, 0, 0,
+                    new ChatCorruptionConfig(10, 25, 50, 20, letters + 1))).isEqualTo(input);
+        }
+        assertThat(ChatCorruption.corrupt("hello", PsychosisLevel.EXTREME, 0, 0,
+                new ChatCorruptionConfig(10, 25, 50, 20, 1))).isNotEqualTo("hello");
+        assertThat(ChatCorruption.corrupt("hello", PsychosisLevel.EXTREME, 0, 0,
+                new ChatCorruptionConfig(10, 25, 50, 1, 1))).isEqualTo("hello"); // No letter fits a 1% budget.
+        assertThatThrownBy(() -> new ChatCorruptionConfig(10, 25, 50, 20, 0)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

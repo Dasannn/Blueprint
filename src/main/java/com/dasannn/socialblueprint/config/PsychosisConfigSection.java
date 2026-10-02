@@ -114,9 +114,11 @@ public record PsychosisConfigSection(
         if (extent < 1 || extent > 25) {
             throw new ConfigValidationException("psychosis.chat.extent", "Extent must be between 1 and 25 percent");
         }
+        int minLetters = integer(section, "min-letters", 6);
+        if (minLetters < 1) throw new ConfigValidationException("psychosis.chat.min-letters", "Must be positive");
         try {
             return new ChatCorruptionConfig(integer(section, "medium-rate", 10), integer(section, "high-rate", 25),
-                    integer(section, "extreme-rate", 40), extent);
+                    integer(section, "extreme-rate", 40), extent, minLetters);
         } catch (IllegalArgumentException ex) {
             throw new ConfigValidationException("psychosis.chat", ex.getMessage());
         }

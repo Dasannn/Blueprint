@@ -32,14 +32,17 @@ final class PrivateGhost {
         send = connection.getClass().getMethod("send", packet);
         Class<?> type = Class.forName("net.minecraft.world.entity.EntityType");
         Class<?> level = Class.forName("net.minecraft.world.level.Level");
-        Class<?> display = Class.forName(animal == null ? "net.minecraft.world.entity.Display$TextDisplay" : switch (animal) {
+        boolean hostile = animal != null && animal.contains(":");
+        Class<?> display = hostile ? null : Class.forName(animal == null ? "net.minecraft.world.entity.Display$TextDisplay" : switch (animal) {
             case "cat" -> "net.minecraft.world.entity.animal.feline.Cat";
             case "fox" -> "net.minecraft.world.entity.animal.fox.Fox";
             case "wolf" -> "net.minecraft.world.entity.animal.wolf.Wolf";
             default -> throw new IllegalArgumentException(animal);
         });
-        Object entity = display.getConstructor(type, level).newInstance(entityType,
-                handle.getClass().getMethod("level").invoke(handle));
+        Object world = handle.getClass().getMethod("level").invoke(handle);
+        Object entity = hostile ? createMob(entityType, world)
+                : display.getConstructor(type, level).newInstance(entityType, world);
+        display = entity.getClass();
         display.getMethod("setPos", double.class, double.class, double.class).invoke(entity, at.getX(), at.getY(), at.getZ());
         display.getMethod("setUUID", UUID.class).invoke(entity, UUID.randomUUID());
         display.getMethod("setNoGravity", boolean.class).invoke(entity, true);
@@ -75,6 +78,21 @@ final class PrivateGhost {
         remove = Class.forName("net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket")
                 .getConstructor(int[].class).newInstance((Object) new int[]{id});
         entry = new ActiveEntityEntry(player.getUniqueId(), id, null, at.getWorld().getUID(), null, this::remove);
+    }
+
+    private static Object createMob(Object type, Object world) throws ReflectiveOperationException {
+        // Use the registry type's factory, rather than version-dependent hostile class names.
+        for (Method method : type.getClass().getMethods()) {
+            Class<?>[] parameters = method.getParameterTypes();
+            if (!method.getName().equals("create") || parameters.length != 2
+                    || !parameters[0].isInstance(world) || !parameters[1].isEnum()
+                    || !parameters[1].getSimpleName().equals("EntitySpawnReason")) continue;
+            Object reason = parameters[1].getField("COMMAND").get(null);
+            Object entity = method.invoke(type, world, reason);
+            if (entity == null) throw new IllegalStateException("Mob factory returned no entity");
+            return entity;
+        }
+        throw new NoSuchMethodException("EntityType.create(Level, EntitySpawnReason)");
     }
 
     ActiveEntityEntry entry() { return entry; }

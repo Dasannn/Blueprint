@@ -49,6 +49,7 @@ class PresentationConfigTest {
 
     @Test void invalidPresentationValuesNameTheirPath() {
         Map<String, Object> invalid = Map.ofEntries(
+                Map.entry("episodes.duration-scale", "bad"), Map.entry("episodes.duration-scale.unknown", 1),
                 Map.entry("sky.mode", "day"), Map.entry("sky.duration-ticks", 0),
                 Map.entry("sky.cooldown-ticks", 0), Map.entry("sky.session-cap", -1),
                 Map.entry("sky.enabled", "yes"), Map.entry("sky.unknown", 1),
@@ -82,6 +83,83 @@ class PresentationConfigTest {
         yaml.set("effects.episodes.quiet-ticks", 20);
         yaml.set("effects.episodes.high.interval-ticks", 6000);
         assertThatThrownBy(() -> PresentationConfig.load(yaml)).hasMessageContaining("effects.episodes");
+    }
+
+    @Test void tuningDefaultsScaleEveryTimedVisualAndKeepCadenceAndCaps() {
+        PluginConfig config = PluginConfig.load(shipped());
+        EffectsConfigSection effects = config.effects();
+        assertThat(config.psychosis().chat().minLetters()).isEqualTo(6);
+        assertThat(effects.checkInterval()).isEqualTo(java.time.Duration.ofSeconds(1));
+        int index = 0;
+        for (PsychosisLevel level : List.of(PsychosisLevel.MEDIUM, PsychosisLevel.HIGH, PsychosisLevel.EXTREME)) {
+            assertThat(effects.presentation().episodes().intervalTicks(level)).isEqualTo(new long[]{2400, 1200, 400}[index]);
+            assertThat(effects.quietInterval(level)).isEqualTo(java.time.Duration.ofSeconds(new int[]{120, 60, 20}[index]));
+            PresentationConfig scaled = effects.scaled(level).presentation();
+            for (var type : List.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES, AmbientEffectType.SCREEN_FLASH,
+                    AmbientEffectType.BLOCK_CHANGE, AmbientEffectType.SIGN, AmbientEffectType.VICTIM_GHOST,
+                    AmbientEffectType.ADVANCEMENT_TOAST, AmbientEffectType.BOSS_BAR, AmbientEffectType.SILVERFISH)) {
+                long base = type == AmbientEffectType.PARTICLES ? effects.presentation().particles().durationTicks()
+                        : effects.presentation().durationTicks(type, config.sounds());
+                long expected = Math.min(100, (long) Math.ceil(base * new double[]{1, 1.5, 2}[index]));
+                if (type == AmbientEffectType.PARTICLES) expected = Math.max(expected, 41); // Fixed client tail is not shortened.
+                assertThat(scaled.durationTicks(type, config.sounds())).as(type + " at " + level).isEqualTo(expected);
+            }
+            assertThat(scaled.flash().totalTicks()).isEqualTo(new int[]{40, 60, 80}[index]);
+            assertThat(scaled.particles().count()).isEqualTo(effects.presentation().particles().count());
+            assertThat(scaled.particles().emissionDelay(scaled.particles().count() - 1) + 41)
+                    .isEqualTo(scaled.particles().totalTicks());
+            index++;
+        }
+        for (AmbientEffectType type : AmbientEffectType.values()) assertThat(effects.getEffect(type).sessionCap()).isEqualTo(6);
+        assertThat(effects.presentation().phantom().mobs()).containsExactly("minecraft:silverfish", "minecraft:zombie",
+                "minecraft:skeleton", "minecraft:spider", "minecraft:creeper", "minecraft:enderman");
+        assertThat(effects.presentation().phantom().distance()).isEqualTo(8);
+        assertThat(effects.presentation().phantom().durationTicks()).isEqualTo(20);
+    }
+
+    @Test void tuningLeavesValidateOnLoadAndLiveEditWithoutChangingSnapshotOrDisk() throws Exception {
+        ConfigManager manager = manager();
+        manager.initialize();
+        Map<String, List<Object>> invalid = Map.of(
+                "psychosis.chat.min-letters", List.of(0, -1, 2.5),
+                "effects.episodes.duration-scale.medium", List.of(0.9, Double.NaN, Double.POSITIVE_INFINITY, "bad"),
+                "effects.episodes.duration-scale.high", List.of(0.5, Double.NaN, Double.NEGATIVE_INFINITY, "bad"),
+                "effects.episodes.duration-scale.extreme", List.of(1, Double.NaN, Double.POSITIVE_INFINITY, "bad"),
+                "effects.silverfish.duration-ticks", List.of(0, 101, 2.5),
+                "effects.silverfish.distance-blocks", List.of(0, Double.NaN, Double.POSITIVE_INFINITY),
+                "effects.silverfish.mobs", List.of(List.of(), List.of("unknown"), List.of("item"), List.of("cow"),
+                        List.of("armor_stand"), List.of("text_display"), List.of("minecraft:zombie", 1)));
+        for (var entry : invalid.entrySet()) {
+            assertThat(manager.isEditableKey(entry.getKey())).isTrue();
+            for (Object value : entry.getValue()) {
+                YamlConfiguration yaml = shipped();
+                yaml.set(entry.getKey(), value);
+                assertThatThrownBy(() -> PluginConfig.load(yaml)).hasMessageContaining(entry.getKey());
+                RuntimeSnapshot before = manager.snapshot();
+                String disk = Files.readString(folder.resolve("config.yml"));
+                assertThatThrownBy(() -> manager.set(entry.getKey(), value.toString())).hasMessageContaining(entry.getKey());
+                assertThat(manager.snapshot()).isSameAs(before);
+                assertThat(Files.readString(folder.resolve("config.yml"))).isEqualTo(disk);
+            }
+        }
+        YamlConfiguration scalarList = shipped();
+        scalarList.set("effects.silverfish.mobs", "zombie");
+        assertThatThrownBy(() -> PluginConfig.load(scalarList)).hasMessageContaining("effects.silverfish.mobs");
+        manager.set("psychosis.chat.min-letters", "4");
+        manager.set("effects.episodes.duration-scale.extreme", "2.5");
+        manager.set("effects.episodes.duration-scale.high", "2.25");
+        manager.set("effects.episodes.duration-scale.medium", "1.25");
+        manager.set("effects.silverfish.mobs", "[minecraft:zombie, skeleton]");
+        manager.set("effects.silverfish.duration-ticks", "37");
+        manager.set("effects.silverfish.distance-blocks", "9.5");
+        manager.reload();
+        assertThat(manager.config().psychosis().chat().minLetters()).isEqualTo(4);
+        assertThat(manager.config().effects().presentation().durationScale()).isEqualTo(new PresentationConfig.DurationScale(1.25, 2.25, 2.5));
+        assertThat(manager.config().effects().presentation().phantom().mobs()).containsExactly("minecraft:zombie", "minecraft:skeleton");
+        assertThat(manager.config().effects().presentation().phantom().durationTicks()).isEqualTo(37);
+        assertThat(manager.config().effects().presentation().phantom().distance()).isEqualTo(9.5);
+        var huge = new PresentationConfig.DurationScale(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
+        assertThat(huge.ticks(100, PsychosisLevel.EXTREME)).isEqualTo(100);
     }
 
     private ConfigManager manager() throws Exception {

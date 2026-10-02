@@ -94,6 +94,66 @@ class PresentationEffectsTest {
         }
     }
 
+    @Test void phantomRemainsVisibleUntilScaledExpiryAndEveryCleanupPathRemovesIt() {
+        UUID id = UUID.randomUUID();
+        for (String end : List.of("expiry", "move", "teleport", "quit", "world-change", "disable")) {
+            var registry = new AmbientEntityRegistry();
+            List<Scheduled> tasks = new ArrayList<>();
+            var dispatcher = dispatcher(registry, tasks);
+            List<String> packets = new ArrayList<>();
+            var phantom = new ActiveEntityEntry(id, 555, null, UUID.randomUUID(), null, () -> packets.add("remove"));
+            assertThat(dispatcher.showPhantom(phantom, 40, () -> {
+                assertThat(registry.hasActiveEntities(id)).isTrue();
+                packets.add("spawn");
+            })).isTrue();
+            assertThat(packets).containsExactly("spawn");
+            assertThat(tasks).singleElement().satisfies(task -> assertThat(task.ticks()).isEqualTo(40));
+            var listener = new AmbientEffectsListener(registry, null, dispatcher);
+            var viewer = (org.bukkit.entity.Player) java.lang.reflect.Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class[]{org.bukkit.entity.Player.class},
+                    (proxy, method, args) -> method.getName().equals("getUniqueId") ? id : null);
+            var location = new org.bukkit.Location(null, 0, 0, 0);
+            switch (end) {
+                case "expiry" -> tasks.getFirst().action().run();
+                case "move" -> listener.onPlayerMove(new org.bukkit.event.player.PlayerMoveEvent(viewer, location, location));
+                case "teleport" -> listener.onPlayerTeleport(new org.bukkit.event.player.PlayerTeleportEvent(viewer, location, location));
+                case "quit" -> listener.cleanupPlayer(id, true);
+                case "world-change" -> listener.cleanupPlayer(id, false);
+                case "disable" -> dispatcher.cancelAllPending();
+                default -> throw new AssertionError(end);
+            }
+            assertThat(packets).containsExactly("spawn", "remove");
+            assertThat(registry.getActiveCount()).isZero();
+            assertThat(registry.presentationsFor(id)).isEmpty();
+            dispatcher.cancelPending(id);
+            tasks.getFirst().action().run();
+            assertThat(packets).containsExactly("spawn", "remove");
+        }
+        var registry = new AmbientEntityRegistry();
+        List<Scheduled> tasks = new ArrayList<>();
+        var dispatcher = dispatcher(registry, tasks);
+        AtomicInteger removed = new AtomicInteger();
+        var phantom = new ActiveEntityEntry(id, 555, null, UUID.randomUUID(), null, removed::incrementAndGet);
+        assertThat(dispatcher.showPhantom(phantom, 20, () -> { throw new IllegalStateException("send failed"); })).isFalse();
+        assertThat(removed).hasValue(1);
+        assertThat(registry.getActiveCount()).isZero();
+        assertThat(dispatcher.hasPending(id)).isFalse();
+        var messages = MessageRegistry.fromMaps(Map.of(), Map.of(), "en", null);
+        var unavailable = new AmbientEffectDispatcher(null, messages, null, new FakeSilverfishService(null, registry, null), (task, ticks) -> null);
+        assertThat(unavailable.showPhantom(phantom, 20, () -> { throw new AssertionError("must not send without removal"); })).isFalse();
+        assertThat(registry.getActiveCount()).isZero();
+    }
+
+    @Test void phantomUsesTheSamePickableBoundsGuardAsSereneAnimals() {
+        var mob = new SereneEpisode.Bounds(7.5, 0, -0.5, 8.5, 3, 0.5);
+        assertThat(mob.outsideReach(0, 1.62, 0, 4)).isTrue();
+        assertThat(mob.outsideReach(0, 1.62, 0, 8)).isFalse();
+        assertThat(mob.outsideReach(3.5, 1.62, 0, 4)).isFalse();
+        assertThat(mob.outsideReach(0, 1.62, 0, Double.NaN)).isFalse();
+        assertThat(mob.outsideReach(0, 1.62, 0, Double.POSITIVE_INFINITY)).isFalse();
+        assertThat(mob.separatedFrom(new SereneEpisode.Bounds(7, 0, -0.3, 7.6, 1.8, 0.3))).isFalse();
+    }
+
     @Test void noDeliveryMayStartWithoutARestorationTask() {
         AmbientEntityRegistry registry = new AmbientEntityRegistry();
         MessageRegistry messages = MessageRegistry.fromMaps(Map.of(), Map.of(), "en", null);

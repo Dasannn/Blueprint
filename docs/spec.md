@@ -115,7 +115,13 @@ Governed by `docs/decisions/0006-psychosis-corrupts-the-speakers-chat.md`.
 Corruption affects only part of a message and leaves it readable enough to
 communicate. It never renders the whole line illegible, hides, blocks, delays or
 truncates it: a fully unreadable line would mute the player, turning a cosmetic
-effect into exclusion. If a short message cannot be partially corrupted while
+effect into exclusion.
+The configurable `psychosis.chat.min-letters` defaults to 6; there is no word
+minimum. First and last words are protected only for messages of three or more
+words. Every other message stays intact; substitutions affect at most the
+configured `extent` percent of letters, with at least one changed letter in a
+corrupted result. A zero-letter budget leaves the message intact. If a short
+message cannot be partially corrupted while
 remaining readable, it stays intact. Prefixes and the name hover are untouched.
 The frequency and extent are configurable, but no setting may remove these
 guards. Rater-supplied text is still stored as written and rendered as plain
@@ -168,7 +174,7 @@ which supersedes decision 0002. These hallucinations are private; the speaker's
 chat corruption is separately governed by SB-095.
 
 **SB-040.** Superseded by SB-096 through SB-099. The status threshold is
-removed, and the former timed Speed III silverfish become momentary phantoms.
+removed, and the former timed Speed III silverfish become brief stationary packet-only phantoms.
 
 **SB-096.** Killing Psychosis alone triggers ambient effects: phantom mobs,
 short private chat lines, configurable layered sounds (including the creeper
@@ -186,17 +192,31 @@ episodes, including any delayed sound layers. Cooldowns and session caps
 (SB-043) still bound delivery. Chat corruption follows the same gradation and
 must leave intact messages between episodes (SB-095); raising Psychosis cannot
 make either presentation constant. Unease must leave room to play and speak.
+Shipped episode intervals are
+2400/1200/400 ticks (Medium/High/Extreme), with quiet intervals of 2m/1m/20s
+after the scaled visual end and final audible tail. Madness session caps
+default to 6 per effect; strict cadence ordering and quiet floors remain.
+The shipped scheduler check is 1s so it can honour the Extreme interval;
+owner-configured check intervals still impose their existing 3/2/1-check floors.
 
 **SB-098.** Fake join and leave messages name the affected player themselves:
 "X joined the game" while X is already standing there. Only X receives them;
 they are not real connection events and are never broadcast or logged as such.
 The contradiction is about the player's own presence, not an invented visitor.
 
-**SB-099.** From **High**, phantom mobs appear and vanish at once, as a momentary glimpse,
-not a moving mob that remains for a timed encounter. They are private,
+**SB-099.** From **High**, a stationary phantom mob appears briefly, for
+`effects.silverfish.duration-ticks` (default 20) scaled by level under SB-116.
+The legacy `silverfish` section is retained for upgrade safety. Its `mobs` list
+defaults to `[silverfish, zombie, skeleton, spider, creeper, enderman]`; one
+hostile living type is chosen randomly per episode and resolved by registry key.
+Unknown, non-living and non-hostile types fail load and live-edit validation.
+Place the fake at `distance-blocks` (default 8), outside the viewer's interaction
+reach with the serene apparition's separation and movement margin. Skip a
+viewer whose reach could touch the fake: packet-only living mobs remain
+pickable on the client. No sound, AI or real entity is created. They are private,
 packet-only fakes: no server-side mob exists to cause collision or leak to
 bystanders. They never deal or take damage, push, target, drop loot or XP, or
-persist. Their managed lifecycle removes every fake on disappearance, quit,
+persist. Their managed lifecycle removes every fake on disappearance, move, teleport, quit,
 world change and server stop, so an interrupted episode leaves nothing behind
 after relog or restart. Their independent cooldown and session cap obey
 SB-043/SB-097, with silence after disappearance; they change no status,
@@ -597,13 +617,14 @@ effects engine. In `config.yml`, every effect under `effects.<id>` has
 `enabled`, `minimum-level`, `cooldown-ticks` and `session-cap`. The ids are
 `sky`, `particles`, `screen-flash`, `source-less-sounds`, `block-change`,
 `sign`, `hurt-flash`, `victim-ghost`, `advancement-toast`, `boss-bar`,
-`false-death`, `fake-connection`, `private-chat` and `phantom-mob`.
+`false-death`, `fake-connection` and `private-chat`. Phantom mobs retain the
+legacy `silverfish` section with `cooldown` and `session-cap`.
 Reuse existing cooldown and cap settings when adopting these names on upgrade;
 preserve owner overrides. Caps count deliveries per login session and are not
 reset by reload or changing level. A skipped effect consumes no delivery.
 Minimum levels may be raised, never lowered below their catalogue floor:
 Medium for the mild effects, High for sky, block/sign, hurt flash, victim ghost,
-false death and the instant phantom of SB-099. Nausea has no keys (SB-112);
+false death and the timed phantom of SB-099. Nausea has no keys (SB-112);
 retire any legacy nausea settings on upgrade without enabling an effect.
 
 `effects.episodes.<medium|high|extreme>.interval-ticks` and
@@ -617,6 +638,17 @@ paths. Nothing is persisted to resume an episode after relog or restart.
 Episode intervals are positive and strictly decrease from Medium to High to
 Extreme; the quiet interval remains positive at all three levels. Delivery
 still depends on available effects whose own cooldowns and caps permit it.
+
+`effects.episodes.duration-scale.<medium|high|extreme>` defaults to
+1.0/1.5/2.0. Multipliers must be finite, at least 1.0 and non-decreasing.
+Every timed madness visual uses its level multiplier, rounded up to integer
+ticks and capped at the existing 100-tick ceiling: sky, particles,
+screen flash including fades, block/sign, victim
+ghost, toast, boss bar and phantom mobs. Particle emissions span the scaled
+duration without increasing the configured count or audience budget. Their
+fixed native client tail remains a duration floor and ends before quiet time.
+The native momentary hurt animation and sound playback remain unscaled.
+Restoration and quiet-time reservation use the same scaled duration.
 
 Additional behaviour keys, relative to `effects.<id>`, are:
 
@@ -632,6 +664,7 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 | Advancement toast / SB-109 | `icon`, `duration-ticks`; icon is visual only, not an item grant |
 | Boss bar / SB-110 | `colour`, `style`, `progress`, `duration-ticks`; progress lies in `[0, 1]` |
 | False death / SB-111 | `range-blocks`; positive finite range and a living, visible nearby subject required |
+| Phantom mob / SB-099 (`silverfish`) | `mobs` (nonempty hostile living registry-key list), `distance-blocks` (positive finite, default 8), `duration-ticks` (default 20); skip viewers within interaction reach |
 | Custom/private chat / SB-115 | `max-visible-length` from 1 to 160; no custom-line list here |
 
 Cosmetic `duration-ticks` values are positive and at most 100 ticks (five
@@ -848,7 +881,7 @@ Deliberate deletions, so no agent restores them as "missing functionality".
 - [ ] Madness ambient effects reach only the affected player, respect their cooldowns,
       and leave no entity behind after quit or restart.
 - [ ] Fake connection messages name only the affected player and reach only
-      that player; phantom mobs vanish immediately and have no damage,
+      that player; phantom mobs vanish after a brief scaled duration and have no damage,
       collision, drops or server-side presence (SB-098, SB-099).
 - [ ] Neither ambient episodes nor chat corruption change any metric or money
       (SB-100).

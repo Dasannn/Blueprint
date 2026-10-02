@@ -42,11 +42,12 @@ public final class ChatCorruption {
             words.add(new int[]{matcher.start(), matcher.end()});
             letters += safe.codePointCount(matcher.start(), matcher.end());
         }
-        if (words.size() < 4 || letters < 12) return safe;
-        int budget = letters * config.extent() / 100;
+        if (words.isEmpty() || letters < config.minLetters()) return safe;
+        int budget = (int) ((long) letters * config.extent() / 100);
+        if (budget == 0) return safe; // No substitution fits the percentage bound.
         int wordBudget = Math.max(1, words.size() * config.extent() / 100);
-        // Protect first/last words and at least three quarters of all words/letters.
-        var candidates = new ArrayList<int[]>(words.subList(1, words.size() - 1));
+        // Protect boundary words only for phrases of three or more words.
+        var candidates = new ArrayList<int[]>(words.size() >= 3 ? words.subList(1, words.size() - 1) : words);
         Collections.shuffle(candidates, random);
         StringBuilder result = new StringBuilder(safe);
         for (int[] word : candidates) {

@@ -63,7 +63,7 @@ public class FakeSilverfishService {
     }
 
     /**
-     * Sends a packet-only glimpse and immediately removes it through the managed registry.
+     * Sends a managed packet-only glimpse; the caller owns its timed cleanup.
      * Returns null if packet construction fails (never falls back to a real entity).
      */
     public ActiveEntityEntry spawnSilverfish(Player player, Location location) {
@@ -193,13 +193,14 @@ public class FakeSilverfishService {
         }
     }
 
-    // Keeps the managed lifecycle testable without constructing NMS packets.
+    // Keeps registration and failure cleanup testable without constructing NMS packets.
     void sendGlimpse(ActiveEntityEntry entry, Runnable sendSpawn) {
         registry.register(entry);
         try {
             sendSpawn.run();
-        } finally {
+        } catch (RuntimeException | Error failure) {
             registry.cleanDespawn(entry);
+            throw failure;
         }
     }
 

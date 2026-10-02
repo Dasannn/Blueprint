@@ -61,7 +61,7 @@ class ConfigUpgradeMergeTest {
         }
         String old = bundled.replace("  window: 72h", "  window: 48h")
                 .replace("effects:\n", "effects:\n  threshold: -99\n")
-                .replace("  silverfish:\n", "  silverfish:\n    duration-ticks: 999\n")
+                .replaceFirst("duration-ticks: 20(\\r?\\n\\s+distance-blocks: 8)", "duration-ticks: 37$1")
                 .replace("  fake-announcement:\n", "  fake-announcement:\n    fake-names: [OldVisitor]\n")
                 .replace("permissions:\n", "permissions:\n  effects: sb.effects\n");
         Files.writeString(configFile.toPath(), old, StandardCharsets.UTF_8);
@@ -72,16 +72,13 @@ class ConfigUpgradeMergeTest {
         ConfigManager manager = new ConfigManager(configFile, messageRegistry, Runnable::run, testLogger);
         manager.initialize();
         String updated = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
-        // The obsolete key is effects.silverfish.duration-ticks. A bare
-        // "duration-ticks:" now matches the sky, particle and flash keys the
-        // presentation effects legitimately ship, so assert the parsed key is
-        // gone rather than that the text never appears.
+        // Owner tuning restores a timed phantom; its duration is preserved on upgrade.
         assertThat(updated).doesNotContain("threshold: -99", "fake-names:", "effects: sb.effects");
         YamlConfiguration merged = YamlConfiguration.loadConfiguration(configFile);
-        assertThat(merged.contains("effects.silverfish.duration-ticks")).isFalse();
+        assertThat(merged.getInt("effects.silverfish.duration-ticks")).isEqualTo(37);
         assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(48));
         assertThat(manager.isEditableKey("effects.threshold")).isFalse();
-        assertThat(manager.isEditableKey("effects.silverfish.duration-ticks")).isFalse();
+        assertThat(manager.isEditableKey("effects.silverfish.duration-ticks")).isTrue();
         assertThat(manager.isEditableKey("effects.fake-announcement.fake-names")).isFalse();
         assertThat(manager.isEditableKey("effects.opt-out-enabled")).isFalse();
         manager.set("psychosis.window", "96h");
@@ -94,6 +91,48 @@ class ConfigUpgradeMergeTest {
             assertThat(Files.readString(new File(tempDir, "messages_" + language + ".yml").toPath()))
                     .doesNotContain("opt-out-enabled:", "opt-out-disabled:");
         }
+    }
+
+    @Test void tuningUpgradeAddsEveryNewLeafAndPreservesOwnerLimits() throws Exception {
+        YamlConfiguration old;
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
+            old = YamlConfiguration.loadConfiguration(new java.io.InputStreamReader(in, StandardCharsets.UTF_8));
+        }
+        List<String> added = List.of("psychosis.chat.min-letters", "effects.episodes.duration-scale.medium",
+                "effects.episodes.duration-scale.high", "effects.episodes.duration-scale.extreme",
+                "effects.silverfish.mobs", "effects.silverfish.duration-ticks", "effects.silverfish.distance-blocks");
+        for (String key : added) old.set(key, null);
+        // An older file has no duration-scale section at all, not an empty one.
+        old.set("effects.episodes.duration-scale", null);
+        old.set("effects.silverfish.cooldown", "7m");
+        old.set("effects.silverfish.session-cap", 9);
+        old.set("effects.episodes.medium.interval-ticks", 7200);
+        old.set("effects.episodes.high.interval-ticks", 3600);
+        old.set("effects.episodes.extreme.interval-ticks", 800);
+        old.set("effects.quiet-interval.medium", "6m");
+        old.set("effects.quiet-interval.high", "3m");
+        old.set("effects.quiet-interval.extreme", "40s");
+        old.save(configFile);
+        ConfigManager manager = new ConfigManager(configFile, messageRegistry, Runnable::run, testLogger);
+        manager.initialize();
+        YamlConfiguration merged = YamlConfiguration.loadConfiguration(configFile);
+        for (String key : added) {
+            assertThat(merged.contains(key)).as(key).isTrue();
+            assertThat(manager.isEditableKey(key)).isTrue();
+            assertThat(manager.get(key)).isNotNull();
+        }
+        for (String key : List.of("effects.silverfish.cooldown", "effects.silverfish.session-cap",
+                "effects.episodes.medium.interval-ticks", "effects.episodes.high.interval-ticks", "effects.episodes.extreme.interval-ticks",
+                "effects.quiet-interval.medium", "effects.quiet-interval.high", "effects.quiet-interval.extreme"))
+            assertThat(merged.get(key)).as(key).isEqualTo(old.get(key));
+        assertThat(manager.config().effects().presentation().phantom().durationTicks()).isEqualTo(20);
+        manager.set("effects.silverfish.mobs", "[creeper, enderman]");
+        manager.set("effects.silverfish.duration-ticks", "32");
+        manager.set("effects.episodes.duration-scale.extreme", "3.5");
+        manager.reload();
+        assertThat(manager.config().effects().presentation().phantom().mobs()).containsExactly("minecraft:creeper", "minecraft:enderman");
+        assertThat(manager.config().effects().presentation().phantom().durationTicks()).isEqualTo(32);
+        assertThat(manager.config().effects().presentation().durationScale().extreme()).isEqualTo(3.5);
     }
 
     @Test

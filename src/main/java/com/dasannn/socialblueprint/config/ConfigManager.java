@@ -90,7 +90,7 @@ public class ConfigManager {
     }
 
     private void retireEffectsKeys() {
-        removeObsoleteKeys(configFile, List.of("effects.threshold", "effects.silverfish.duration-ticks",
+        removeObsoleteKeys(configFile, List.of("effects.threshold",
                 "effects.fake-announcement.fake-names", "permissions.effects",
                 "effects.whisper.cooldown", "effects.whisper.session-cap",
                 "effects.fake-announcement.cooldown", "effects.fake-announcement.session-cap"));
@@ -474,14 +474,14 @@ public class ConfigManager {
                 throw new ConfigValidationException(path, "Each sound layer must be a mapping");
             return layers;
         }
-        if (path.startsWith("effects.episodes.")) {
+        if (path.startsWith("effects.episodes.") && !path.startsWith("effects.episodes.duration-scale.")) {
             try { return Long.parseLong(raw.trim()); }
             catch (NumberFormatException error) { throw new ConfigValidationException(path, "Expected integer ticks"); }
         }
         if ("honor.multipliers".equals(path)) {
             return parseDoubleList(raw);
         }
-        if ("kill-penalty.exempt-worlds".equals(path)) {
+        if ("kill-penalty.exempt-worlds".equals(path) || "effects.silverfish.mobs".equals(path)) {
             return parseStringList(raw);
         }
         return parseValue(raw);
@@ -492,7 +492,7 @@ public class ConfigManager {
             List<Double> list = parseDoubleList(raw);
             return list.toString();
         }
-        if ("kill-penalty.exempt-worlds".equals(path)) {
+        if ("kill-penalty.exempt-worlds".equals(path) || "effects.silverfish.mobs".equals(path)) {
             List<String> list = parseStringList(raw);
             return "[" + String.join(", ", list) + "]";
         }
@@ -617,6 +617,7 @@ public class ConfigManager {
         set.add("psychosis.chat.high-rate");
         set.add("psychosis.chat.extreme-rate");
         set.add("psychosis.chat.extent");
+        set.add("psychosis.chat.min-letters");
         set.add("psychosis.serenity.ceiling");
         set.add("psychosis.serenity.active-hours-to-ceiling");
         set.add("psychosis.serenity.idle-timeout-seconds");
@@ -659,6 +660,8 @@ public class ConfigManager {
             set.add("effects." + key);
         for (String level : List.of("medium", "high", "extreme")) set.add("effects.episodes." + level + ".interval-ticks");
         set.add("effects.episodes.quiet-ticks");
+        for (String level : List.of("medium", "high", "extreme")) set.add("effects.episodes.duration-scale." + level);
+        for (String key : List.of("mobs", "duration-ticks", "distance-blocks")) set.add("effects.silverfish." + key);
         for (String id : List.of("block-change", "sign", "victim-ghost")) {
             set.add("effects." + id + ".range-blocks");
             set.add("effects." + id + ".duration-ticks");
@@ -761,6 +764,7 @@ public class ConfigManager {
         if ("psychosis.chat.medium-rate".equals(path)) return String.valueOf(config.psychosis().chat().mediumRate());
         if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());
         if ("psychosis.chat.extreme-rate".equals(path)) return String.valueOf(config.psychosis().chat().extremeRate());
+        if ("psychosis.chat.min-letters".equals(path)) return String.valueOf(config.psychosis().chat().minLetters());
         if ("psychosis.chat.extent".equals(path)) return String.valueOf(config.psychosis().chat().extent());
         if ("psychosis.serenity.ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().ceiling());
         if ("psychosis.serenity.active-hours-to-ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().activeHoursToCeiling());
@@ -792,6 +796,19 @@ public class ConfigManager {
         }
 
         if (config.effects() != null) {
+            if (path.startsWith("effects.episodes.duration-scale.")) {
+                var scale = config.effects().presentation().durationScale();
+                return switch (path.substring("effects.episodes.duration-scale.".length())) {
+                    case "medium" -> String.valueOf(scale.medium());
+                    case "high" -> String.valueOf(scale.high());
+                    case "extreme" -> String.valueOf(scale.extreme());
+                    default -> null;
+                };
+            }
+            if ("effects.silverfish.mobs".equals(path)) return config.effects().presentation().phantom().mobs().toString();
+            if ("effects.silverfish.duration-ticks".equals(path)) return String.valueOf(config.effects().presentation().phantom().durationTicks());
+            if ("effects.silverfish.distance-blocks".equals(path)) return String.valueOf(config.effects().presentation().phantom().distance());
+
             if ("effects.quiet-interval.medium".equals(path)) return formatDuration(config.effects().mediumQuietInterval());
             if ("effects.quiet-interval.high".equals(path)) return formatDuration(config.effects().highQuietInterval());
             if ("effects.quiet-interval.extreme".equals(path)) return formatDuration(config.effects().extremeQuietInterval());
