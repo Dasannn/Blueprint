@@ -174,6 +174,11 @@ public class HonorService {
         previewTickets.remove(playerId);
     }
 
+    /** Discard only this preview; an older chest must not cancel a newer request. */
+    public void clearPendingConfirmation(UUID playerId, PendingConfirmation expected) {
+        pendingConfirmations.computeIfPresent(playerId, (id, current) -> current == expected ? null : current);
+    }
+
     /**
      * Prepares player honor issuance (trust or distrust):
      * validates constraints, checks cooldown, checks allowance cap, computes progressive cost,
@@ -192,8 +197,15 @@ public class HonorService {
 
     public CompletableFuture<Void> preparePlayerHonor(Player actor, String targetInput, HonorKind kind,
                                                        String reason, RuntimeSnapshot snapshot) {
+        return preparePlayerHonor(actor, targetInput, kind, reason, snapshot, null);
+    }
+
+    /** The optional presenter runs on the main thread, after the preview is registered. */
+    public CompletableFuture<Void> preparePlayerHonor(Player actor, String targetInput, HonorKind kind,
+                                                       String reason, RuntimeSnapshot snapshot,
+                                                       Consumer<PendingConfirmation> presenter) {
         UUID actorUuid = actor.getUniqueId();
-        return actorOperation(actorUuid, () -> preparePlayerHonorInternal(actor, targetInput, kind, reason, snapshot)
+        return actorOperation(actorUuid, () -> preparePlayerHonorInternal(actor, targetInput, kind, reason, snapshot, presenter)
                 .whenComplete((v, ex) -> previewTickets.remove(actorUuid)));
     }
 
@@ -202,7 +214,8 @@ public class HonorService {
             String targetInput,
             HonorKind kind,
             String reason,
-            RuntimeSnapshot snapshot
+            RuntimeSnapshot snapshot,
+            Consumer<PendingConfirmation> presenter
     ) {
         Objects.requireNonNull(actor, "actor must not be null");
         Objects.requireNonNull(targetInput, "targetInput must not be null");
@@ -276,7 +289,7 @@ public class HonorService {
                                     try {
                                         if (previewTickets.remove(actorId.uuid(), ticket)) {
                                             PendingConfirmation pending = evaluate(actor, target, kind, reason, actorEvents, snapshot, clock.instant());
-                                            if (pending != null) showPreview(actor, pending, snapshot);
+                                            if (pending != null) showPreview(actor, pending, snapshot, presenter);
                                         }
                                         preview.complete(null);
                                     } catch (RuntimeException ex) {
@@ -347,8 +360,18 @@ public class HonorService {
         return pending;
     }
 
-    private void showPreview(Player actor, PendingConfirmation pending, RuntimeSnapshot snapshot) {
+    private void showPreview(Player actor, PendingConfirmation pending, RuntimeSnapshot snapshot,
+                             Consumer<PendingConfirmation> presenter) {
         pendingConfirmations.put(pending.actorId().uuid(), pending);
+        if (presenter != null) {
+            try {
+                presenter.accept(pending);
+            } catch (RuntimeException ex) {
+                clearPendingConfirmation(pending.actorId().uuid(), pending);
+                throw ex;
+            }
+            return;
+        }
 
         // 6. Show cost preview with confirm click action (SB-052)
         Component previewComp = messageRegistry.renderWithPrefix(snapshot, "honor.cost-preview",
@@ -363,10 +386,23 @@ public class HonorService {
      * and refunds on write failure. Compensation is persisted to survive crashes and restarts.
      */
     public CompletableFuture<Void> confirmPlayerHonor(Player actor, RuntimeSnapshot snapshot) {
-        return actorOperation(actor.getUniqueId(), () -> confirmPlayerHonorInternal(actor, snapshot));
+        return actorOperation(actor.getUniqueId(), () -> confirmPlayerHonorInternal(actor, snapshot, null));
     }
 
-    private CompletableFuture<Void> confirmPlayerHonorInternal(Player actor, RuntimeSnapshot snapshot) {
+    /** GUI confirmation binds the click to the exact preview displayed, under the same actor lock. */
+    public CompletableFuture<Void> confirmPlayerHonor(Player actor, RuntimeSnapshot snapshot,
+                                                       PendingConfirmation expected,
+                                                       Consumer<PendingConfirmation> presenter) {
+        return actorOperation(actor.getUniqueId(), () -> {
+            if (pendingConfirmations.get(actor.getUniqueId()) != expected) {
+                return CompletableFuture.completedFuture(null);
+            }
+            return confirmPlayerHonorInternal(actor, snapshot, presenter);
+        });
+    }
+
+    private CompletableFuture<Void> confirmPlayerHonorInternal(Player actor, RuntimeSnapshot snapshot,
+                                                               Consumer<PendingConfirmation> presenter) {
         Objects.requireNonNull(actor, "actor must not be null");
         Objects.requireNonNull(snapshot, "snapshot must not be null");
 
@@ -417,7 +453,7 @@ public class HonorService {
                     if (refreshed == null) {
                         result.complete(null);
                     } else if (Double.compare(refreshed.cost(), pending.cost()) != 0) {
-                        showPreview(actor, refreshed, snapshot);
+                        showPreview(actor, refreshed, snapshot, presenter);
                         result.complete(null);
                     } else {
                         chargePlayerHonor(actor, pending, snapshot, checkedAt).whenComplete((v, ex) -> {

@@ -5,6 +5,9 @@ package com.dasannn.socialblueprint.feature.gui;
  * Separates GUI layout decisions from Bukkit rendering per T-120 and T-121.
  */
 public enum GuiIconKind {
+    FILLER,
+    HONOR_CONFIRM,
+    HONOR_CANCEL,
     SUBJECT_HEAD,
     TIER_DYE,
     GIVE_BANNER,

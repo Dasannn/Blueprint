@@ -3,6 +3,7 @@ package com.dasannn.socialblueprint.feature.gui;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.domain.PlayerId;
+import com.dasannn.socialblueprint.feature.honor.PendingConfirmation;
 import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import org.bukkit.inventory.Inventory;
@@ -31,6 +32,9 @@ public final class StatusGuiHolder implements InventoryHolder {
     private final List<GuiLayout> pages;
     private final Set<Long> revealedEventIds;
     private final RuntimeSnapshot snapshot;
+
+    private PendingConfirmation honorPreview;
+    private boolean honorPreviewHandled;
 
     private int currentPage;
     private Inventory inventory;
@@ -69,6 +73,21 @@ public final class StatusGuiHolder implements InventoryHolder {
                 revealedEventIds,
                 snapshot
         );
+    }
+
+    public PendingConfirmation honorPreview() {
+        return honorPreview;
+    }
+
+    public void setHonorPreview(PendingConfirmation preview) {
+        this.honorPreview = Objects.requireNonNull(preview);
+    }
+
+    /** Main-thread click/close latch: queued double clicks consume the preview only once. */
+    public boolean consumeHonorPreview() {
+        if (honorPreview == null || honorPreviewHandled) return false;
+        honorPreviewHandled = true;
+        return true;
     }
 
     @Override

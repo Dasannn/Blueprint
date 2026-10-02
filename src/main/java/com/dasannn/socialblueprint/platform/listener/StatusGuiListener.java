@@ -7,6 +7,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
@@ -39,7 +40,7 @@ public class StatusGuiListener implements Listener {
             // Cancel event so items cannot be moved, stolen, or swapped
             event.setCancelled(true);
 
-            if (event.getRawSlot() < 0 || event.getRawSlot() >= StatusGuiService.INVENTORY_SIZE) {
+            if (event.getRawSlot() < 0 || event.getRawSlot() >= holder.layout().size()) {
                 return;
             }
 
@@ -62,6 +63,13 @@ public class StatusGuiListener implements Listener {
     public void onInventoryDrag(InventoryDragEvent event) {
         if (event.getInventory().getHolder() instanceof StatusGuiHolder) {
             event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (event.getInventory().getHolder() instanceof StatusGuiHolder holder) {
+            guiService.discardHonorPreview(holder);
         }
     }
 

@@ -678,6 +678,18 @@ public class StatusGuiServiceTest {
 
         // Prepared pending confirmation in HonorService
         assertThat(honorService.getPendingConfirmation(viewerUuid)).isPresent();
+        var pending = honorService.getPendingConfirmation(viewerUuid).orElseThrow();
+        StatusGuiHolder confirmation = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        assertThat(confirmation.honorPreview()).isSameAs(pending);
+        assertThat(confirmation.layout().size()).isEqualTo(StatusGuiService.CONFIRMATION_SIZE);
+        assertThat(confirmation.layout().slots()).hasSize(StatusGuiService.CONFIRMATION_SIZE);
+        assertThat(confirmation.layout().get(StatusGuiService.SLOT_HONOR_DETAILS).lore())
+                .contains(GuiLoreLine.ofKey("gui.honor-confirmation.cost",
+                        Map.of("cost", HonorService.formatCost(pending.cost()))));
+        assertThat(messageRegistry.hasCall("honor.cost-preview")).isFalse();
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(1000.0);
+        assertThat(reputationRepo.findByTargetAsync(PlayerId.of(targetUuid)).join()).isEmpty();
+        assertThat(auditRepo.findByTarget(PlayerId.of(targetUuid))).isEmpty();
     }
 
     @Test
@@ -715,12 +727,197 @@ public class StatusGuiServiceTest {
         assertThat(pending.kind()).isEqualTo(HonorKind.NEGATIVE);
         assertThat(pending.reason()).isEqualTo("Unfair trade");
 
-        // 3. Confirm rating
-        awaitQueued(honorService.confirmPlayerHonor(viewer, configManager.snapshot()));
+        StatusGuiHolder confirmation = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        assertThat(confirmation.honorPreview()).isSameAs(pending);
+        assertThat(confirmation.layout().get(StatusGuiService.SLOT_HONOR_DETAILS).lore())
+                .contains(GuiLoreLine.ofKey("gui.honor-confirmation.take"),
+                        GuiLoreLine.ofKey("gui.honor-confirmation.cost", Map.of("cost", HonorService.formatCost(pending.cost()))),
+                        GuiLoreLine.ofPlain("Unfair trade"));
+        assertThat(messageRegistry.hasCall("honor.cost-preview")).isFalse();
+
+        // 3. Confirm rating from the chest, through the existing honor path.
+        awaitQueued(guiService.handleClick(viewer, confirmation, StatusGuiService.SLOT_HONOR_CONFIRM));
         var events = reputationRepo.findByTargetAsync(PlayerId.of(targetUuid)).join();
         assertThat(events).hasSize(1);
         assertThat(events.getFirst().delta()).isEqualTo(-1);
         assertThat(events.getFirst().reason()).isEqualTo("Unfair trade");
+    }
+
+    @Test
+    void guiConfirmDoubleClickAndCloseChargeAndRecordOnce() {
+        Player actor = openGiveConfirmation();
+        UUID actorUuid = actor.getUniqueId();
+        StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        var pending = holder.honorPreview();
+        CompletableFuture<Void> first = guiService.handleClick(actor, holder, StatusGuiService.SLOT_HONOR_CONFIRM);
+        CompletableFuture<Void> second = guiService.handleClick(actor, holder, StatusGuiService.SLOT_HONOR_CONFIRM);
+        // Closing as part of confirm must not cancel the accepted click.
+        guiService.discardHonorPreview(holder);
+        awaitQueued(first);
+        awaitQueued(second);
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0 - pending.cost());
+        assertThat(reputationRepo.findByTargetAsync(pending.targetId()).join()).hasSize(1);
+        assertThat(auditRepo.findByTarget(pending.targetId())).isEmpty();
+        assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
+    }
+
+    @Test
+    void guiCancelAndCloseDiscardPreviewWithoutChargeOrAudit() {
+        for (boolean cancel : List.of(true, false)) {
+            Player actor = openGiveConfirmation();
+            StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+            var pending = holder.honorPreview();
+            if (cancel) awaitQueued(guiService.handleClick(actor, holder, StatusGuiService.SLOT_HONOR_CANCEL));
+            else guiService.discardHonorPreview(holder);
+            // A late queued confirm and command confirm cannot charge the discarded preview.
+            awaitQueued(guiService.handleClick(actor, holder, StatusGuiService.SLOT_HONOR_CONFIRM));
+            awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+            assertThat(honorService.getPendingConfirmation(actor.getUniqueId())).isEmpty();
+            assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(10000.0);
+            assertThat(reputationRepo.findByTargetAsync(pending.targetId()).join()).isEmpty();
+            assertThat(auditRepo.findByTarget(pending.targetId())).isEmpty();
+        }
+    }
+
+    @Test
+    void commandGiveAndTakeKeepChatPreviewWithoutOpeningChest() {
+        for (HonorKind kind : List.of(HonorKind.POSITIVE, HonorKind.NEGATIVE)) {
+            UUID actorUuid = UUID.randomUUID();
+            Player actor = createMockPlayer("Actor", actorUuid,
+                    "socialblueprint.give-reputation", "socialblueprint.take-reputation");
+            PlayerId target = PlayerId.of(UUID.randomUUID());
+            onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+            economyBalances.put(actorUuid, 10000.0);
+            messageRegistry.clearCalls();
+            CompletableFuture<Void> preparation = kind == HonorKind.POSITIVE
+                    ? new com.dasannn.socialblueprint.command.StatusGiveCommand(honorService, messageRegistry)
+                            .execute(actor, new String[]{"TargetUser", "Reason"}, configManager.snapshot())
+                    : new com.dasannn.socialblueprint.command.StatusTakeCommand(honorService, messageRegistry)
+                            .execute(actor, new String[]{"TargetUser", "Reason"}, configManager.snapshot());
+            awaitQueued(preparation);
+            assertThat(openedInventories).isEmpty();
+            assertThat(messageRegistry.hasCall("honor.cost-preview")).isTrue();
+            assertThat(honorService.getPendingConfirmation(actorUuid)).isPresent();
+            awaitQueued(new com.dasannn.socialblueprint.command.StatusConfirmCommand(honorService, messageRegistry)
+                    .execute(actor, new String[0], configManager.snapshot()));
+            assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(1);
+            assertThat(auditRepo.findByTarget(target)).isEmpty();
+        }
+    }
+
+    @Test
+    void confirmationReasonIsLiteralEvenForKeysAndFormatting() {
+        Player actor = openGiveConfirmation();
+        guiService.discardHonorPreview((StatusGuiHolder) openedInventories.getLast().getHolder());
+        for (String reason : List.of("honor.cost-preview", "&cRed \u00a7lBold <click:run_command:/status confirm>")) {
+            guiService.promptForTakeHonorReason(actor, "TargetUser", configManager.snapshot());
+            messageRegistry.clearCalls();
+            awaitQueued(guiService.consumePendingReason(actor, reason));
+            StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+            GuiSlot details = holder.layout().get(StatusGuiService.SLOT_HONOR_DETAILS);
+            assertThat(details.lore().getLast()).isEqualTo(GuiLoreLine.ofPlain(reason));
+            Component rendered = details.renderedLore().getLast();
+            assertThat(PlainTextComponentSerializer.plainText().serialize(rendered)).isEqualTo(reason);
+            assertThat(rendered.clickEvent()).isNull();
+            assertThat(rendered.children()).isEmpty();
+            assertThat(rendered.color()).isEqualTo(net.kyori.adventure.text.format.NamedTextColor.GRAY);
+            assertThat(messageRegistry.hasCall("honor.cost-preview")).isFalse();
+            guiService.discardHonorPreview(holder);
+        }
+    }
+
+    @Test
+    void staleChestCannotConfirmOrCancelNewerCommandPreview() {
+        for (boolean confirm : List.of(true, false)) {
+            Player actor = openGiveConfirmation();
+            StatusGuiHolder stale = (StatusGuiHolder) openedInventories.getLast().getHolder();
+            awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.NEGATIVE,
+                    "New request", configManager.snapshot()));
+            var newer = honorService.getPendingConfirmation(actor.getUniqueId()).orElseThrow();
+            if (confirm) awaitQueued(guiService.handleClick(actor, stale, StatusGuiService.SLOT_HONOR_CONFIRM));
+            else guiService.discardHonorPreview(stale);
+            assertThat(honorService.getPendingConfirmation(actor.getUniqueId()).orElseThrow()).isSameAs(newer);
+            assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(10000.0);
+            assertThat(reputationRepo.findByTargetAsync(newer.targetId()).join()).isEmpty();
+            assertThat(auditRepo.findByTarget(newer.targetId())).isEmpty();
+        }
+    }
+
+    @Test
+    void repricedGuiConfirmationOpensAnotherChestPreview() {
+        Player actor = openGiveConfirmation();
+        StatusGuiHolder old = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        var pending = old.honorPreview();
+        // An unrelated rating changes the progressive multiplier without triggering pair cooldown.
+        reputationRepo.saveAsync(new ReputationEvent(pending.actorId(), PlayerId.of(UUID.randomUUID()), 1,
+                HonorKind.POSITIVE, pending.cost(), null, Instant.now())).join();
+        messageRegistry.clearCalls();
+        awaitQueued(guiService.handleClick(actor, old, StatusGuiService.SLOT_HONOR_CONFIRM));
+        StatusGuiHolder refreshed = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        assertThat(refreshed).isNotSameAs(old);
+        assertThat(refreshed.honorPreview().cost()).isNotEqualTo(pending.cost());
+        assertThat(refreshed.honorPreview()).isSameAs(honorService.getPendingConfirmation(actor.getUniqueId()).orElseThrow());
+        assertThat(refreshed.layout().get(StatusGuiService.SLOT_HONOR_DETAILS).lore())
+                .contains(GuiLoreLine.ofKey("gui.honor-confirmation.cost",
+                        Map.of("cost", HonorService.formatCost(refreshed.honorPreview().cost()))));
+        assertThat(messageRegistry.hasCall("honor.cost-preview")).isFalse();
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(10000.0);
+        assertThat(reputationRepo.findByTargetAsync(pending.targetId()).join()).isEmpty();
+        awaitQueued(guiService.handleClick(actor, refreshed, StatusGuiService.SLOT_HONOR_CONFIRM));
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(10000.0 - refreshed.honorPreview().cost());
+    }
+
+    @Test
+    void expiredGuiConfirmationUsesExistingExpiryWithoutCharging() {
+        honorService = new HonorService(configManager, messageRegistry, reputationRepo, auditRepo,
+                compensationRepo, profileService, mockEconomy, mainThreadQueue::add, testClock);
+        guiService = new StatusGuiService(messageRegistry, profileService, reputationRepo, raterRevealRepo,
+                honorService, mainThreadQueue::add, mockEconomy,
+                uuid -> createMockOfflinePlayer(uuid, "TargetUser"), testClock, null, compensationRepo);
+        Player actor = openGiveConfirmation();
+        StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        testClock.advance(Duration.ofSeconds(61));
+        awaitQueued(guiService.handleClick(actor, holder, StatusGuiService.SLOT_HONOR_CONFIRM));
+        assertThat(messageRegistry.hasCall("honor.no-pending")).isTrue();
+        assertThat(honorService.getPendingConfirmation(actor.getUniqueId())).isEmpty();
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(10000.0);
+        assertThat(reputationRepo.findByTargetAsync(holder.honorPreview().targetId()).join()).isEmpty();
+        assertThat(auditRepo.findByTarget(holder.honorPreview().targetId())).isEmpty();
+    }
+
+    @Test
+    void guiPreviewAndConfirmationKeepPlayerAccessOnMainThread() {
+        UUID actorUuid = UUID.randomUUID();
+        Player delegate = createMockPlayer("Actor", actorUuid, "socialblueprint.show", "socialblueprint.show-others",
+                "socialblueprint.give-reputation");
+        Thread main = Thread.currentThread();
+        Player strict = (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+                (proxy, method, args) -> {
+                    if (Thread.currentThread() != main) throw new AssertionError("Player access off main: " + method.getName());
+                    return method.invoke(delegate, args);
+                });
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        economyBalances.put(actorUuid, 10000.0);
+        awaitQueued(guiService.openGuiAsync(strict, "TargetUser", configManager.snapshot()));
+        StatusGuiHolder profile = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        awaitQueued(guiService.handleClick(strict, profile, StatusGuiService.SLOT_TOP_GIVE_BANNER));
+        StatusGuiHolder confirmation = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        awaitQueued(guiService.handleClick(strict, confirmation, StatusGuiService.SLOT_HONOR_CONFIRM));
+        assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(1);
+    }
+
+    private Player openGiveConfirmation() {
+        UUID actorUuid = UUID.randomUUID();
+        Player actor = createMockPlayer("Actor", actorUuid, "socialblueprint.show", "socialblueprint.show-others",
+                "socialblueprint.give-reputation", "socialblueprint.take-reputation");
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        economyBalances.put(actorUuid, 10000.0);
+        awaitQueued(guiService.openGuiAsync(actor, "TargetUser", configManager.snapshot()));
+        StatusGuiHolder profile = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        awaitQueued(guiService.handleClick(actor, profile, StatusGuiService.SLOT_TOP_GIVE_BANNER));
+        return actor;
     }
 
     // =========================================================================

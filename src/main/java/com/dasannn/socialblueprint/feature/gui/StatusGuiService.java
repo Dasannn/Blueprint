@@ -12,6 +12,7 @@ import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
 import com.dasannn.socialblueprint.domain.Tier;
 import com.dasannn.socialblueprint.feature.honor.HonorService;
+import com.dasannn.socialblueprint.feature.honor.PendingConfirmation;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
 import com.dasannn.socialblueprint.storage.CompensationRepository;
 import com.dasannn.socialblueprint.storage.RaterRevealRepository;
@@ -71,6 +72,10 @@ import java.util.logging.Logger;
 public class StatusGuiService {
 
     public static final int INVENTORY_SIZE = 54;
+    public static final int CONFIRMATION_SIZE = 27;
+    public static final int SLOT_HONOR_CONFIRM = 11;
+    public static final int SLOT_HONOR_DETAILS = 13;
+    public static final int SLOT_HONOR_CANCEL = 15;
 
     // Profile icons in the top three rows per the owner layout
     public static final int SLOT_TOP_TIER_DYE = 22;
@@ -689,7 +694,7 @@ public class StatusGuiService {
         }
 
         adaptedSlots.replaceAll((index, slot) -> resolveSlotText(slot, holder.snapshot(), messageRegistry));
-        return new GuiLayout(INVENTORY_SIZE, adaptedSlots);
+        return new GuiLayout(baseLayout.size(), adaptedSlots);
     }
 
     /**
@@ -765,7 +770,7 @@ public class StatusGuiService {
      * Dispatches on the icon kind in the clicked slot of the layout, and confirms holder belongs to viewer (Finding 7).
      */
     public CompletableFuture<Void> handleClick(Player viewer, StatusGuiHolder holder, int slot) {
-        if (viewer == null || holder == null || slot < 0 || slot >= INVENTORY_SIZE) {
+        if (viewer == null || holder == null || slot < 0 || slot >= holder.layout().size()) {
             return CompletableFuture.completedFuture(null);
         }
 
@@ -787,10 +792,38 @@ public class StatusGuiService {
         RuntimeSnapshot snapshot = holder.snapshot();
 
         return switch (guiSlot.iconKind()) {
+            case HONOR_CONFIRM -> {
+                if (!holder.consumeHonorPreview()) yield CompletableFuture.completedFuture(null);
+                CompletableFuture<Void> result = new CompletableFuture<>();
+                mainThreadRunner.accept(() -> {
+                    try {
+                        if (!viewer.isOnline()) {
+                            honorService.clearPendingConfirmation(holder.viewerUuid(), holder.honorPreview());
+                            result.complete(null);
+                            return;
+                        }
+                        closeHonorChest(viewer, holder);
+                        honorService.confirmPlayerHonor(viewer, snapshot, holder.honorPreview(),
+                                pending -> openHonorConfirmation(viewer, pending, snapshot))
+                                .whenComplete((v, ex) -> {
+                                    if (ex == null) result.complete(null);
+                                    else result.completeExceptionally(ex);
+                                });
+                    } catch (RuntimeException ex) {
+                        result.completeExceptionally(ex);
+                    }
+                });
+                yield result;
+            }
+            case HONOR_CANCEL -> {
+                discardHonorPreview(holder);
+                mainThreadRunner.accept(() -> closeHonorChest(viewer, holder));
+                yield CompletableFuture.completedFuture(null);
+            }
             // 1. Top row Give Honor (T-120, T-123)
             case GIVE_BANNER -> {
                 viewer.closeInventory();
-                yield honorService.preparePlayerHonor(viewer, holder.targetName(), HonorKind.POSITIVE, null, snapshot);
+                yield prepareGuiHonor(viewer, holder.targetName(), HonorKind.POSITIVE, null, snapshot);
             }
 
             // 2. Top row Take Honor (Finding 3: prompts chat for written reason)
@@ -826,6 +859,67 @@ public class StatusGuiService {
 
             default -> CompletableFuture.completedFuture(null);
         };
+    }
+
+    private void closeHonorChest(Player viewer, StatusGuiHolder holder) {
+        var open = viewer.getOpenInventory();
+        if (open != null && open.getTopInventory().getHolder() == holder) {
+            viewer.closeInventory();
+        }
+    }
+
+    private CompletableFuture<Void> prepareGuiHonor(Player viewer, String target, HonorKind kind,
+                                                      String reason, RuntimeSnapshot snapshot) {
+        return honorService.preparePlayerHonor(viewer, target, kind, reason, snapshot,
+                pending -> openHonorConfirmation(viewer, pending, snapshot));
+    }
+
+    /** Main-thread renderer for the plain preview layout; no economy decisions here. */
+    private void openHonorConfirmation(Player viewer, PendingConfirmation pending, RuntimeSnapshot snapshot) {
+        if (!viewer.isOnline()) {
+            honorService.clearPendingConfirmation(pending.actorId().uuid(), pending);
+            return;
+        }
+        StatusGuiHolder holder = new StatusGuiHolder(viewer.getUniqueId(), pending.targetName(),
+                List.of(buildHonorConfirmationLayout(pending, snapshot, messageRegistry)), new HashSet<>(), snapshot);
+        holder.setHonorPreview(pending);
+        Inventory inventory = Bukkit.createInventory(holder, CONFIRMATION_SIZE,
+                messageRegistry.render(snapshot, "gui.honor-confirmation.title"));
+        holder.setInventory(inventory);
+        renderGui(holder, viewer);
+        viewer.openInventory(inventory);
+    }
+
+    public static GuiLayout buildHonorConfirmationLayout(PendingConfirmation pending,
+                                                         RuntimeSnapshot snapshot, MessageRegistry messages) {
+        Map<Integer, GuiSlot> slots = new HashMap<>();
+        for (int slot = 0; slot < CONFIRMATION_SIZE; slot++) {
+            slots.put(slot, GuiSlot.of(slot, GuiIconKind.FILLER, "gui.honor-confirmation.filler"));
+        }
+        List<GuiLoreLine> lore = new ArrayList<>();
+        lore.add(GuiLoreLine.ofKey("gui.honor-confirmation.target", Map.of("player", pending.targetName())));
+        lore.add(GuiLoreLine.ofKey(pending.kind() == HonorKind.POSITIVE
+                ? "gui.honor-confirmation.give" : "gui.honor-confirmation.take"));
+        lore.add(GuiLoreLine.ofKey("gui.honor-confirmation.cost", Map.of("cost", HonorService.formatCost(pending.cost()))));
+        if (pending.kind() == HonorKind.NEGATIVE) {
+            lore.add(GuiLoreLine.ofKey("gui.honor-confirmation.reason"));
+            lore.add(GuiLoreLine.ofPlain(pending.reason()));
+        }
+        slots.put(SLOT_HONOR_DETAILS, new GuiSlot(SLOT_HONOR_DETAILS, GuiIconKind.SUBJECT_HEAD,
+                pending.targetId().uuid(), null, null, null, "gui.top.subject-head-title",
+                Map.of("player", pending.targetName()), lore));
+        slots.put(SLOT_HONOR_CONFIRM, GuiSlot.of(SLOT_HONOR_CONFIRM, GuiIconKind.HONOR_CONFIRM,
+                "gui.honor-confirmation.confirm"));
+        slots.put(SLOT_HONOR_CANCEL, GuiSlot.of(SLOT_HONOR_CANCEL, GuiIconKind.HONOR_CANCEL,
+                "gui.honor-confirmation.cancel"));
+        slots.replaceAll((index, slot) -> resolveSlotText(slot, snapshot, messages));
+        return new GuiLayout(CONFIRMATION_SIZE, slots);
+    }
+
+    public void discardHonorPreview(StatusGuiHolder holder) {
+        if (holder.consumeHonorPreview()) {
+            honorService.clearPendingConfirmation(holder.viewerUuid(), holder.honorPreview());
+        }
     }
 
     /**
@@ -871,7 +965,7 @@ public class StatusGuiService {
             return CompletableFuture.completedFuture(null);
         }
 
-        return honorService.preparePlayerHonor(player, pending.targetName(), HonorKind.NEGATIVE, trimmed, pending.snapshot());
+        return prepareGuiHonor(player, pending.targetName(), HonorKind.NEGATIVE, trimmed, pending.snapshot());
     }
 
     /**

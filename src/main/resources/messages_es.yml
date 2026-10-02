@@ -207,3 +207,13 @@ gui:
   prompt-cancelled: '&7Calificación cancelada.'
   prompt-expired: '&cEl tiempo para ingresar la razón ha expirado.'
 
+  honor-confirmation:
+    title: '&8Confirmar honor'
+    filler: '&r'
+    target: '&7Jugador: &e{player}'
+    give: '&aDar honor'
+    take: '&cQuitar honor'
+    cost: '&7Costo exacto: &6{cost}'
+    reason: '&7Razón escrita:'
+    confirm: '&aConfirmar'
+    cancel: '&cCancelar'

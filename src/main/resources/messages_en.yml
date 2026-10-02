@@ -207,3 +207,13 @@ gui:
   prompt-cancelled: '&7Rating cancelled.'
   prompt-expired: '&cRating reason prompt expired.'
 
+  honor-confirmation:
+    title: '&8Confirm Honor'
+    filler: '&r'
+    target: '&7Target: &e{player}'
+    give: '&aGive honor'
+    take: '&cTake honor'
+    cost: '&7Exact cost: &6{cost}'
+    reason: '&7Written reason:'
+    confirm: '&aConfirm'
+    cancel: '&cCancel'
