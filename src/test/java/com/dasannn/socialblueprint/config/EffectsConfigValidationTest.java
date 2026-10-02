@@ -23,12 +23,12 @@ class EffectsConfigValidationTest {
     }
 
     @Test
-    void windowDefaultsTo72HoursAndAcceptsConfiguredWindow() {
+    void levelsDefaultToMagnitudesAndAcceptConfiguredThresholds() {
         YamlConfiguration yaml = loadValidYaml();
-        assertThat(PluginConfig.load(yaml).psychosis().window()).isEqualTo(Duration.ofHours(72));
-        assertThat(PsychosisConfig.defaults().window()).isEqualTo(Duration.ofHours(72));
-        yaml.set("psychosis.window", "48h");
-        assertThat(PluginConfig.load(yaml).psychosis().window()).isEqualTo(Duration.ofHours(48));
+        assertThat(PluginConfig.load(yaml).psychosis().mediumThreshold()).isEqualTo(20);
+        assertThat(PsychosisConfig.defaults().extremeThreshold()).isEqualTo(80);
+        yaml.set("psychosis.levels.medium", 30);
+        assertThat(PluginConfig.load(yaml).psychosis().mediumThreshold()).isEqualTo(30);
     }
 
     @Test

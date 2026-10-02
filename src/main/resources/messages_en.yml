@@ -164,7 +164,10 @@ effects:
     lines:
       - '&5The silence is watching.'
   false-death:
-    line: '&e{player} died'
+    lines:
+      - '&e{player} died'
+      - '&7{player} fell out of the world.'
+      - '&7{player} vanished into the dark.'
   screen-flash:
     lines:
       - '&8Behind you.'
@@ -233,3 +236,11 @@ gui:
 
 chat-filter:
   replacement: 'bobba'
+# Administrative mental-state resets (SB-137).
+mind-admin:
+  usage: '&eUsage: /status admin mind reset <player> | reset-all [confirm]'
+  reset: '&aMental state reset to Neutral for {player}.'
+  confirm: '&eRepeat /status admin mind reset-all confirm within 30 seconds to reset every stored player.'
+  confirm-expired: '&cNo active confirmation. Run /status admin mind reset-all again.'
+  reset-all: '&aMental state reset to Neutral for {count} stored players.'
+  failed: '&cCould not reset mental state. See the server log.'

@@ -133,9 +133,11 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 this::isEnabled
         );
 
-        coordinator.start(jdbcUrl, engine -> {
+        coordinator.start(jdbcUrl, null, com.dasannn.socialblueprint.storage.MigrationRunner.withDefaultMigrations(
+                configManager.legacyMindConversion(), Clock.systemUTC()), engine -> {
             com.dasannn.socialblueprint.storage.DuelRepository startupDuelRepo = new com.dasannn.socialblueprint.storage.DuelRepository(engine);
-            startupDuelRepo.cleanupStaleDuelsOnStartupAsync(java.time.Instant.now())
+            engine.submitAsync(configManager::finishMindUpgrade)
+                    .thenCompose(ignored -> startupDuelRepo.cleanupStaleDuelsOnStartupAsync(java.time.Instant.now()))
                     .whenComplete((count, error) -> {
                         if (!isEnabled()) {
                             engine.close();

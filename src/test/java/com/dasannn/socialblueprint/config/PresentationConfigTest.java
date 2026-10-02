@@ -54,7 +54,7 @@ class PresentationConfigTest {
                 Map.entry("sky.cooldown-ticks", 0), Map.entry("sky.session-cap", -1),
                 Map.entry("sky.enabled", "yes"), Map.entry("sky.unknown", 1),
                 Map.entry("particles.count", 0), Map.entry("particles.radius-blocks", Double.NaN),
-                Map.entry("particles.placement", "far"), Map.entry("particles.type", "unknown"),
+                Map.entry("particles.placement", "far"), Map.entry("particles.types", List.of("unknown")),
                 Map.entry("screen-flash.channel", "chat"), Map.entry("screen-flash.fade-in-ticks", -1),
                 Map.entry("screen-flash.duration-ticks", 101),
                 Map.entry("source-less-sounds.offset.forward-blocks", Double.POSITIVE_INFINITY),
@@ -101,7 +101,7 @@ class PresentationConfigTest {
                 long base = type == AmbientEffectType.PARTICLES ? effects.presentation().particles().durationTicks()
                         : effects.presentation().durationTicks(type, config.sounds());
                 long expected = Math.min(type == AmbientEffectType.SKY ? 200 : 100, (long) Math.ceil(base * new double[]{1, 1.5, 2}[index]));
-                if (type == AmbientEffectType.PARTICLES) expected = Math.max(expected, 41); // Fixed client tail is not shortened.
+                if (type == AmbientEffectType.PARTICLES) expected = Math.max(expected, 45); // Longest shipped client tail (soul) is not shortened.
                 assertThat(scaled.durationTicks(type, config.sounds())).as(type + " at " + level).isEqualTo(expected);
             }
             assertThat(scaled.sky().durationTicks()).isEqualTo(new int[]{100, 150, 200}[index]);
@@ -109,7 +109,7 @@ class PresentationConfigTest {
             assertThat(effects.presentation().episodes().intervalTicks(level)).isGreaterThan(scaled.sky().durationTicks());
             assertThat(scaled.flash().totalTicks()).isEqualTo(new int[]{40, 60, 80}[index]);
             assertThat(scaled.particles().count()).isEqualTo(effects.presentation().particles().count());
-            assertThat(scaled.particles().emissionDelay(scaled.particles().count() - 1) + 41)
+            assertThat(scaled.particles().emissionDelay(scaled.particles().count() - 1) + 45)
                     .isEqualTo(scaled.particles().totalTicks());
             index++;
         }

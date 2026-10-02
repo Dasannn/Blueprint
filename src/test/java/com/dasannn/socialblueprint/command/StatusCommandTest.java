@@ -72,6 +72,81 @@ class StatusCommandTest {
         assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> assertThat(call.key()).isEqualTo("commands.no-permission"));
     }
 
+    @Test
+    void mindResetSupportsOfflineTargetsAndConsoleWithDedicatedPermissionAndAudit() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        profileRepo.save(com.dasannn.socialblueprint.domain.PlayerProfile.create(target, "OfflineMind", Instant.now()));
+        profileService.mind().applyAsync(target, com.dasannn.socialblueprint.domain.MindInput.KILL,
+                com.dasannn.socialblueprint.domain.MindInput.KILL.defaults(), "test", Instant.now()).join();
+        Player denied = mockPlayer("Denied", "socialblueprint.admin.adjust");
+        commandExecutor.onCommand(denied, null, "status", new String[]{"admin", "mind", "reset", "OfflineMind"});
+        commandExecutor.lastExecution().join();
+        assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();
+        assertThat(profileService.mind().value(target)).isEqualTo(-10);
+        messageRegistry.clearCalls();
+        CommandSender console = mockConsole(new ArrayList<>());
+        commandExecutor.onCommand(console, null, "status", new String[]{"admin", "mind", "reset", "OfflineMind"});
+        commandExecutor.lastExecution().join();
+        assertThat(profileService.mind().value(target)).isZero();
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("mind-admin.reset");
+            assertThat(call.placeholders()).containsEntry("player", "OfflineMind");
+        });
+        assertThat(profileService.mind().events(target).getLast().actor()).isEqualTo(PlayerId.CONSOLE);
+        assertThat(new com.dasannn.socialblueprint.storage.AuditRepository(storage).findByTarget(target)).hasSize(1);
+        messageRegistry.clearCalls();
+        commandExecutor.onCommand(console, null, "status", new String[]{"admin", "mind", "reset", "NoSuchPlayer"});
+        commandExecutor.lastExecution().join();
+        assertThat(messageRegistry.hasCall("status.not-found")).isTrue();
+    }
+
+    @Test
+    void mindResetAllRequiresSameActorConfirmationWithinThirtySecondsAndIsConsumed() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        profileService.mind().applyAsync(target, com.dasannn.socialblueprint.domain.MindInput.SLEEP,
+                com.dasannn.socialblueprint.domain.MindInput.SLEEP.defaults(), "test", Instant.now()).join();
+        java.util.concurrent.atomic.AtomicReference<Instant> time = new java.util.concurrent.atomic.AtomicReference<>(Instant.parse("2026-10-02T00:00:00Z"));
+        java.time.Clock clock = new java.time.Clock() {
+            public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            public java.time.Clock withZone(java.time.ZoneId zone) { return this; }
+            public Instant instant() { return time.get(); }
+        };
+        var command = new StatusMindCommand(profileService, messageRegistry, Runnable::run, clock);
+        var snapshot = configManager.snapshot();
+        Player admin = mockPlayer("MindAdmin", "socialblueprint.admin.mind");
+        Player other = mockPlayer("OtherAdmin", "socialblueprint.admin.mind");
+        command.execute(admin, new String[]{"reset-all", "confirm"}, snapshot).join();
+        assertThat(messageRegistry.hasCall("mind-admin.confirm-expired")).isTrue();
+        command.execute(admin, new String[]{"reset-all"}, snapshot).join();
+        command.execute(other, new String[]{"reset-all", "confirm"}, snapshot).join();
+        assertThat(profileService.mind().value(target)).isEqualTo(0.5);
+        time.set(time.get().plusSeconds(30));
+        command.execute(admin, new String[]{"reset-all", "confirm"}, snapshot).join();
+        assertThat(profileService.mind().value(target)).isEqualTo(0.5);
+        command.execute(admin, new String[]{"reset-all"}, snapshot).join();
+        time.set(time.get().plusSeconds(29));
+        command.execute(admin, new String[]{"reset-all", "confirm"}, snapshot).join();
+        assertThat(profileService.mind().value(target)).isZero();
+        assertThat(messageRegistry.hasCall("mind-admin.reset-all")).isTrue();
+        int count = profileService.mind().events(target).size();
+        command.execute(admin, new String[]{"reset-all", "confirm"}, snapshot).join();
+        assertThat(profileService.mind().events(target)).hasSize(count);
+    }
+
+    @Test
+    void mindCommandsAndConfigCompleteTheirNewPaths() {
+        Player admin = mockPlayer("MindAdmin", "socialblueprint.admin.mind", "socialblueprint.admin.config");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"a"})).contains("admin");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "m"})).contains("mind");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "r"})).containsExactly("reset", "reset-all");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "reset-all", "c"})).containsExactly("confirm");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "reset", "Online"})).contains("OnlineAlice", "OnlineBob");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"config", "set", "psychosis.inputs.kill."}))
+                .contains("psychosis.inputs.kill.enabled", "psychosis.inputs.kill.serene-drain", "psychosis.inputs.kill.psychosis-weight");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"config", "get", "psychosis."}))
+                .doesNotContain("psychosis.window", "psychosis.medium-threshold", "psychosis.serenity.active-hours-to-ceiling");
+    }
+
     @TempDir
     File tempDir;
 

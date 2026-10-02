@@ -300,7 +300,7 @@ public class StatusGuiService {
                                 Set<Long> reveals = new HashSet<>(revealsFuture.join());
 
                                 List<ReputationEvent> ratings = allEvents.stream()
-                                        .filter(e -> e.kind().isPositive() || e.kind().isNegative())
+                                        .filter(e -> (e.actor() != null && e.kind().isPlayerHonor()) || e.kind() == HonorKind.SYSTEM_KILL)
                                         .sorted(Comparator.comparing(ReputationEvent::createdAt).reversed())
                                         .toList();
 
@@ -571,7 +571,7 @@ public class StatusGuiService {
                 if (rawReason == null || rawReason.isBlank()) {
                     paperLore = List.of(GuiLoreLine.ofKey("gui.history.no-reason"));
                 } else if (event.kind() == HonorKind.SYSTEM_KILL && snapshot != null && snapshot.messages() != null && snapshot.messages().isKnownKey(rawReason)) {
-                    paperLore = List.of(GuiLoreLine.ofPlain(filteredReason(messageRegistry.getRaw(snapshot, rawReason), snapshot, messageRegistry)));
+                    paperLore = List.of(GuiLoreLine.ofKey(rawReason));
                 } else {
                     // Blankness is decided after sanitizing, not before: a reason
                     // that is nothing but colour codes and spaces survives isBlank

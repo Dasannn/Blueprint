@@ -64,6 +64,7 @@ public class ProfileService {
     private final StorageEngine storageEngine;
     private final ReputationRepository reputationRepository;
     private final PsychosisRepository psychosisRepository;
+    private final com.dasannn.socialblueprint.storage.MindRepository mind;
     private final ProfileRepository profileRepository;
     private final StatusCache statusCache;
     private final ConfigManager configManager;
@@ -103,6 +104,8 @@ public class ProfileService {
         this.storageEngine = Objects.requireNonNull(storageEngine, "StorageEngine must not be null");
         this.reputationRepository = Objects.requireNonNull(reputationRepository, "ReputationRepository must not be null");
         this.psychosisRepository = Objects.requireNonNull(psychosisRepository, "PsychosisRepository must not be null");
+        this.mind = new com.dasannn.socialblueprint.storage.MindRepository(storageEngine);
+        this.mind.addInvalidationListener(this::invalidate);
         this.profileRepository = Objects.requireNonNull(profileRepository, "ProfileRepository must not be null");
         this.statusCache = Objects.requireNonNull(statusCache, "StatusCache must not be null");
         this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
@@ -144,7 +147,7 @@ public class ProfileService {
                 CachedView cached = viewCache.get(id);
                 if (cached != null && cached.generation() == playerGenerations.getOrDefault(id, 0)
                         && cached.configGeneration() == configGeneration && cached.snapshot() == snapshot
-                        && clock.instant().isBefore(cached.expiresAt())) return withSerenity(cached.view(), snapshot);
+                        && clock.instant().isBefore(cached.expiresAt())) return cached.view();
             }
         }
         return PlayerSocialView.neutral(id != null ? id : PlayerId.CONSOLE, "", snapshot.config().tiers().ladder());
@@ -172,7 +175,7 @@ public class ProfileService {
             int currentGen = playerGenerations.getOrDefault(id, 0);
             if (cached.generation() == currentGen && cached.configGeneration() == configGeneration
                     && cached.snapshot() == snapshot && now.isBefore(cached.expiresAt())) {
-                return withSerenity(cached.view(), snapshot);
+                return cached.view();
             }
             // Expired on read or generation moved: invalidate and queue background rebuild (Finding 2)
             synchronized (loadLock) {
@@ -266,19 +269,15 @@ public class ProfileService {
             ConfidenceLevel conf = confCalc.calculate(repEvents, now);
             int contributors = confCalc.countDistinctActors(repEvents);
 
-            Instant windowStart = now.minus(cfg.psychosis().window());
-            List<PsychosisEvent> kills = psychosisRepository.findKillsByKillerSince(id, windowStart);
-            PsychosisCalculator psychCalc = new PsychosisCalculator(cfg.psychosis().toDomain());
-            double activeMillis = serenity.creditMillis(id, psychosisRepository.loadStreak(id).activeMillis());
-            PsychosisLevel psych = psychCalc.calculate(id, kills, now, activeMillis);
-
             Optional<PlayerProfile> profile = profileRepository.findById(id);
+            double value = profile.map(PlayerProfile::mindValue).orElse(0d);
+            PsychosisLevel psych = new PsychosisCalculator(cfg.psychosis().toDomain()).calculate(value);
+
             String name = profile.map(PlayerProfile::lastKnownName).orElse(fallbackName != null ? fallbackName : id.toString());
 
             TierLadder ladder = cfg.tiers().ladder();
             Tier tier = ladder.resolve(status.value());
-            double magnitude = psych == PsychosisLevel.SERENITY ? cfg.psychosis().serenity().magnitude(activeMillis)
-                    : psychCalc.countQualifyingKills(id, kills, now);
+            double magnitude = Math.abs(value);
             PlayerSocialView view = new PlayerSocialView(id, name, status.value(), tier, conf, psych, contributors, magnitude);
 
             synchronized (loadLock) {
@@ -295,11 +294,6 @@ public class ProfileService {
                 }
 
                 Instant expiresAt = now.plus(cfg.decay().cacheTtl());
-                for (PsychosisEvent kill : kills) {
-                    Instant expiry = kill.createdAt().plus(cfg.psychosis().window());
-                    if (kill.context() == com.dasannn.socialblueprint.domain.CombatContext.OPEN
-                            && expiry.isAfter(now) && expiry.isBefore(expiresAt)) expiresAt = expiry;
-                }
                 viewCache.put(id, new CachedView(view, expiresAt, currentGen, loadConfigGeneration, snapshot));
                 statusCache.put(id, status, cfg.decay().toDomain());
                 return view;
@@ -526,7 +520,7 @@ public class ProfileService {
             findVictimGhostAsync(PlayerId killer, RuntimeSnapshot snapshot) {
         return storageEngine.supplyAsync(() -> {
             Instant now = clock.instant();
-            Instant since = now.minus(snapshot.config().psychosis().window());
+            Instant since = Instant.EPOCH;
             List<PsychosisEvent> rows = psychosisRepository.findKillsByKillerSince(killer, since);
             return com.dasannn.socialblueprint.feature.effects.VictimGhost.select(killer, rows, since, now,
                     victim -> profileRepository.findById(victim).map(PlayerProfile::lastKnownName));
@@ -535,13 +529,5 @@ public class ProfileService {
 
     public SerenityService serenity() { return serenity; }
 
-    private PlayerSocialView withSerenity(PlayerSocialView view, RuntimeSnapshot snapshot) {
-        if (view.psychosis() != PsychosisLevel.NEUTRAL && view.psychosis() != PsychosisLevel.SERENITY) return view;
-        java.util.OptionalDouble credit = serenity.onlineCredit(view.playerId());
-        if (credit.isEmpty()) return view;
-        double millis = snapshot.config().psychosis().serenity().clamp(credit.getAsDouble());
-        return new PlayerSocialView(view.playerId(), view.name(), view.status(), view.tier(), view.confidence(),
-                millis > 0 ? PsychosisLevel.SERENITY : PsychosisLevel.NEUTRAL, view.contributors(),
-                snapshot.config().psychosis().serenity().magnitude(millis));
-    }
+    public com.dasannn.socialblueprint.storage.MindRepository mind() { return mind; }
 }

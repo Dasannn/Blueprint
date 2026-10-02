@@ -1,7 +1,7 @@
 name: SocialBlueprint
 author: Dasannn
 main: com.dasannn.socialblueprint.SocialBlueprintPlugin
-version: 1.0
+version: '${project.version}'
 description: Social layer plugin for Paper
 api-version: '26.3'
 
@@ -14,6 +14,8 @@ commands:
 permissions:
   socialblueprint.admin.revoke:
     description: Revoke an honor rating without deleting its history.
+  socialblueprint.admin.mind:
+    description: Reset mental state for one or all stored players.
     default: op
   socialblueprint.*:
     description: All SocialBlueprint permissions
@@ -33,6 +35,7 @@ permissions:
     default: op
     children:
       socialblueprint.admin.revoke: true
+      socialblueprint.admin.mind: true
       socialblueprint.admin.adjust: true
       socialblueprint.admin.config: true
       socialblueprint.admin.update: true

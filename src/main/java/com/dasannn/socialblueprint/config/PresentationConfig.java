@@ -6,6 +6,7 @@ import org.bukkit.configuration.ConfigurationSection;
 
 import java.time.Duration;
 import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -18,25 +19,39 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             return enabled && level.hasMadnessEffects() && level.ordinal() >= minimumLevel.ordinal();
         }
     }
-    public record Episodes(long mediumTicks, long highTicks, long extremeTicks, long quietTicks) {
+    public record Episodes(long lowTicks, long mediumTicks, long highTicks, long extremeTicks, long quietTicks,
+                           int lowConcurrent, int mediumConcurrent, int highConcurrent, int extremeConcurrent) {
+        public int maxConcurrent(PsychosisLevel level) {
+            return switch (level) {
+                case LOW -> lowConcurrent;
+                case MEDIUM -> mediumConcurrent;
+                case HIGH -> highConcurrent;
+                case EXTREME -> extremeConcurrent;
+                default -> throw new IllegalArgumentException("This direction has no madness episodes");
+            };
+        }
         public long intervalTicks(PsychosisLevel level) {
             return switch (level) {
+                case LOW -> lowTicks;
                 case MEDIUM -> mediumTicks;
                 case HIGH -> highTicks;
                 case EXTREME -> extremeTicks;
-                case LOW, NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
+                case NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
             };
         }
     }
-    public record DurationScale(double medium, double high, double extreme) {
+    public record DurationScale(double low, double medium, double high, double extreme) {
+        public DurationScale(double medium, double high, double extreme) { this(1, medium, high, extreme); }
         public DurationScale {
-            if (!Double.isFinite(medium) || medium < 1) fail("episodes.duration-scale.medium", "Must be finite and >= 1");
+            if (!Double.isFinite(low) || low < 1) fail("episodes.duration-scale.low", "Must be finite and >= 1");
+            if (!Double.isFinite(medium) || medium < low) fail("episodes.duration-scale.medium", "Must be finite and >= low");
             if (!Double.isFinite(high) || high < medium) fail("episodes.duration-scale.high", "Must be finite and >= medium");
             if (!Double.isFinite(extreme) || extreme < high) fail("episodes.duration-scale.extreme", "Must be finite and >= high");
         }
         public int ticks(int base, PsychosisLevel level) { return ticks(base, level, 100); }
         public int ticks(int base, PsychosisLevel level, int cap) {
             double factor = switch (level) {
+                case LOW -> low;
                 case MEDIUM -> medium;
                 case HIGH -> high;
                 case EXTREME -> extreme;
@@ -56,7 +71,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
         int fadeOut = (int) ((long) total * flash.fadeOutTicks() / flash.totalTicks());
         return new PresentationConfig(rules,
                 new Sky(sky.mode(), durationScale.ticks(sky.durationTicks(), level, 200)),
-                new Particles(particles.type(), particles.placement(), particles.count(), particles.radius(),
+                new Particles(particles.types(), particles.placement(), particles.count(), particles.radius(),
                         durationScale.ticks(particles.durationTicks(), level)),
                 new Flash(flash.channel(), fadeIn, total - fadeIn - fadeOut, fadeOut), sounds, episodes,
                 new Block(block.data(), block.range(), durationScale.ticks(block.durationTicks(), level)),
@@ -72,18 +87,41 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
     public static final int MAX_PARTICLE_COUNT = 64;
     public static final int MAX_PARTICLE_SENDS = 512;
 
-    public record Particles(String type, String placement, int count, double radius, int durationTicks) {
+    // Smoke/WhiteSmoke <= 40 ticks, Soul <= 44, EndRod <= 71; include the removal tick.
+    public static final Map<String, Integer> PARTICLE_TAILS = Map.of("smoke", 41, "soul", 45, "white_smoke", 41, "end_rod", 72);
+    public record Particles(List<String> types, String placement, int count, double radius, int durationTicks) {
+        public Particles { types = List.copyOf(types); }
+        public Particles(String type, String placement, int count, double radius, int durationTicks) {
+            this(List.of(type), placement, count, radius, durationTicks);
+        }
+        public Particles choose(java.util.Random random) {
+            return new Particles(types.get(random.nextInt(types.size())), placement, count, radius, totalTicks());
+        }
         public boolean fitsAudience(int viewers) {
             return viewers > 0 && (long) count * viewers <= MAX_PARTICLE_SENDS;
         }
         public long emissionDelay(int index) {
-            int tail = type.equals("smoke") ? 41 : 72;
-            return (long) Math.max(0, totalTicks() - tail) * (count == 1 ? 1 : index) / Math.max(1, count - 1);
+            return (long) Math.max(0, totalTicks() - tailTicks()) * (count == 1 ? 1 : index) / Math.max(1, count - 1);
         }
-        public int totalTicks() {
-            // Vanilla 26.3: Smoke lifetime <= 40, EndRod <= 71; removal is on the following tick.
-            return Math.max(durationTicks, type.equals("smoke") ? 41 : 72);
+        private int tailTicks() { return types.stream().mapToInt(PARTICLE_TAILS::get).max().orElseThrow(); }
+        public int totalTicks() { return Math.max(durationTicks, tailTicks()); }
+    }
+    public static List<String> choices(ConfigurationSection root, String path, List<String> fallback, Set<String> allowed) {
+        Object raw = root.get(path);
+        if (raw == null) return List.copyOf(fallback);
+        if (!(raw instanceof List<?> list) || list.isEmpty())
+            throw new ConfigValidationException(path, "Must be a nonempty list");
+        List<String> result = new java.util.ArrayList<>();
+        for (int i = 0; i < list.size(); i++) {
+            Object entry = list.get(i);
+            if (!(entry instanceof String value) || !allowed.contains(value.toLowerCase(Locale.ROOT)))
+                throw new ConfigValidationException(path + "[" + i + "]", "Invalid entry: " + entry);
+            result.add(((String) entry).toLowerCase(Locale.ROOT));
         }
+        return List.copyOf(result);
+    }
+    public int maxConcurrent(PsychosisLevel level) {
+        return episodes == null ? level.ordinal() - PsychosisLevel.LOW.ordinal() + 1 : episodes.maxConcurrent(level);
     }
     public record Flash(String channel, int fadeInTicks, int durationTicks, int fadeOutTicks) {
         public int totalTicks() { return fadeInTicks + durationTicks + fadeOutTicks; }
@@ -146,7 +184,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
         if (root.contains("effects.episodes.duration-scale") && scale == null)
             fail("episodes.duration-scale", "Must be a mapping");
         if (scale != null) for (String key : scale.getKeys(false))
-            if (!Set.of("medium", "high", "extreme").contains(key)) fail("episodes.duration-scale." + key, "Unknown key");
+            if (!Set.of("low", "medium", "high", "extreme").contains(key)) fail("episodes.duration-scale." + key, "Unknown key");
         Map<AmbientEffectType, Rule> rules = new java.util.EnumMap<>(AmbientEffectType.class);
         for (AmbientEffectType type : Set.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
                 AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS,
@@ -162,7 +200,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                 case FALSE_DEATH -> Set.of("range-blocks");
                 case WHISPER -> Set.of("max-visible-length");
                 case SKY -> Set.of("mode", "duration-ticks");
-                case PARTICLES -> Set.of("type", "placement", "count", "radius-blocks", "duration-ticks");
+                case PARTICLES -> Set.of("types", "placement", "count", "radius-blocks", "duration-ticks");
                 case SCREEN_FLASH -> Set.of("channel", "fade-in-ticks", "duration-ticks", "fade-out-ticks");
                 case SOURCE_LESS_SOUNDS -> Set.of("sound-slot", "offset", "playback-ticks");
                 case BLOCK_CHANGE, SIGN -> Set.of("block-data", "range-blocks", "duration-ticks");
@@ -193,7 +231,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                             integer(root, id + ".session-cap", capDefault, 0, Integer.MAX_VALUE))));
         }
         // Only native particles with a verified finite tail; no unbounded client effects or extra data.
-        String particle = choice(root, "particles.type", "smoke", Set.of("smoke", "end_rod"));
+        List<String> particle = choices(root, "effects.particles.types", List.of("smoke", "soul"), PARTICLE_TAILS.keySet());
         Flash flash = new Flash(choice(root, "screen-flash.channel", "title", Set.of("title", "action-bar")),
                 integer(root, "screen-flash.fade-in-ticks", 5, 0, 100),
                 integer(root, "screen-flash.duration-ticks", 30, 1, 100),
@@ -205,13 +243,30 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             if (!Set.of("forward-blocks", "right-blocks", "up-blocks").contains(key)) fail("source-less-sounds.offset." + key, "Unknown key");
         Episodes episodes = null;
         if (root.contains("effects.episodes")) {
+            ConfigurationSection episodeSection = root.getConfigurationSection("effects.episodes");
+            if (episodeSection == null) fail("episodes", "Must be a mapping");
+            for (String key : episodeSection.getKeys(false))
+                if (!Set.of("low", "medium", "high", "extreme", "quiet-ticks", "duration-scale").contains(key))
+                    fail("episodes." + key, "Unknown key");
+            for (String level : List.of("low", "medium", "high", "extreme")) {
+                String key = "episodes." + level;
+                ConfigurationSection section = root.getConfigurationSection("effects." + key);
+                if (root.contains("effects." + key) && section == null) fail(key, "Must be a mapping");
+                if (section != null) for (String leaf : section.getKeys(false))
+                    if (!Set.of("interval-ticks", "max-concurrent").contains(leaf)) fail(key + "." + leaf, "Unknown key");
+            }
+            long low = ticks(root, "episodes.low.interval-ticks", 4800);
             long medium = ticks(root, "episodes.medium.interval-ticks", 2400);
             long high = ticks(root, "episodes.high.interval-ticks", 1200);
             long extreme = ticks(root, "episodes.extreme.interval-ticks", 400);
-            if (medium <= high || high <= extreme) fail("episodes", "Intervals must decrease medium > high > extreme");
+            if (low <= medium || medium <= high || high <= extreme) fail("episodes", "Intervals must decrease low > medium > high > extreme");
             long quiet = ticks(root, "episodes.quiet-ticks", 20);
             if (quiet > extreme) fail("episodes.quiet-ticks", "Must fit within the extreme interval to preserve level gradation");
-            episodes = new Episodes(medium, high, extreme, quiet);
+            int lowCount = integer(root, "episodes.low.max-concurrent", 1, 1, Integer.MAX_VALUE);
+            int mediumCount = integer(root, "episodes.medium.max-concurrent", 2, lowCount, Integer.MAX_VALUE);
+            int highCount = integer(root, "episodes.high.max-concurrent", 3, mediumCount, Integer.MAX_VALUE);
+            int extremeCount = integer(root, "episodes.extreme.max-concurrent", 4, highCount, Integer.MAX_VALUE);
+            episodes = new Episodes(low, medium, high, extreme, quiet, lowCount, mediumCount, highCount, extremeCount);
         }
         return new PresentationConfig(rules,
                 new Sky(choice(root, "sky.mode", "night", Set.of("night", "storm")), integer(root, "sky.duration-ticks", 100, 1, 200)),
@@ -232,7 +287,8 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                         choice(root, "boss-bar.style", "progress", Set.of("progress", "notched_6", "notched_10", "notched_12", "notched_20")),
                         progress(root), integer(root, "boss-bar.duration-ticks", 60, 1, 100)),
                 number(root, "false-death.range-blocks", 16, true), integer(root, "private-chat.max-visible-length", 160, 1, 160),
-                new DurationScale(number(root, "episodes.duration-scale.medium", 1, false),
+                new DurationScale(number(root, "episodes.duration-scale.low", 1, false),
+                        number(root, "episodes.duration-scale.medium", 1, false),
                         number(root, "episodes.duration-scale.high", 1.5, false),
                         number(root, "episodes.duration-scale.extreme", 2, false)),
                 new Phantom(phantomMobs(root), number(root, "silverfish.distance-blocks", 8, true),
@@ -293,7 +349,11 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
         return value;
     }
 
-    public static PresentationConfig defaults() { return load(new org.bukkit.configuration.MemoryConfiguration()); }
+    public static PresentationConfig defaults() {
+        var root = new org.bukkit.configuration.MemoryConfiguration();
+        root.createSection("effects.episodes");
+        return load(root);
+    }
     private static long ticks(ConfigurationSection root, String key, long fallback) {
         Object raw = root.get("effects." + key);
         if (raw != null && !(raw instanceof Integer) && !(raw instanceof Long)) fail(key, "Must be integer ticks");

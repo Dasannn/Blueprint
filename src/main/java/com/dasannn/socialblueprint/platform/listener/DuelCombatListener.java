@@ -396,7 +396,7 @@ public class DuelCombatListener implements Listener {
                 }
 
                 if (reputationRepository == null) {
-                    return psychosisRepository.saveAsync(new PsychosisEvent(0L, killerId, victimId, CombatContext.OPEN, now))
+                    return psychosisRepository.saveAsync(new PsychosisEvent(0L, killerId, victimId, CombatContext.OPEN, now), snapshot.config().psychosis().input(com.dasannn.socialblueprint.domain.MindInput.KILL))
                             .thenApply(saved -> new KillPenaltyResult(0, null, saved));
                 }
 
@@ -416,7 +416,8 @@ public class DuelCombatListener implements Listener {
                         worldName,
                         now,
                         settings,
-                        psychosisRepository
+                        psychosisRepository,
+                        snapshot.config().psychosis().input(com.dasannn.socialblueprint.domain.MindInput.KILL)
                 );
             }
         } else {

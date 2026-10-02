@@ -208,7 +208,7 @@ class AsyncChatListenerTest {
                 if ((sequence & 1) != 0) assertThat(body.color()).isNull();
                 sawEpisode |= episode;
             }
-            assertThat(sawEpisode).isEqualTo(level.hasMadnessEffects());
+            assertThat(sawEpisode).isEqualTo(level.ordinal() >= PsychosisLevel.MEDIUM.ordinal());
         }
     }
 

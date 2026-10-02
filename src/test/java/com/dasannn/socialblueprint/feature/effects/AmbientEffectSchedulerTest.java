@@ -66,7 +66,8 @@ class AmbientEffectSchedulerTest {
         Player player = createMockPlayer(uuid, "Serene");
         onlinePlayers.add(player);
         PlayerId id = PlayerId.of(uuid);
-        psychosisRepo.saveStreakAsync(id, 50 * 3_600_000d, 0).join();
+        profileService.mind().applyAsync(id, com.dasannn.socialblueprint.domain.MindInput.CLEAN_DAY,
+                new com.dasannn.socialblueprint.domain.MindInputConfig(true, 50, 50, 1), "test", Instant.now()).join();
         profileService.loadViewAsync(id, "Serene", configManager.snapshot()).join();
         List<String> serene = new ArrayList<>();
         var registry = new AmbientEntityRegistry();
@@ -123,7 +124,7 @@ class AmbientEffectSchedulerTest {
                 whisper,
                 creeper,
                 fakeAnnounce,
-                Duration.ofMinutes(5), Duration.ofMinutes(2), Duration.ofSeconds(30), 200
+                Duration.ofMinutes(5), Duration.ofMinutes(2), Duration.ofSeconds(30), 200, singleConcurrency()
         );
 
         PluginConfig fullConfig = configManager.config().withEffects(effectsCfg);
@@ -169,6 +170,13 @@ class AmbientEffectSchedulerTest {
                 dispatcher,
                 () -> onlinePlayers
         );
+    }
+
+    private static com.dasannn.socialblueprint.config.PresentationConfig singleConcurrency() {
+        var yaml = new org.bukkit.configuration.file.YamlConfiguration();
+        for (String level : List.of("low", "medium", "high", "extreme"))
+            yaml.set("effects.episodes." + level + ".max-concurrent", 1);
+        return com.dasannn.socialblueprint.config.PresentationConfig.load(yaml);
     }
 
     private void copyResource(String resourceName, File destination) throws Exception {
@@ -246,14 +254,14 @@ class AmbientEffectSchedulerTest {
             EffectsConfigSection config = new EffectsConfigSection(Duration.ofMillis(1), disabled, disabled, disabled, disabled,
                     Duration.ofSeconds(3), Duration.ofSeconds(2), Duration.ofSeconds(1), 100, presentation);
             configManager.snapshotReference().set(new RuntimeSnapshot(original.config().withEffects(config), original.messages()));
-            for (int kills : List.of(0, 2, 5, 10)) {
+            for (int kills : List.of(0, 1, 2, 5, 10)) {
                 onlinePlayers.clear();
                 dispatchedList.clear();
                 UUID uuid = UUID.randomUUID();
                 onlinePlayers.add(createMockPlayer(uuid, "Catalogue"));
                 setPsychosis(uuid, kills);
                 scheduler.tickAt(now);
-                boolean eligible = kills >= (chosen.floor() == PsychosisLevel.HIGH ? 5 : 2);
+                boolean eligible = kills >= (chosen.floor() == PsychosisLevel.HIGH ? 5 : chosen.floor() == PsychosisLevel.LOW ? 1 : 2);
                 if (eligible) assertThat(dispatchedList).singleElement()
                         .satisfies(record -> assertThat(record.type()).isEqualTo(chosen));
                 else assertThat(dispatchedList).isEmpty();
@@ -301,7 +309,7 @@ class AmbientEffectSchedulerTest {
                 long base = chosen == AmbientEffectType.PARTICLES ? presentation.particles().durationTicks()
                         : presentation.durationTicks(chosen, snapshot.config().sounds());
                 long expected = Math.min(chosen == AmbientEffectType.SKY ? 200 : 100, (long) Math.ceil(base * (kills == 2 ? 1 : kills == 5 ? 1.5 : 2)));
-                if (chosen == AmbientEffectType.PARTICLES) expected = Math.max(expected, 41);
+                if (chosen == AmbientEffectType.PARTICLES) expected = Math.max(expected, 45);
                 local.tickAt(now);
                 assertThat(renderedDurations.getLast()).isEqualTo(expected);
                 long allowedAt = now + expected * 50 + config.quietInterval(level).toMillis();
@@ -473,8 +481,8 @@ class AmbientEffectSchedulerTest {
     }
 
     @Test
-    @DisplayName("T-070 / SB-040: Lowest Psychosis triggers nothing at any status")
-    void lowestPsychosisNeverFiresRegardlessOfStatus() {
+    @DisplayName("SB-139: Neutral triggers nothing at any status")
+    void neutralNeverFiresRegardlessOfStatus() {
         UUID p1 = UUID.randomUUID();
         UUID p2 = UUID.randomUUID();
         UUID p3 = UUID.randomUUID();
@@ -486,7 +494,7 @@ class AmbientEffectSchedulerTest {
         setPlayerStatus(p1, -50); // Lowest Psychosis, deeply negative status
         setPlayerStatus(p2, -5);  // Lowest Psychosis, negative status
         setPlayerStatus(p3, 20);  // Lowest Psychosis, positive status
-        setPsychosis(p3, 1); // A kill below the Medium threshold still triggers nothing.
+        setPsychosis(p3, 0); // Neutral remains silent.
 
         scheduler.tickAt(100_000L);
 
@@ -616,7 +624,8 @@ class AmbientEffectSchedulerTest {
                 current.silverfish(),
                 current.whisper(),
                 current.creeper(),
-                current.fakeAnnouncement()
+                current.fakeAnnouncement(),
+                Duration.ofMinutes(2), Duration.ofMinutes(1), Duration.ofSeconds(20), 200, singleConcurrency()
         );
         configManager.snapshotReference().set(new RuntimeSnapshot(
                 configManager.config().withEffects(updated),
@@ -683,6 +692,77 @@ class AmbientEffectSchedulerTest {
             totalFired += state.getSessionCount(type);
         }
         assertThat(totalFired).isEqualTo(1);
+    }
+
+    @Test void madnessStartsDistinctEffectsTogetherAndQuietFollowsTheLastTail() {
+        RuntimeSnapshot original = configManager.snapshot();
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        var yaml = new org.bukkit.configuration.file.YamlConfiguration();
+        for (AmbientEffectType type : List.of(AmbientEffectType.WHISPER, AmbientEffectType.BOSS_BAR,
+                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS)) {
+            yaml.set("effects." + type.configId() + ".enabled", true);
+            yaml.set("effects." + type.configId() + ".cooldown-ticks", 1);
+        }
+        yaml.set("effects.episodes.low.interval-ticks", 4800);
+        Map<String, com.dasannn.socialblueprint.config.SoundSlotConfig> slots = new java.util.HashMap<>(original.config().sounds().slots());
+        slots.put("source-less", new com.dasannn.socialblueprint.config.SoundSlotConfig(List.of(
+                new com.dasannn.socialblueprint.config.SoundLayerConfig("minecraft:ambient.cave", 1, 1, org.bukkit.SoundCategory.AMBIENT, 80))));
+        var config = new EffectsConfigSection(Duration.ofMillis(1), disabled, disabled, disabled, disabled,
+                Duration.ofSeconds(3), Duration.ofSeconds(2), Duration.ofSeconds(1), 200,
+                com.dasannn.socialblueprint.config.PresentationConfig.load(yaml));
+        configManager.snapshotReference().set(new RuntimeSnapshot(original.config().withEffects(config)
+                .withSounds(new com.dasannn.socialblueprint.config.SoundsConfigSection(slots)), original.messages()));
+        for (int kills : List.of(1, 2, 5, 10)) {
+            onlinePlayers.clear(); dispatchedList.clear();
+            UUID uuid = UUID.randomUUID(); onlinePlayers.add(createMockPlayer(uuid, "Concurrent"));
+            setPsychosis(uuid, kills);
+            PsychosisLevel level = profileService.getViewQuick(PlayerId.of(uuid), configManager.snapshot()).psychosis();
+            long now = 1_000_000L;
+            scheduler.tickAt(now);
+            assertThat(dispatchedList).hasSize(config.presentation().maxConcurrent(level));
+            assertThat(dispatchedList).extracting(DispatchedRecord::type).doesNotHaveDuplicates();
+            var state = scheduler.getState(uuid);
+            for (var record : dispatchedList) assertThat(state.getLastFiredMillis(record.type())).isEqualTo(now);
+            long last = dispatchedList.stream().mapToLong(record -> config.presentation().scaled(level)
+                    .durationTicks(record.type(), configManager.snapshot().config().sounds())).max().orElseThrow();
+            long allowedAt = now + last * 50 + config.quietInterval(level).toMillis();
+            assertThat(state.canStartEpisode(allowedAt - 1)).isFalse();
+            assertThat(state.canStartEpisode(allowedAt)).isTrue();
+            scheduler.tickAt(now + last * 50);
+            assertThat(dispatchedList).hasSize(config.presentation().maxConcurrent(level));
+        }
+    }
+
+    @Test void concurrencyAvailabilityKeepsCooldownsCapsAndFewerEffectsWithoutChargingSkips() {
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        var yaml = new org.bukkit.configuration.file.YamlConfiguration();
+        for (AmbientEffectType type : List.of(AmbientEffectType.PARTICLES, AmbientEffectType.SCREEN_FLASH, AmbientEffectType.BOSS_BAR)) {
+            yaml.set("effects." + type.configId() + ".enabled", true);
+            yaml.set("effects." + type.configId() + ".session-cap", type == AmbientEffectType.PARTICLES ? 1 : 2);
+        }
+        var cfg = new EffectsConfigSection(Duration.ofMillis(1), disabled, disabled, disabled, disabled,
+                Duration.ofSeconds(3), Duration.ofSeconds(2), Duration.ofSeconds(1), 100,
+                com.dasannn.socialblueprint.config.PresentationConfig.load(yaml));
+        var state = new PlayerEffectState(); long now = 1_000_000L;
+        state.recordFired(AmbientEffectType.PARTICLES, now - 100_000);
+        state.recordFired(AmbientEffectType.SCREEN_FLASH, now - 1);
+        for (PsychosisLevel level : List.of(PsychosisLevel.LOW, PsychosisLevel.MEDIUM, PsychosisLevel.HIGH, PsychosisLevel.EXTREME)) {
+            var candidates = AmbientEffectScheduler.availableEffects(cfg, state, level, now, new java.util.Random(42));
+            assertThat(candidates).containsExactly(AmbientEffectType.BOSS_BAR);
+        }
+        assertThat(AmbientEffectScheduler.availableEffects(cfg, state, PsychosisLevel.NEUTRAL, now,
+                new java.util.Random(42))).isEmpty();
+        var original = configManager.snapshot();
+        configManager.snapshotReference().set(new RuntimeSnapshot(original.config().withEffects(cfg), original.messages()));
+        UUID uuid = UUID.randomUUID(); onlinePlayers.add(createMockPlayer(uuid, "Limited")); setPsychosis(uuid, 10);
+        var actual = scheduler.getOrCreateState(uuid);
+        actual.recordFired(AmbientEffectType.PARTICLES, now - 100_000);
+        actual.recordFired(AmbientEffectType.SCREEN_FLASH, now - 1);
+        scheduler.tickAt(now);
+        assertThat(dispatchedList).extracting(DispatchedRecord::type).containsExactly(AmbientEffectType.BOSS_BAR);
+        assertThat(actual.getSessionCount(AmbientEffectType.PARTICLES)).isEqualTo(1);
+        assertThat(actual.getSessionCount(AmbientEffectType.SCREEN_FLASH)).isEqualTo(1);
+        assertThat(actual.getSessionCount(AmbientEffectType.BOSS_BAR)).isEqualTo(1);
     }
 
     private static Object defaultValue(Class<?> returnType) {

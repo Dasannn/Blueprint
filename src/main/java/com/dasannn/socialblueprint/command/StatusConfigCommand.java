@@ -37,10 +37,10 @@ public class StatusConfigCommand {
             "decay.half-life",
             "decay.floor",
             "decay.cache-ttl",
-            "psychosis.window",
-            "psychosis.medium-threshold",
-            "psychosis.high-threshold",
-            "psychosis.extreme-threshold",
+            "psychosis.levels.low",
+            "psychosis.levels.medium",
+            "psychosis.levels.high",
+            "psychosis.levels.extreme",
             "psychosis.chat.medium-rate",
             "psychosis.chat.high-rate",
             "psychosis.chat.extreme-rate",
@@ -48,7 +48,6 @@ public class StatusConfigCommand {
             "psychosis.chat.high-extent",
             "psychosis.chat.extreme-extent",
             "psychosis.serenity.ceiling",
-            "psychosis.serenity.active-hours-to-ceiling",
             "psychosis.serenity.idle-timeout-seconds",
             "honor.cost",
             "honor.multiplier-window",
@@ -335,6 +334,15 @@ public class StatusConfigCommand {
             List<String> matches = new ArrayList<>();
             List<String> keys = new ArrayList<>(SUGGESTED_KEYS);
             keys.addAll(com.dasannn.socialblueprint.config.SerenityEffectsConfig.defaults().leafValues().keySet());
+            for (com.dasannn.socialblueprint.domain.MindInput input : com.dasannn.socialblueprint.domain.MindInput.values()) {
+                String prefix = "psychosis.inputs." + input.id() + ".";
+                keys.add(prefix + "enabled");
+                keys.add(prefix + (input.bad() ? "serene-drain" : "gain"));
+                keys.add(prefix + (input.bad() ? "psychosis-weight" : "cure"));
+                if (!input.bad() && !input.peaceful()) keys.add(prefix + "cap");
+            }
+            keys.addAll(List.of("psychosis.inputs.peaceful.cap", "psychosis.inputs.near-death.health",
+                    "psychosis.inputs.clean-day.active-minutes", "permissions.admin-mind"));
             for (String s : keys) {
                 if (!"reload".equals(s) && s.toLowerCase(Locale.ROOT).startsWith(current)) {
                     matches.add(s);

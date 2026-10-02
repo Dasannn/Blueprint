@@ -147,7 +147,7 @@ class ConfigUpgradeMergeTest {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
             bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
-        String old = bundled.replace("  window: 72h", "  window: 48h")
+        String old = bundled.replace("\r\n", "\n").replace("psychosis:\n", "psychosis:\n  window: 48h\n")
                 .replace("effects:\n", "effects:\n  threshold: -99\n")
                 .replaceFirst("duration-ticks: 20(\\r?\\n\\s+distance-blocks: 8)", "duration-ticks: 37$1")
                 .replace("  fake-announcement:\n", "  fake-announcement:\n    fake-names: [OldVisitor]\n")
@@ -164,13 +164,14 @@ class ConfigUpgradeMergeTest {
         assertThat(updated).doesNotContain("threshold: -99", "fake-names:", "effects: sb.effects");
         YamlConfiguration merged = YamlConfiguration.loadConfiguration(configFile);
         assertThat(merged.getInt("effects.silverfish.duration-ticks")).isEqualTo(37);
-        assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(48));
+        assertThat(manager.legacyMindConversion().window()).isEqualTo(java.time.Duration.ofHours(48));
         assertThat(manager.isEditableKey("effects.threshold")).isFalse();
         assertThat(manager.isEditableKey("effects.silverfish.duration-ticks")).isTrue();
         assertThat(manager.isEditableKey("effects.fake-announcement.fake-names")).isFalse();
         assertThat(manager.isEditableKey("effects.opt-out-enabled")).isFalse();
-        manager.set("psychosis.window", "96h");
-        assertThat(manager.config().psychosis().window()).isEqualTo(java.time.Duration.ofHours(96));
+        assertThat(manager.isEditableKey("psychosis.window")).isFalse();
+        manager.set("psychosis.levels.medium", "30");
+        assertThat(manager.config().psychosis().mediumThreshold()).isEqualTo(30);
         manager.set("effects.quiet-interval.medium", "6m");
         assertThat(manager.config().effects().mediumQuietInterval()).isEqualTo(java.time.Duration.ofMinutes(6));
         manager.reload();
@@ -194,6 +195,7 @@ class ConfigUpgradeMergeTest {
         old.set("effects.episodes.duration-scale", null);
         old.set("effects.silverfish.cooldown", "7m");
         old.set("effects.silverfish.session-cap", 9);
+        old.set("effects.episodes.low", null);
         old.set("effects.episodes.medium.interval-ticks", 7200);
         old.set("effects.episodes.high.interval-ticks", 3600);
         old.set("effects.episodes.extreme.interval-ticks", 800);

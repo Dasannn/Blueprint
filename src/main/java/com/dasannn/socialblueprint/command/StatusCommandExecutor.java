@@ -100,8 +100,10 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         this.duelService = duelService;
         this.auditRepository = auditRepository;
         this.configCommand = new StatusConfigCommand(configManager, messageRegistry, auditRepository, this.mainThreadRunner, Logger.getLogger(StatusConfigCommand.class.getName()));
-        this.adminCommand = honorService != null || legacyImportService != null
+        this.adminCommand = honorService != null || legacyImportService != null || profileService != null
                 ? new StatusAdminCommand(honorService, messageRegistry, legacyImportService) : null;
+        if (profileService != null) this.adminCommand.registerMindCommand(new StatusMindCommand(
+                profileService, messageRegistry, this.mainThreadRunner, java.time.Clock.systemUTC()));
         this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
@@ -769,7 +771,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 suggestions.add("config");
             }
 
-            if ((PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) || PermissionChecker.hasPermission(sender, "admin-import", snapshot) || PermissionChecker.hasPermission(sender, "admin-revoke", snapshot)) && "admin".startsWith(current)) {
+            if ((PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) || PermissionChecker.hasPermission(sender, "admin-import", snapshot) || PermissionChecker.hasPermission(sender, "admin-revoke", snapshot) || PermissionChecker.hasPermission(sender, "admin-mind", snapshot)) && "admin".startsWith(current)) {
                 suggestions.add("admin");
             }
 
@@ -847,6 +849,15 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             }
 
             if ("admin".equals(sub) && adminCommand != null) {
+                if (subArgs.length > 1 && "mind".equalsIgnoreCase(subArgs[0])) {
+                    if (!PermissionChecker.hasPermission(sender, "admin-mind", snapshot)) return Collections.emptyList();
+                    if (subArgs.length == 3 && "reset".equalsIgnoreCase(subArgs[1])) {
+                        String current = subArgs[2].toLowerCase(Locale.ROOT);
+                        return onlinePlayersSupplier.get().stream().map(Player::getName)
+                                .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(current)).toList();
+                    }
+                    return adminCommand.tabComplete(sender, subArgs, snapshot);
+                }
                 if (subArgs.length == 1) {
                     return adminCommand.tabComplete(sender, subArgs, snapshot);
                 }

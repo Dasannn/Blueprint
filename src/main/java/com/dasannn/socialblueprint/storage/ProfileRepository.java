@@ -70,7 +70,7 @@ public final class ProfileRepository {
         Objects.requireNonNull(id, "PlayerId must not be null");
         return engine.execute(conn -> {
             String sql = """
-                SELECT uuid, last_known_name, created_at, updated_at
+                SELECT uuid, last_known_name, created_at, updated_at, mind_value
                 FROM player_profile
                 WHERE uuid = ?;
             """;
@@ -91,7 +91,7 @@ public final class ProfileRepository {
         String normalized = name.trim().toLowerCase(Locale.ROOT);
         return engine.execute(conn -> {
             String sql = """
-                SELECT uuid, last_known_name, created_at, updated_at
+                SELECT uuid, last_known_name, created_at, updated_at, mind_value
                 FROM player_profile
                 WHERE LOWER(last_known_name) = ?;
             """;
@@ -113,6 +113,6 @@ public final class ProfileRepository {
         Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
         Instant updatedAt = StorageTimestamps.parse(rs.getString("updated_at"));
 
-        return new PlayerProfile(id, lastKnownName, createdAt, updatedAt);
+        return new PlayerProfile(id, lastKnownName, createdAt, updatedAt, rs.getDouble("mind_value"));
     }
 }

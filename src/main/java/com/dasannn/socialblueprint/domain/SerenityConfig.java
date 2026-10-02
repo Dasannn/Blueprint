@@ -1,6 +1,6 @@
 package com.dasannn.socialblueprint.domain;
 
-/** The peaceful direction of Psychosis; duration is milliseconds, never wall-clock history. */
+/** Legacy R1 curve for migration only; idle timeout remains usable for active-play accounting. */
 public record SerenityConfig(double ceiling, double activeHoursToCeiling, double idleTimeoutSeconds) {
     public static final SerenityConfig DEFAULT = new SerenityConfig(100, 100, 300);
 

@@ -12,14 +12,10 @@ class SerenityTest {
     private static final Duration WINDOW = Duration.ofHours(72);
 
     @Test void oneMetricHasExclusiveDirections() {
-        PlayerId id = PlayerId.of(UUID.randomUUID());
-        PlayerId victim = PlayerId.of(UUID.randomUUID());
         var calculator = new PsychosisCalculator(PsychosisConfig.defaults());
-        var kill = new PsychosisEvent(id, victim, CombatContext.OPEN, NOW);
-        assertThat(calculator.calculate(id, List.of(), NOW, 0)).isEqualTo(PsychosisLevel.NEUTRAL);
-        assertThat(calculator.calculate(id, List.of(), NOW, 1)).isEqualTo(PsychosisLevel.SERENITY);
-        assertThat(calculator.calculate(id, List.of(kill), NOW, 360_000_000)).isEqualTo(PsychosisLevel.LOW);
-        assertThat(calculator.calculate(id, List.of(kill), NOW.plus(WINDOW), 1)).isEqualTo(PsychosisLevel.SERENITY);
+        assertThat(calculator.calculate(0)).isEqualTo(PsychosisLevel.NEUTRAL);
+        assertThat(calculator.calculate(1)).isEqualTo(PsychosisLevel.SERENITY);
+        assertThat(calculator.calculate(-10)).isEqualTo(PsychosisLevel.LOW);
         for (var direction : List.of(PsychosisLevel.NEUTRAL, PsychosisLevel.SERENITY)) {
             assertThat(direction.hasMadnessEffects()).isFalse();
             for (int n = 0; n < 100; n++) assertThat(ChatCorruption.corrupt("a peaceful message remains intact for everybody", direction,
@@ -27,32 +23,15 @@ class SerenityTest {
         }
     }
 
-    @Test void finiteCurveDiminishesAndDoesNotBankSurplus() {
-        var config = SerenityConfig.DEFAULT;
-        assertThat(config.magnitude(25 * 3_600_000d)).isEqualTo(43.75);
-        assertThat(config.magnitude(50 * 3_600_000d)).isEqualTo(75);
-        assertThat(config.magnitude(100 * 3_600_000d)).isEqualTo(100);
-        double previous = Double.POSITIVE_INFINITY;
-        double last = 0;
-        for (int hours = 25; hours <= 100; hours += 25) {
-            double value = config.magnitude(hours * 3_600_000d);
-            assertThat(value - last).isLessThan(previous);
-            previous = value - last; last = value;
-        }
-        SerenityConfig shortCurve = new SerenityConfig(100, 1d / 3600, 300);
-        var session = new SerenitySession(0, null, 0, 0);
-        session.activity(0);
-        session.advance(1000, NOW, WINDOW, shortCurve);
-        session.advance(2000, NOW.plusSeconds(1), WINDOW, shortCurve);
-        assertThat(session.creditedMillis()).isEqualTo(1000);
-        session.advance(2000, NOW.plusSeconds(1), WINDOW, new SerenityConfig(50, 0.5d / 3600, 300));
-        assertThat(session.creditedMillis()).isEqualTo(500);
-        assertThat(new SerenityConfig(50, 0.5d / 3600, 300).magnitude(session.creditedMillis())).isEqualTo(50);
-        session.advance(2000, NOW.plusSeconds(1), WINDOW, config);
-        assertThat(session.creditedMillis()).isEqualTo(500);
+    @Test void linearGoodInputsReachTheCeilingWithoutBankingSurplus() {
+        double value = 0;
+        for (int i = 0; i < 100; i++) value = MindState.apply(value, MindInput.CLEAN_DAY, MindInput.CLEAN_DAY.defaults()).after();
+        assertThat(value).isEqualTo(100);
+        assertThat(MindState.apply(value, MindInput.CLEAN_DAY, MindInput.CLEAN_DAY.defaults()).after()).isEqualTo(100);
+        assertThat(MindState.apply(value, MindInput.KILL, MindInput.KILL.defaults()).after()).isEqualTo(75);
     }
 
-    @Test void onlyActiveOnlineIntervalsAfterExpiryCount() {
+    @Test void onlyActiveOnlineIntervalsCountForCleanDayTracking() {
         var config = new SerenityConfig(100, 100, 2.5);
         var session = new SerenitySession(0, null, 0, 0);
         session.advance(1000, NOW, WINDOW, config);
@@ -76,10 +55,10 @@ class SerenityTest {
         assertThat(restarted.creditedMillis()).isEqualTo(3500);
         session.kill(NOW, 1);
         session.activity(9000);
-        session.advance(10_000, NOW.plus(WINDOW).minusMillis(500), WINDOW, config);
-        assertThat(session.creditedMillis()).isZero();
-        session.advance(11_000, NOW.plus(WINDOW).plusMillis(500), WINDOW, config);
-        assertThat(session.creditedMillis()).isEqualTo(500);
+        session.advance(10_000, NOW.plusSeconds(1), WINDOW, config);
+        assertThat(session.creditedMillis()).isEqualTo(1000);
+        // A bad action restarts active accounting, with no rolling-window recovery barrier.
+
     }
 
     @Test void serverStallEarnsNoBacklog() {

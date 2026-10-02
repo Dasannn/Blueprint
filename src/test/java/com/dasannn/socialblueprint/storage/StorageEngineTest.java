@@ -55,7 +55,7 @@ class StorageEngineTest {
         int newVersion = storage.runMigrations(runner);
         assertThat(newVersion).isEqualTo(7);
 
-        // 3. Verify schema_version table contains exactly 1 row with version 4
+        // 3. Verify schema_version table contains exactly 1 row with version 6
         storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT version, applied_at FROM schema_version")) {
@@ -84,6 +84,7 @@ class StorageEngineTest {
                 "reputation_event",
                 "psychosis_event",
                 "psychosis_streak",
+                "mind_event",
                 "kill_penalty_claim",
                 "honor_allowance",
                 "duel",
@@ -204,10 +205,10 @@ class StorageEngineTest {
     @Test
     @DisplayName("Finding 9: Failed migration rolls back both DDL changes and schema_version entry")
     void failedMigrationRollsBackTableAndVersion() {
-        // Run migrations 1 through 5
+        // Run migrations 1 through 6
         storage.runMigrations(new MigrationRunner(List.of(new Migration_1_InitialSchema(),
                 new Migration_2_RaterReveal(), new Migration_3_KillPenaltyClaim(),
-                new Migration_4_PendingCompensation(), new Migration_5_Serenity())));
+                new Migration_4_PendingCompensation(), new Migration_5_Serenity(), new Migration_6_MindState())));
         int versionBefore = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT version FROM schema_version")) {
@@ -215,12 +216,12 @@ class StorageEngineTest {
                 return rs.getInt(1);
             }
         });
-        assertThat(versionBefore).isEqualTo(5);
+        assertThat(versionBefore).isEqualTo(6);
 
-        // Define a failing migration 6 that creates a table and then throws
+        // Define a failing migration 7 that creates a table and then throws
         Migration failingMigration = new Migration() {
             @Override
-            public int version() { return 6; }
+            public int version() { return 7; }
             @Override
             public String description() { return "Failing migration test"; }
             @Override
@@ -228,7 +229,7 @@ class StorageEngineTest {
                 try (Statement stmt = conn.createStatement()) {
                     stmt.execute("CREATE TABLE rolled_back_table (id INTEGER PRIMARY KEY);");
                 }
-                throw new SQLException("Simulated failure during migration 6");
+                throw new SQLException("Simulated failure during migration 7");
             }
         };
 
@@ -238,12 +239,13 @@ class StorageEngineTest {
                 new Migration_3_KillPenaltyClaim(),
                 new Migration_4_PendingCompensation(),
                 new Migration_5_Serenity(),
+                new Migration_6_MindState(),
                 failingMigration
         ));
 
         assertThatThrownBy(() -> storage.runMigrations(runner))
                 .isInstanceOf(StorageException.class)
-                .hasMessageContaining("Failed applying migration 6");
+                .hasMessageContaining("Failed applying migration 7");
 
         // Verify rolled_back_table was rolled back and does not exist
         boolean tableExists = storage.execute(conn -> {
@@ -255,7 +257,7 @@ class StorageEngineTest {
         });
         assertThat(tableExists).isFalse();
 
-        // Verify schema_version remains 5
+        // Verify schema_version remains 6
         int versionAfter = storage.execute(conn -> {
             try (Statement stmt = conn.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT version FROM schema_version")) {
@@ -263,7 +265,7 @@ class StorageEngineTest {
                 return rs.getInt(1);
             }
         });
-        assertThat(versionAfter).isEqualTo(5);
+        assertThat(versionAfter).isEqualTo(6);
     }
 
     @Test
@@ -456,6 +458,8 @@ class StorageEngineTest {
                         created_at TEXT NOT NULL
                     );
                 """);
+                // The rest of a real version-1 schema; IF NOT EXISTS keeps the table above.
+                new Migration_1_InitialSchema().apply(conn);
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS schema_version (
                         version INTEGER NOT NULL,
