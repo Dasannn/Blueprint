@@ -30,7 +30,8 @@ public record PluginConfig(
         DecayConfigSection decay,
         KillPenaltyConfigSection killPenalty,
         SoundsConfigSection sounds,
-        HistoryConfig history
+        HistoryConfig history,
+        ChatFilterConfig chatFilter
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -55,6 +56,15 @@ public record PluginConfig(
                 HistoryConfig.defaults());
     }
 
+    public PluginConfig(String language, String chatPrefix, TiersConfig tiers,
+            ConfidenceConfigSection confidence, PsychosisConfigSection psychosis, HonorConfigSection honor,
+            PermissionsConfig permissions, DuelConfigSection duel, EffectsConfigSection effects,
+            UpdateConfig update, LegacyImportConfig legacyImport, DecayConfigSection decay,
+            KillPenaltyConfigSection killPenalty, SoundsConfigSection sounds, HistoryConfig history) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel,
+                effects, update, legacyImport, decay, killPenalty, sounds, history, ChatFilterConfig.defaults());
+    }
+
     public PluginConfig {
         Objects.requireNonNull(language, "language must not be null");
         Objects.requireNonNull(chatPrefix, "chatPrefix must not be null");
@@ -73,6 +83,7 @@ public record PluginConfig(
         if (effects.presentation().rules().get(com.dasannn.socialblueprint.feature.effects.AmbientEffectType.SOURCE_LESS_SOUNDS).enabled())
             effects.presentation().validateSounds(sounds);
         Objects.requireNonNull(history, "history must not be null");
+        Objects.requireNonNull(chatFilter, "chatFilter must not be null");
     }
 
     public static PluginConfig load(ConfigurationSection root) {
@@ -128,7 +139,7 @@ public record PluginConfig(
         if (root.contains("effects.serenity")) effects.serenity().validateSounds(sounds);
 
         return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                duel, effects, update, legacyImport, decay, killPenalty, sounds, history);
+                duel, effects, update, legacyImport, decay, killPenalty, sounds, history, ChatFilterConfig.load(root));
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -147,7 +158,8 @@ public record PluginConfig(
                 decay,
                 killPenalty,
                 sounds,
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -167,7 +179,8 @@ public record PluginConfig(
                 decay,
                 killPenalty,
                 sounds,
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -187,7 +200,8 @@ public record PluginConfig(
                 decay,
                 killPenalty,
                 sounds,
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -207,7 +221,8 @@ public record PluginConfig(
                 decay,
                 killPenalty,
                 sounds,
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -227,7 +242,8 @@ public record PluginConfig(
                 decay,
                 killPenalty,
                 sounds,
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -247,7 +263,8 @@ public record PluginConfig(
                 Objects.requireNonNull(newDecay, "decay must not be null"),
                 killPenalty,
                 sounds,
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -267,7 +284,8 @@ public record PluginConfig(
                 decay,
                 Objects.requireNonNull(newKillPenalty, "killPenalty must not be null"),
                 sounds,
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -287,7 +305,8 @@ public record PluginConfig(
                 decay,
                 killPenalty,
                 Objects.requireNonNull(newSounds, "sounds must not be null"),
-                history
+                history,
+                chatFilter
         );
     }
 
@@ -307,7 +326,8 @@ public record PluginConfig(
                 decay,
                 killPenalty,
                 sounds,
-                Objects.requireNonNull(newHistory, "history must not be null")
+                Objects.requireNonNull(newHistory, "history must not be null"),
+                chatFilter
         );
     }
 }

@@ -39,7 +39,7 @@ class SerenityStorageTest {
             kill(engine,mad,CombatContext.DUEL,NOW);
             kill(engine,mad,CombatContext.OPEN,NOW.plusNanos(1));
             for (int i=0;i<12;i++) kill(engine,capped,CombatContext.OPEN,NOW);
-            assertThat(engine.runMigrations(runner)).isEqualTo(7);
+            assertThat(engine.runMigrations(runner)).isEqualTo(8);
             var mind=new MindRepository(engine);
             assertThat(mind.value(calm)).isEqualTo(60); // R1 custom curve: C*(2*.5-.5*.5).
             assertThat(mind.value(mad)).isEqualTo(-10); // Kill priority over credited serenity.

@@ -443,10 +443,10 @@ class P4CommandsPermissionsTest {
 
         // /status give Target & /status trust Target
         assertThatCode(() -> {
-            runCommandSync(console, "status", "give", "Alice");
+            runCommandSync(console, "status", "give", "Alice", "Helpful neighbor");
             assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
 
-            runCommandSync(console, "status", "trust", "Alice");
+            runCommandSync(console, "status", "trust", "Alice", "Helpful neighbor");
             assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.player-only");
         }).doesNotThrowAnyException();
 
@@ -725,7 +725,7 @@ class P4CommandsPermissionsTest {
             economyBalances.put(actor.getUniqueId(), 500.0);
 
             // Prepare rating (Stage 1: succeeds and prepares confirmation)
-            customExecutor.onCommand(actor, null, "status", new String[]{"give", "Target2"});
+            customExecutor.onCommand(actor, null, "status", new String[]{"give", "Target2", "Helpful neighbor"});
             drainQueueUntilDone(failingQueue, customExecutor.lastExecution());
             customExecutor.lastExecution().join();
             drainQueueUntilDone(failingQueue, customExecutor.lastExecution());
@@ -772,7 +772,7 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
         // Stage 1: prepare honor
-        runCommandSync(actor, "status", "give", "RefundTarget");
+        runCommandSync(actor, "status", "give", "RefundTarget", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
         // Simulate deposit failure so immediate refund fails
@@ -1018,13 +1018,13 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 10000.0);
 
         // Rating 1 for TargetA at T=0 (cost: 500.0)
-        runCommandSync(actor, "status", "give", "TargetA");
+        runCommandSync(actor, "status", "give", "TargetA", "Helpful neighbor");
         runCommandSync(actor, "status", "confirm");
         assertThat(lastWithdrawnAmount.get()).isEqualTo(500.0);
 
         // At T=30m: within 1h multiplier window -> next rating cost is 750.0 (multiplier 1.5)
         testClock.advance(Duration.ofMinutes(30));
-        runCommandSync(actor, "status", "give", "TargetB");
+        runCommandSync(actor, "status", "give", "TargetB", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
         assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("750.00");
         runCommandSync(actor, "status", "confirm");
@@ -1032,7 +1032,7 @@ class P4CommandsPermissionsTest {
 
         // At T=2h (past both previous 1h windows): ratings in 1h window = 0 -> multiplier reset to 1.0 -> cost 500.0
         testClock.advance(Duration.ofHours(2));
-        runCommandSync(actor, "status", "give", "TargetC");
+        runCommandSync(actor, "status", "give", "TargetC", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
         assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("500.00");
         runCommandSync(actor, "status", "confirm");
@@ -1041,16 +1041,16 @@ class P4CommandsPermissionsTest {
         // Meanwhile, TargetA is past 24h cooldown, but STILL inside the 7d cap window!
         // Issue ratings 2 and 3 for TargetA
         testClock.advance(Duration.ofHours(24));
-        runCommandSync(actor, "status", "give", "TargetA");
+        runCommandSync(actor, "status", "give", "TargetA", "Helpful neighbor");
         runCommandSync(actor, "status", "confirm");
 
         testClock.advance(Duration.ofHours(24));
-        runCommandSync(actor, "status", "give", "TargetA");
+        runCommandSync(actor, "status", "give", "TargetA", "Helpful neighbor");
         runCommandSync(actor, "status", "confirm");
 
         // 4th rating for TargetA inside 7d cap window hits cap
         testClock.advance(Duration.ofHours(24));
-        runCommandSync(actor, "status", "give", "TargetA");
+        runCommandSync(actor, "status", "give", "TargetA", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cap-reached");
     }
 
@@ -1062,7 +1062,7 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
         // Preview
-        runCommandSync(actor, "status", "give", "RoundTarget");
+        runCommandSync(actor, "status", "give", "RoundTarget", "Helpful neighbor");
         String previewCost = messageRegistry.lastCall().placeholders().get("cost");
         assertThat(previewCost).isEqualTo("500.00");
 
@@ -1103,7 +1103,7 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
         // Prepare rating while enabled
-        drainQueueUntilDone(mainThreadQueue, honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, null, configManager.snapshot()));
+        drainQueueUntilDone(mainThreadQueue, honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, "Helpful neighbor", configManager.snapshot()));
         drainMainThread();
 
         // Confirm rating with shutdownHonorService while disabled
@@ -1154,7 +1154,7 @@ class P4CommandsPermissionsTest {
 
         // Executing commands runs cleanly without thread assertion violations
         assertThatCode(() -> {
-            runCommandSync(actor, "status", "give", "ThreadTarget");
+            runCommandSync(actor, "status", "give", "ThreadTarget", "Helpful neighbor");
             runCommandSync(actor, "status", "confirm");
         }).doesNotThrowAnyException();
     }
@@ -1212,10 +1212,10 @@ class P4CommandsPermissionsTest {
         Player legacyGiver = mockPlayer("LegacyGiver", "pstatus.giveReputation");
         mockPlayer("TargetLegacy");
 
-        runCommandSync(legacyGiver, "status", "give", "TargetLegacy");
+        runCommandSync(legacyGiver, "status", "give", "TargetLegacy", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
-        runCommandSync(legacyGiver, "status", "trust", "TargetLegacy");
+        runCommandSync(legacyGiver, "status", "trust", "TargetLegacy", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
         // Player with legacy pstatus.addRemoveRep can take and administer
@@ -1228,7 +1228,7 @@ class P4CommandsPermissionsTest {
 
         // Player with NO permission is denied
         Player unpermitted = mockPlayer("Unpermitted");
-        runCommandSync(unpermitted, "status", "give", "TargetLegacy");
+        runCommandSync(unpermitted, "status", "give", "TargetLegacy", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
     }
 
@@ -1239,14 +1239,14 @@ class P4CommandsPermissionsTest {
         mockPlayer("CustomTarget");
 
         // Without node configured, user is denied
-        runCommandSync(player, "status", "give", "CustomTarget");
+        runCommandSync(player, "status", "give", "CustomTarget", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
 
         // Reconfigure node dynamically
         configManager.set("permissions.give-reputation", "custom.trust.node");
 
         // Now user is permitted
-        runCommandSync(player, "status", "give", "CustomTarget");
+        runCommandSync(player, "status", "give", "CustomTarget", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
     }
 
@@ -1262,12 +1262,12 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
         // Rate target once
-        runCommandSync(actor, "status", "give", "Rated");
+        runCommandSync(actor, "status", "give", "Rated", "Helpful neighbor");
         runCommandSync(actor, "status", "confirm");
         assertThat(messageRegistry.hasCall("honor.given")).isTrue();
 
         // Immediately attempt to rate again (within cooldown)
-        runCommandSync(actor, "status", "give", "Rated");
+        runCommandSync(actor, "status", "give", "Rated", "Helpful neighbor");
 
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cooldown");
     }
@@ -1285,13 +1285,13 @@ class P4CommandsPermissionsTest {
 
         // Issue 3 positive ratings (advancing time past cooldown each time)
         for (int i = 0; i < 3; i++) {
-            runCommandSync(actor, "status", "give", "CapTarget");
+            runCommandSync(actor, "status", "give", "CapTarget", "Helpful neighbor");
             runCommandSync(actor, "status", "confirm");
             testClock.advance(cooldown.plusSeconds(1));
         }
 
         // 4th positive rating hits cap
-        runCommandSync(actor, "status", "give", "CapTarget");
+        runCommandSync(actor, "status", "give", "CapTarget", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cap-reached");
 
         // But negative rating is independent and succeeds!
@@ -1306,7 +1306,7 @@ class P4CommandsPermissionsTest {
         mockPlayer("Receiver");
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
-        runCommandSync(actor, "status", "give", "Receiver");
+        runCommandSync(actor, "status", "give", "Receiver", "Helpful neighbor");
 
         // Advance clock by 65 seconds
         testClock.advance(Duration.ofSeconds(65));
@@ -1321,7 +1321,7 @@ class P4CommandsPermissionsTest {
     void cannotRateSelf() {
         Player actor = mockPlayer("Selfish", "socialblueprint.give");
 
-        runCommandSync(actor, "status", "give", "Selfish");
+        runCommandSync(actor, "status", "give", "Selfish", "Helpful neighbor");
 
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cannot-rate-self");
     }

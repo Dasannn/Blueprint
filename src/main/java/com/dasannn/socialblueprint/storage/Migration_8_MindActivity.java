@@ -4,8 +4,8 @@ import java.sql.Connection;
 import java.sql.SQLException;
 
 /** Active play since the current clean-day anchor; no historical credit is invented. */
-public final class Migration_7_MindActivity implements Migration {
-    public int version() { return 7; }
+public final class Migration_8_MindActivity implements Migration {
+    public int version() { return 8; }
     public String description() { return "Persistent clean-day active play"; }
     public void apply(Connection conn) throws SQLException {
         try (var stmt = conn.createStatement()) {

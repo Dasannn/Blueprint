@@ -12,6 +12,16 @@ public final class ArgumentParser {
     private ArgumentParser() {
     }
 
+    public static java.util.OptionalLong parsePositiveLong(String input) {
+        if (input == null || input.isBlank()) return java.util.OptionalLong.empty();
+        try {
+            long value = Long.parseLong(input.trim());
+            return value > 0 ? java.util.OptionalLong.of(value) : java.util.OptionalLong.empty();
+        } catch (NumberFormatException error) {
+            return java.util.OptionalLong.empty();
+        }
+    }
+
     /**
      * Safely parses a strictly positive integer (> 0).
      * Returns empty if the input is null, blank, not a valid integer, or <= 0.

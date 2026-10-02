@@ -208,7 +208,7 @@ class AsyncChatListenerTest {
                 if ((sequence & 1) != 0) assertThat(body.color()).isNull();
                 sawEpisode |= episode;
             }
-            assertThat(sawEpisode).isEqualTo(level.hasMadnessEffects());
+            assertThat(sawEpisode).isEqualTo(level.ordinal() >= PsychosisLevel.MEDIUM.ordinal());
         }
     }
 
@@ -414,13 +414,15 @@ class AsyncChatListenerTest {
                 });
         chatListener.registerPlayer(speaker);
         storage.close(); // Any database access or executor submission now fails.
-        String original = "Please bring wooden supplies to the village before sunset";
+        String unfiltered = "Please IMBÉCIL bring idiot wooden supplies to the village before sunset";
+        String original = snapshot.config().chatFilter().apply(unfiltered, messageRegistry.getRaw(snapshot, "chat-filter.replacement"));
+        assertThat(original).contains("bobba").doesNotContain("IMBÉCIL", "idiot");
         Component prefix = ColorParser.parse(snapshot.config().tiers().prefix(view.tier()));
         AtomicBoolean changed = new AtomicBoolean();
         Thread async = new Thread(() -> {
             try {
                 for (int sequence = 0; sequence < 100; sequence++) {
-                    AsyncChatEvent event = chatEvent(speaker, Component.text(original));
+                    AsyncChatEvent event = chatEvent(speaker, Component.text(unfiltered));
                     chatListener.onChat(event);
                     String expectedText = ChatCorruption.corrupt(original, view.psychosis(),
                             uuid.getMostSignificantBits() ^ uuid.getLeastSignificantBits(), sequence,

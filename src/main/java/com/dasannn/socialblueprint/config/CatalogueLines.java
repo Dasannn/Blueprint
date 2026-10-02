@@ -12,9 +12,9 @@ import java.util.regex.Pattern;
 public final class CatalogueLines {
     public static final String CUSTOM = "effects.private-chat.custom-lines";
     public static final Set<String> LISTS = Set.of("effects.private-chat.lines", CUSTOM,
-            "effects.advancement-toast.lines", "effects.boss-bar.lines");
+            "effects.advancement-toast.lines", "effects.boss-bar.lines", "effects.false-death.lines");
     public static final Set<String> TEMPLATES = Set.of("effects.fake-connection.join",
-            "effects.fake-connection.leave", "effects.false-death.line");
+            "effects.fake-connection.leave");
     // ponytail: conservative English/Spanish keywords; extend for additional server languages.
     private static final Pattern NOTICE = Pattern.compile(
             "(?iu)\\b(join(?:ed)?|left|leave|disconnect(?:ed)?|connect(?:ed)?|died|death|slain|killed|"
@@ -47,6 +47,8 @@ public final class CatalogueLines {
         for (int i = 0; i < list.size(); i++) {
             if (!(list.get(i) instanceof String line))
                 throw new ConfigValidationException(key + "[" + i + "]", "Expected text");
+            if (key.equals("effects.false-death.lines") && !line.contains("{player}"))
+                throw new ConfigValidationException(key + "[" + i + "]", "Must contain {player}");
             // Reserve the full vanilla username width on load/edit; delivery checks the actual name.
             validateLine(key, i, line, Map.of("player", "x".repeat(16)), max, key.equals(CUSTOM));
         }

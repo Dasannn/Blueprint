@@ -386,7 +386,7 @@ public class MoneyPathSafetyTest {
         mockPlayer("IntentTarget");
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
-        runCommandSync(actor, "status", "give", "IntentTarget");
+        runCommandSync(actor, "status", "give", "IntentTarget", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
         // Inject DB failure on pending_compensation insert
@@ -458,7 +458,7 @@ public class MoneyPathSafetyTest {
         Player target = mockPlayer("DeleteFailTarget");
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
-        runCommandSync(actor, "status", "give", "DeleteFailTarget");
+        runCommandSync(actor, "status", "give", "DeleteFailTarget", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
         // Fail event insert so immediate refund fires
@@ -593,7 +593,7 @@ public class MoneyPathSafetyTest {
         Player target = mockPlayer("MismatchTarget");
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
-        runCommandSync(actor, "status", "give", "MismatchTarget");
+        runCommandSync(actor, "status", "give", "MismatchTarget", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
 
         // Simulate Vault debiting 250.0 instead of previewed 500.0

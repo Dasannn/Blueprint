@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Handles giving honor (`/status give <player> [reason]` and alias `/status trust`)
+ * Handles giving honor (`/status give <player> <reason>` and alias `/status trust`)
  * per SB-050, SB-052, and SB-055.
  * Only players can issue honor. Shows exact cost and registers pending confirmation.
  */

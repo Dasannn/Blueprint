@@ -10,6 +10,8 @@ public enum AmbientEffectType {
         return switch (this) {
             case SKY, BLOCK_CHANGE, SIGN, HURT_FLASH, VICTIM_GHOST, FALSE_DEATH, SILVERFISH ->
                     com.dasannn.socialblueprint.domain.PsychosisLevel.HIGH;
+            case PARTICLES, SCREEN_FLASH, SOURCE_LESS_SOUNDS, FAKE_ANNOUNCEMENT, BOSS_BAR, WHISPER ->
+                    com.dasannn.socialblueprint.domain.PsychosisLevel.LOW;
             default -> com.dasannn.socialblueprint.domain.PsychosisLevel.MEDIUM;
         };
     }

@@ -47,7 +47,8 @@ public final class MigrationRunner {
                 new Migration_4_PendingCompensation(),
                 new Migration_5_Serenity(),
                 new Migration_6_MindState(legacy, clock),
-                new Migration_7_MindActivity()
+                new Migration_7_HonorRevocation(),
+                new Migration_8_MindActivity()
         ));
     }
 

@@ -148,12 +148,15 @@ public class AsyncChatListener implements Listener {
                 });
                 return;
             }
+            // Read one immutable snapshot per event (T-040, T-042)
+            RuntimeSnapshot snapshot = configManager.snapshot();
+            String original = snapshot.config().chatFilter().apply(extractPlainText(event.message()),
+                    messageRegistry.getRaw(snapshot, "chat-filter.replacement"));
+            if (!original.equals(extractPlainText(event.message()))) event.message(Component.text(original));
             if (!(event.renderer() instanceof ChatRenderer.Default)) {
                 warnForeignRenderer();
                 return;
             }
-            // Read one immutable snapshot per event (T-040, T-042)
-            RuntimeSnapshot snapshot = configManager.snapshot();
 
             PlayerId playerId = identity != null ? identity.id() : null;
 
@@ -167,7 +170,7 @@ public class AsyncChatListener implements Listener {
                     ? ColorParser.parse(prefixStr)
                     : Component.empty();
 
-            String original = extractPlainText(event.message());
+
             long sequence = identity != null ? identity.sequence().getAndIncrement() : 1;
             long speakerSeed = playerUuid != null
                     ? playerUuid.getMostSignificantBits() ^ playerUuid.getLeastSignificantBits() : 0;

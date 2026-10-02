@@ -116,8 +116,8 @@ public final class ReputationRepository {
 
     ReputationEvent saveInternal(Connection conn, ReputationEvent event) throws SQLException {
         String sql = """
-            INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO reputation_event (actor_uuid, target_uuid, delta, kind, cost, reason, created_at, revoked_rating_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """;
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             if (event.actor() != null) {
@@ -135,6 +135,8 @@ public final class ReputationRepository {
                 ps.setNull(6, Types.VARCHAR);
             }
             ps.setString(7, StorageTimestamps.format(event.createdAt()));
+            if (event.revokedRatingId() == null) ps.setNull(8, Types.BIGINT);
+            else ps.setLong(8, event.revokedRatingId());
 
             ps.executeUpdate();
             long generatedId = 0L;
@@ -151,14 +153,15 @@ public final class ReputationRepository {
                     event.kind(),
                     event.cost(),
                     event.reason(),
-                    event.createdAt()
+                    event.createdAt(), event.revokedRatingId(), event.revokedBy()
             );
         }
     }
 
     List<ReputationEvent> findByTargetInternal(Connection conn, String target) throws SQLException {
         String sql = """
-            SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+            SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at, revoked_rating_id,
+                (SELECT rev.reason FROM reputation_event rev WHERE rev.revoked_rating_id = reputation_event.id) AS revoked_by
             FROM reputation_event
             WHERE target_uuid = ?
             ORDER BY id ASC;
@@ -180,7 +183,8 @@ public final class ReputationRepository {
 
     List<ReputationEvent> findByTargetStrictInternal(Connection conn, String target) throws SQLException {
         String sql = """
-            SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+            SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at, revoked_rating_id,
+                (SELECT rev.reason FROM reputation_event rev WHERE rev.revoked_rating_id = reputation_event.id) AS revoked_by
             FROM reputation_event
             WHERE target_uuid = ?
             ORDER BY id ASC;
@@ -239,6 +243,41 @@ public final class ReputationRepository {
         }).thenApply(saved -> {
             notifyInvalidation(saved.target());
             return saved;
+        });
+    }
+
+    /** Once-only revocation and its audit commit in the same storage transaction. */
+    public CompletableFuture<Boolean> revokeAsync(PlayerId admin, String adminName, PlayerId target,
+            long ratingId, Instant now, AuditRepository auditRepository) {
+        Objects.requireNonNull(admin);
+        Objects.requireNonNull(adminName);
+        Objects.requireNonNull(auditRepository);
+        return engine.executeAsync(conn -> {
+            boolean autoCommit = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                ReputationEvent rating = findByTargetStrictInternal(conn, target.toString()).stream()
+                        .filter(e -> e.id() == ratingId).findFirst().orElse(null);
+                if (rating == null || !rating.canRevoke()) {
+                    conn.rollback();
+                    return false;
+                }
+                ReputationEvent revocation = new ReputationEvent(0, admin, target, 0, HonorKind.REVOCATION,
+                        0, adminName, now, ratingId, null);
+                ReputationEvent saved = saveInternal(conn, revocation);
+                auditRepository.saveInternal(conn, new AuditEvent(admin, "admin_revoke", target,
+                        "rating=" + ratingId + ";reason=" + rating.reason(), "revocation=" + saved.id(), now));
+                conn.commit();
+                return true;
+            } catch (Exception ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(autoCommit);
+            }
+        }).thenApply(changed -> {
+            if (changed) notifyInvalidation(target);
+            return changed;
         });
     }
 
@@ -368,7 +407,8 @@ public final class ReputationRepository {
         Objects.requireNonNull(actor, "Actor must not be null");
         return engine.execute(conn -> {
             String sql = """
-                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at, revoked_rating_id,
+                (SELECT rev.reason FROM reputation_event rev WHERE rev.revoked_rating_id = reputation_event.id) AS revoked_by
                 FROM reputation_event
                 WHERE actor_uuid = ?
                 ORDER BY id ASC;
@@ -393,7 +433,8 @@ public final class ReputationRepository {
         Objects.requireNonNull(actor, "Actor must not be null");
         return engine.executeAsync(conn -> {
             String sql = """
-                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at, revoked_rating_id,
+                (SELECT rev.reason FROM reputation_event rev WHERE rev.revoked_rating_id = reputation_event.id) AS revoked_by
                 FROM reputation_event
                 WHERE actor_uuid = ?
                 ORDER BY id ASC;
@@ -419,7 +460,8 @@ public final class ReputationRepository {
         Objects.requireNonNull(since, "Instant since must not be null");
         return engine.executeAsync(conn -> {
             String sql = """
-                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at, revoked_rating_id,
+                (SELECT rev.reason FROM reputation_event rev WHERE rev.revoked_rating_id = reputation_event.id) AS revoked_by
                 FROM reputation_event
                 WHERE actor_uuid = ?
                   AND created_at > ?
@@ -447,7 +489,8 @@ public final class ReputationRepository {
         Objects.requireNonNull(target, "Target must not be null");
         return engine.executeAsync(conn -> {
             String sql = """
-                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at
+                SELECT id, actor_uuid, target_uuid, delta, kind, cost, reason, created_at, revoked_rating_id,
+                (SELECT rev.reason FROM reputation_event rev WHERE rev.revoked_rating_id = reputation_event.id) AS revoked_by
                 FROM reputation_event
                 WHERE actor_uuid = ?
                   AND target_uuid = ?
@@ -721,7 +764,9 @@ public final class ReputationRepository {
             String reason = rs.getString("reason");
             Instant createdAt = StorageTimestamps.parse(rs.getString("created_at"));
 
-            return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt);
+            Long revokedRatingId = rs.getObject("revoked_rating_id") == null ? null : rs.getLong("revoked_rating_id");
+            return new ReputationEvent(id, actor, target, delta, kind, cost, reason, createdAt,
+                    revokedRatingId, rs.getString("revoked_by"));
         } catch (IllegalArgumentException | DateTimeParseException | NullPointerException ex) {
             throw new StorageException(
                     "Corrupt reputation event row id=" + id + " for target=" + targetStr + ": " + ex.getMessage(), ex);

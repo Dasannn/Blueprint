@@ -10,10 +10,10 @@ import java.util.Locale;
 public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double observerRange,
                                     Map<String, Rule> rules, int dawnTime, int dawnDuration,
                                     PresentationConfig.Sounds sounds, PresentationConfig.Particles particles,
-                                    String animal, double animalRange, int animalDuration) {
+                                    java.util.List<String> animals, double animalRange, int animalDuration) {
     public static final Set<String> EFFECTS = Set.of("dawn", "source-less-sounds", "particles", "apparition");
     public record Rule(boolean enabled, double minimumSerenity, long cooldownTicks, int sessionCap) {}
-    public SerenityEffectsConfig { rules = Map.copyOf(rules); }
+    public SerenityEffectsConfig { rules = Map.copyOf(rules); animals = java.util.List.copyOf(animals); }
     public static SerenityEffectsConfig defaults() { return load(new MemoryConfiguration()); }
 
     public void validateCeiling(double ceiling) {
@@ -50,10 +50,10 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                         number(root, "source-less-sounds.offset.right-blocks", 0, false),
                         number(root, "source-less-sounds.offset.up-blocks", 0, false),
                         integer(root, "source-less-sounds.playback-ticks", 60, 1, 100)),
-                new PresentationConfig.Particles(choice(root, "particles.type", "end_rod", Set.of("end_rod", "smoke")),
+                new PresentationConfig.Particles(PresentationConfig.choices(root, path("particles.types"), java.util.List.of("end_rod", "white_smoke"), PresentationConfig.PARTICLE_TAILS.keySet()),
                         choice(root, "particles.placement", "around", Set.of("around", "beneath")),
                         integer(root, "particles.count", 8, 1, PresentationConfig.MAX_PARTICLE_COUNT), number(root, "particles.radius-blocks", 1, true), integer(root, "particles.duration-ticks", 40, 1, 100)),
-                choice(root, "apparition.kind", "cat", Set.of("cat", "fox", "wolf")),
+                PresentationConfig.choices(root, path("apparition.kinds"), java.util.List.of("turtle", "fox", "armadillo", "bee"), Set.of("turtle", "fox", "armadillo", "bee", "cat", "wolf")),
                 number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 60, 1, 100));
         ConfigurationSection section = root.getConfigurationSection("effects.serenity");
         if (section != null) for (String key : section.getKeys(true)) {
@@ -78,9 +78,9 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                 Map.entry("source-less-sounds.offset.right-blocks", sounds.right()),
                 Map.entry("source-less-sounds.offset.up-blocks", sounds.up()),
                 Map.entry("source-less-sounds.playback-ticks", sounds.playbackTicks()),
-                Map.entry("particles.type", particles.type()), Map.entry("particles.placement", particles.placement()),
+                Map.entry("particles.types", particles.types()), Map.entry("particles.placement", particles.placement()),
                 Map.entry("particles.count", particles.count()), Map.entry("particles.radius-blocks", particles.radius()),
-                Map.entry("particles.duration-ticks", particles.durationTicks()), Map.entry("apparition.kind", animal),
+                Map.entry("particles.duration-ticks", particles.durationTicks()), Map.entry("apparition.kinds", animals),
                 Map.entry("apparition.range-blocks", animalRange), Map.entry("apparition.duration-ticks", animalDuration));
         details.forEach((key, value) -> values.put(path(key), value.toString()));
         return Map.copyOf(values);

@@ -576,7 +576,7 @@ public class StatusGuiService {
                     // Blankness is decided after sanitizing, not before: a reason
                     // that is nothing but colour codes and spaces survives isBlank
                     // and would otherwise render as an empty line on the paper.
-                    String plain = CommentSanitizer.toPlainText(rawReason);
+                    String plain = filteredReason(rawReason, snapshot, messageRegistry);
                     paperLore = plain.isBlank()
                             ? List.of(GuiLoreLine.ofKey("gui.history.no-reason"))
                             : List.of(GuiLoreLine.ofPlain(plain));
@@ -611,11 +611,30 @@ public class StatusGuiService {
                         Map.of(),
                         List.of()
                 ));
+                for (int rowSlot : List.of(27 + col, 36 + col, 45 + col)) {
+                    GuiSlot item = slots.get(rowSlot);
+                    List<GuiLoreLine> lore = new ArrayList<>(item.lore());
+                    if (viewer != null && (PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot)
+                            || PermissionChecker.hasPermission(viewer, "admin-adjust", snapshot))) {
+                        lore.add(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(event.id()))));
+                        if (event.canRevoke() && PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot))
+                            lore.add(GuiLoreLine.ofKey("honor.revoke-hint"));
+                    }
+                    if (event.revokedBy() != null)
+                        lore.add(GuiLoreLine.ofKey("honor.revoked", Map.of("admin", event.revokedBy())));
+                    slots.put(rowSlot, new GuiSlot(item.slot(), item.iconKind(), item.owningPlayerId(), item.eventId(),
+                            item.tier(), item.dyeKind(), item.titleKey(), item.titlePlaceholders(), lore));
+                }
             }
         }
 
         slots.replaceAll((index, slot) -> resolveSlotText(slot, snapshot, messageRegistry));
         return new GuiLayout(INVENTORY_SIZE, slots);
+    }
+
+    public static String filteredReason(String raw, RuntimeSnapshot snapshot, MessageRegistry messages) {
+        return snapshot.config().chatFilter().apply(CommentSanitizer.toPlainText(raw),
+                messages.getRaw(snapshot, "chat-filter.replacement"));
     }
 
     private static GuiSlot resolveSlotText(GuiSlot slot, RuntimeSnapshot snapshot, MessageRegistry messages) {
@@ -675,7 +694,7 @@ public class StatusGuiService {
                             null,
                             "gui.history.revealed-rater",
                             Map.of("player", raterName),
-                            List.of(GuiLoreLine.ofKey("gui.history.revealed-info"))
+                            revealLore(slot.lore(), "gui.history.revealed-info", Map.of())
                     ));
                 } else if (!revealed && "gui.history.revealed-rater".equals(slot.titleKey())) {
                     double cost = holder.snapshot().config().history().revealCost();
@@ -688,8 +707,8 @@ public class StatusGuiService {
                             null,
                             "gui.history.anonymous-rater",
                             Map.of(),
-                            List.of(GuiLoreLine.ofKey("gui.history.click-to-reveal",
-                                    Map.of("cost", HonorService.formatCost(cost))))
+                            revealLore(slot.lore(), "gui.history.click-to-reveal",
+                                    Map.of("cost", HonorService.formatCost(cost)))
                     ));
                 }
             }
@@ -756,7 +775,8 @@ public class StatusGuiService {
                 return true;
             }
             // Administrators still see who rated whom (T-126)
-            if (snapshot != null && PermissionChecker.hasPermission(viewer, "admin-adjust", snapshot)) {
+            if (snapshot != null && (PermissionChecker.hasPermission(viewer, "admin-adjust", snapshot)
+                    || PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot))) {
                 return true;
             }
             if (viewer.hasPermission("socialblueprint.admin")) {
@@ -772,6 +792,10 @@ public class StatusGuiService {
      * Dispatches on the icon kind in the clicked slot of the layout, and confirms holder belongs to viewer (Finding 7).
      */
     public CompletableFuture<Void> handleClick(Player viewer, StatusGuiHolder holder, int slot) {
+        return handleClick(viewer, holder, slot, false);
+    }
+
+    public CompletableFuture<Void> handleClick(Player viewer, StatusGuiHolder holder, int slot, boolean shiftClick) {
         if (viewer == null || holder == null || slot < 0 || slot >= holder.layout().size()) {
             return CompletableFuture.completedFuture(null);
         }
@@ -793,7 +817,27 @@ public class StatusGuiService {
 
         RuntimeSnapshot snapshot = holder.snapshot();
 
+        if (shiftClick && guiSlot.eventId() != null) {
+            if (!PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot)) {
+                viewer.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return CompletableFuture.completedFuture(null);
+            }
+            openRevocationConfirmation(viewer, holder.targetName(), guiSlot.eventId(), snapshot);
+            return CompletableFuture.completedFuture(null);
+        }
+
         return switch (guiSlot.iconKind()) {
+            case REVOKE_CONFIRM -> {
+                Long ratingId = holder.consumeRevocationPreview(clock.instant());
+                viewer.closeInventory();
+                yield ratingId == null ? CompletableFuture.completedFuture(null)
+                        : honorService.adminRevoke(viewer, holder.targetName(), ratingId, snapshot);
+            }
+            case REVOKE_CANCEL -> {
+                holder.consumeRevocationPreview(clock.instant());
+                viewer.closeInventory();
+                yield CompletableFuture.completedFuture(null);
+            }
             case HONOR_CONFIRM -> {
                 if (!holder.consumeHonorPreview()) yield CompletableFuture.completedFuture(null);
                 CompletableFuture<Void> result = new CompletableFuture<>();
@@ -906,7 +950,7 @@ public class StatusGuiService {
         lore.add(GuiLoreLine.ofKey("gui.honor-confirmation.cost", Map.of("cost", HonorService.formatCost(pending.cost()))));
         if (pending.reason() != null) {
             lore.add(GuiLoreLine.ofKey("gui.honor-confirmation.reason"));
-            lore.add(GuiLoreLine.ofPlain(pending.reason()));
+            lore.add(GuiLoreLine.ofPlain(filteredReason(pending.reason(), snapshot, messages)));
         }
         slots.put(SLOT_HONOR_DETAILS, new GuiSlot(SLOT_HONOR_DETAILS, GuiIconKind.SUBJECT_HEAD,
                 pending.targetId().uuid(), null, null, null, "gui.top.subject-head-title",
@@ -919,7 +963,30 @@ public class StatusGuiService {
         return new GuiLayout(CONFIRMATION_SIZE, slots);
     }
 
+    public static GuiLayout buildRevocationConfirmationLayout(long ratingId, RuntimeSnapshot snapshot,
+                                                                MessageRegistry messages) {
+        Map<Integer, GuiSlot> slots = new HashMap<>();
+        slots.put(SLOT_HONOR_DETAILS, new GuiSlot(SLOT_HONOR_DETAILS, GuiIconKind.REASON_PAPER,
+                null, null, null, null, "honor.revoke-title", Map.of("id", String.valueOf(ratingId)), List.of()));
+        slots.put(SLOT_HONOR_CONFIRM, GuiSlot.of(SLOT_HONOR_CONFIRM, GuiIconKind.REVOKE_CONFIRM, "honor.revoke-confirm"));
+        slots.put(SLOT_HONOR_CANCEL, GuiSlot.of(SLOT_HONOR_CANCEL, GuiIconKind.REVOKE_CANCEL, "honor.revoke-cancel"));
+        slots.replaceAll((index, slot) -> resolveSlotText(slot, snapshot, messages));
+        return new GuiLayout(CONFIRMATION_SIZE, slots);
+    }
+
+    private void openRevocationConfirmation(Player viewer, String targetName, long ratingId, RuntimeSnapshot snapshot) {
+        StatusGuiHolder confirmation = new StatusGuiHolder(viewer.getUniqueId(), targetName,
+                List.of(buildRevocationConfirmationLayout(ratingId, snapshot, messageRegistry)), new HashSet<>(), snapshot);
+        confirmation.setRevocationPreview(ratingId, clock.instant().plusSeconds(60));
+        Inventory inventory = Bukkit.createInventory(confirmation, CONFIRMATION_SIZE,
+                messageRegistry.render(snapshot, "honor.revoke-title", Map.of("id", String.valueOf(ratingId))));
+        confirmation.setInventory(inventory);
+        renderGui(confirmation, viewer);
+        viewer.openInventory(inventory);
+    }
+
     public void discardHonorPreview(StatusGuiHolder holder) {
+        holder.consumeRevocationPreview(clock.instant());
         if (holder.consumeHonorPreview()) {
             honorService.clearPendingConfirmation(holder.viewerUuid(), holder.honorPreview());
         }
@@ -942,7 +1009,7 @@ public class StatusGuiService {
         ));
         viewer.sendMessage(messageRegistry.renderWithPrefix(snapshot,
                 kind == HonorKind.POSITIVE ? "gui.prompt-give-reason" : "gui.prompt-reason",
-                Map.of("player", targetName, "skip", messageRegistry.getRaw(snapshot, "gui.reason-skip-word"))));
+                Map.of("player", targetName)));
     }
 
     public boolean hasPendingReason(UUID playerUuid) {
@@ -975,13 +1042,7 @@ public class StatusGuiService {
             return CompletableFuture.completedFuture(null);
         }
 
-        boolean skip = trimmed.equals(messageRegistry.getRaw(pending.snapshot(), "gui.reason-skip-word"));
-        if (pending.kind() == HonorKind.NEGATIVE && (trimmed.isEmpty() || skip)) {
-            player.sendMessage(messageRegistry.renderWithPrefix(pending.snapshot(), "honor.reason-required"));
-            return CompletableFuture.completedFuture(null);
-        }
-        return prepareGuiHonor(player, pending.targetName(), pending.kind(),
-                trimmed.isEmpty() || skip ? null : trimmed, pending.snapshot());
+        return prepareGuiHonor(player, pending.targetName(), pending.kind(), rawMessage, pending.snapshot());
     }
 
     /**
@@ -1229,6 +1290,13 @@ public class StatusGuiService {
                 });
     }
 
+    private static List<GuiLoreLine> revealLore(List<GuiLoreLine> previous, String key, Map<String, String> placeholders) {
+        List<GuiLoreLine> lore = new ArrayList<>();
+        lore.add(GuiLoreLine.ofKey(key, placeholders));
+        previous.stream().filter(line -> line.key() != null && line.key().startsWith("honor.")).forEach(lore::add);
+        return lore;
+    }
+
     private void applyRevealSuccess(Player viewer, StatusGuiHolder holder, long eventId, UUID raterUuid, double exactCost) {
         holder.revealedEventIds().add(eventId);
         String raterName = resolveRaterName(raterUuid, holder.snapshot());
@@ -1248,7 +1316,7 @@ public class StatusGuiService {
                             null,
                             "gui.history.revealed-rater",
                             Map.of("player", raterName),
-                            List.of(GuiLoreLine.ofKey("gui.history.revealed-info"))
+                            revealLore(s.lore(), "gui.history.revealed-info", Map.of())
                     ));
                     modified = true;
                 }

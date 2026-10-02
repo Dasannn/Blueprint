@@ -233,9 +233,15 @@ public class HonorService {
             return CompletableFuture.completedFuture(null);
         }
 
-        // Negative honor requires a written reason (SB-056)
-        if (kind == HonorKind.NEGATIVE && (reason == null || reason.isBlank())) {
+        // Every player honor rating requires a visible written reason (SB-150)
+        if (reason == null || reason.isBlank()) {
             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.reason-required"));
+            return CompletableFuture.completedFuture(null);
+        }
+
+        if (com.dasannn.socialblueprint.domain.ReasonRules.visibleLength(reason) < snapshot.config().honor().reasonMinLength()) {
+            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.reason-too-short",
+                    Map.of("min", String.valueOf(snapshot.config().honor().reasonMinLength()))));
             return CompletableFuture.completedFuture(null);
         }
 
@@ -421,6 +427,11 @@ public class HonorService {
             return CompletableFuture.completedFuture(null);
         }
 
+        if (!com.dasannn.socialblueprint.domain.ReasonRules.accepts(pending.reason(), snapshot.config().honor().reasonMinLength())) {
+            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.reason-too-short",
+                    Map.of("min", String.valueOf(snapshot.config().honor().reasonMinLength()))));
+            return CompletableFuture.completedFuture(null);
+        }
         Duration window = snapshot.config().honor().multiplierWindow();
         if (snapshot.config().honor().capWindow().compareTo(window) > 0) window = snapshot.config().honor().capWindow();
         if (snapshot.config().honor().cooldownPerPair().compareTo(window) > 0) window = snapshot.config().honor().cooldownPerPair();
@@ -796,9 +807,32 @@ public class HonorService {
         }
     }
 
-    /**
-     * Administrative give: free, no cooldown, no cap, audited (SB-058, T-055, T-056).
-     */
+    /** Administrative revocation never moves money or restores allowance (SB-152). */
+    public CompletableFuture<Void> adminRevoke(CommandSender sender, String targetInput, long ratingId,
+                                                RuntimeSnapshot snapshot) {
+        if (!PermissionChecker.hasPermission(sender, "admin-revoke", snapshot)) {
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+            return CompletableFuture.completedFuture(null);
+        }
+        PlayerId admin = sender instanceof Player p ? PlayerId.of(p.getUniqueId()) : PlayerId.CONSOLE;
+        String adminName = sender.getName(); // Bukkit access is captured before the storage hop.
+        return profileService.resolveTargetIdentityAsync(targetInput).thenCompose(identity -> {
+            if (identity.isEmpty()) {
+                mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot,
+                        "status.not-found", Map.of("player", targetInput))));
+                return CompletableFuture.completedFuture(null);
+            }
+            return reputationRepository.revokeAsync(admin, adminName, identity.get().id(), ratingId,
+                    clock.instant(), auditRepository).handle((changed, error) -> {
+                mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot,
+                        error != null ? "honor.write-failed" : Boolean.TRUE.equals(changed)
+                                ? "honor.revoke-success" : "honor.revoke-rejected",
+                        Map.of("id", String.valueOf(ratingId), "player", identity.get().name()))));
+                return (Void) null;
+            });
+        });
+    }
+
     public CompletableFuture<Void> adminGive(
             CommandSender sender,
             String targetInput,
