@@ -19,9 +19,17 @@ public record HonorConfigSection(
         Duration multiplierWindow,
         Duration capWindow,
         Duration cooldownPerPair,
-        int maxPerTarget
+        int maxPerTarget,
+        int reasonMinLength
 ) {
+    public HonorConfigSection(double cost, List<Double> multipliers, Duration multiplierWindow,
+                              Duration capWindow, Duration cooldownPerPair, int maxPerTarget) {
+        this(cost, multipliers, multiplierWindow, capWindow, cooldownPerPair, maxPerTarget, 3);
+    }
+
     public HonorConfigSection {
+        if (reasonMinLength < 1 || reasonMinLength > com.dasannn.socialblueprint.domain.ReputationEvent.MAX_REASON_LENGTH)
+            throw new ConfigValidationException("honor.reason.min-length", "Must be between 1 and 100");
         Objects.requireNonNull(multipliers, "Multipliers list must not be null");
         Objects.requireNonNull(multiplierWindow, "Multiplier window duration must not be null");
         Objects.requireNonNull(capWindow, "Cap window duration must not be null");
@@ -126,7 +134,9 @@ public record HonorConfigSection(
                             + requiredMinimum + "), got: " + capWindow);
         }
 
-        return new HonorConfigSection(cost, multipliers, multiplierWindow, capWindow, cooldown, maxPerTarget);
+        int reasonMinLength = section.contains("reason.min-length")
+                ? parseInt(section, "reason.min-length", "honor.reason.min-length") : 3;
+        return new HonorConfigSection(cost, multipliers, multiplierWindow, capWindow, cooldown, maxPerTarget, reasonMinLength);
     }
 
     private static double parseDouble(ConfigurationSection section, String subKey, String fullKey) {

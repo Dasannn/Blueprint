@@ -96,7 +96,7 @@ public class ConfigManager {
                 "effects.fake-announcement.cooldown", "effects.fake-announcement.session-cap"));
         for (String language : List.of("en", "es")) {
             removeObsoleteKeys(new File(configFile.getParentFile(), "messages_" + language + ".yml"),
-                    List.of("effects.opt-out-enabled", "effects.opt-out-disabled"));
+                    List.of("effects.opt-out-enabled", "effects.opt-out-disabled", "gui.reason-skip-word"));
         }
     }
 
@@ -209,6 +209,14 @@ public class ConfigManager {
             File dataFolder = configFile.getParentFile();
             YamlConfiguration beforeMerge = YamlConfiguration.loadConfiguration(configFile);
             Map<String, YamlConfiguration> messagesBeforeMerge = loadMessagesBeforeMerge();
+            for (String language : List.of("en", "es")) {
+                File file = new File(dataFolder, "messages_" + language + ".yml");
+                if (file.exists()) {
+                    YamlConfiguration previous = YamlConfiguration.loadConfiguration(file);
+                    if (previous.getString("gui.prompt-give-reason", "").contains("{skip}"))
+                        removeObsoleteKeys(file, List.of("gui.prompt-give-reason"));
+                }
+            }
             ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
             adoptPrivateTextMessages(messagesBeforeMerge);
             adoptEpisodeIntervals(beforeMerge);
@@ -481,6 +489,15 @@ public class ConfigManager {
     }
 
     private Object parseValueForPath(String path, String raw) {
+        if (path.startsWith("chat-filter.words.")) {
+            if (raw.contains("\n") || raw.contains("\r")) throw new ConfigValidationException(path, "Use an inline YAML list");
+            YamlConfiguration parsed = new YamlConfiguration();
+            try { parsed.loadFromString("value: " + raw); }
+            catch (org.bukkit.configuration.InvalidConfigurationException ex) { throw new ConfigValidationException(path, "Invalid YAML list"); }
+            if (!parsed.isList("value") || parsed.getKeys(false).size() != 1)
+                throw new ConfigValidationException(path, "Must be an inline YAML list");
+            return parsed.getList("value");
+        }
         if ("sounds.serenity-clean".equals(path)) {
             if (raw.contains("\n") || raw.contains("\r"))
                 throw new ConfigValidationException(path, "Use an inline YAML list of sound layers");
@@ -643,6 +660,11 @@ public class ConfigManager {
         set.add("psychosis.serenity.active-hours-to-ceiling");
         set.add("psychosis.serenity.idle-timeout-seconds");
 
+        set.add("honor.reason.min-length");
+        set.add("chat-filter.enabled");
+        set.add("chat-filter.words.es");
+        set.add("chat-filter.words.en");
+        set.add("permissions.admin-revoke");
         set.add("honor.cost");
         set.add("honor.multipliers");
         set.add("honor.multiplier-window");

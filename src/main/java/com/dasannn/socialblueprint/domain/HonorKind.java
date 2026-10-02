@@ -15,7 +15,8 @@ public enum HonorKind {
     ADMIN_TAKE("admin_take"),
     ADMIN_RESET("admin_reset"),
     LEGACY_IMPORT("legacy_import"),
-    SYSTEM_KILL("system_kill");
+    SYSTEM_KILL("system_kill"),
+    REVOCATION("revocation");
 
     public static final HonorKind GIVE = POSITIVE;
     public static final HonorKind REMOVE = NEGATIVE;
@@ -70,6 +71,7 @@ public enum HonorKind {
             case "admin_reset", "reset" -> ADMIN_RESET;
             case "legacy_import" -> LEGACY_IMPORT;
             case "system_kill" -> SYSTEM_KILL;
+            case "revocation" -> REVOCATION;
             default -> throw new IllegalArgumentException("Unknown HonorKind: " + value);
         };
     }

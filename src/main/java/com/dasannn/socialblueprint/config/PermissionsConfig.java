@@ -38,6 +38,7 @@ public record PermissionsConfig(
         return switch (action) {
             case "version" -> "socialblueprint.version";
             case "admin-update" -> "socialblueprint.admin.update";
+            case "admin-revoke" -> "socialblueprint.admin.revoke";
             default -> null;
         };
     }
@@ -61,6 +62,10 @@ public record PermissionsConfig(
             }
             nodes.put(action, node);
         }
+
+        if (section.contains("admin-revoke") && (section.getString("admin-revoke") == null
+                || section.getString("admin-revoke").isBlank()))
+            throw new ConfigValidationException("permissions.admin-revoke", "Permission node must not be blank");
 
         // Include any additional custom nodes configured
         for (String key : section.getKeys(false)) {

@@ -74,7 +74,7 @@ class SerenityConfigTest {
             assertThat(registry.psychosisLabel(snapshot, mad)).isEqualTo(registry.getRaw(snapshot, "psychosis.high"));
             assertThat(registry.serenityValue(mad)).isEqualTo("0.0");
             assertThat(snapshot.messages().bundledActiveMessages()).containsKeys("status.profile-serenity", "chat.hover-serenity",
-                    "gui.prompt-give-reason", "gui.reason-skip-word");
+                    "gui.prompt-give-reason", "honor.reason-too-short");
             assertThat(registry.getRaw(snapshot, "psychosis.serenity.name")).isEqualTo(language.equals("en") ? "Serenity" : "Serenidad");
             assertThat(serene.status()).isEqualTo(-100);
             assertThat(serene.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);

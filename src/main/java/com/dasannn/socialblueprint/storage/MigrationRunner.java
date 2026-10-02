@@ -41,7 +41,9 @@ public final class MigrationRunner {
                 new Migration_2_RaterReveal(),
                 new Migration_3_KillPenaltyClaim(),
                 new Migration_4_PendingCompensation(),
-                new Migration_5_Serenity()
+                new Migration_5_Serenity(),
+                // T-200 must register its migration 6 here before the combined R2 build.
+                new Migration_7_HonorRevocation()
         ));
     }
 

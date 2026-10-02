@@ -81,8 +81,8 @@ public class GuiRenderer {
     public Material resolveMaterial(GuiSlot slot, RuntimeSnapshot snapshot) {
         return switch (slot.iconKind()) {
             case FILLER -> Material.GRAY_STAINED_GLASS_PANE;
-            case HONOR_CONFIRM -> Material.LIME_STAINED_GLASS_PANE;
-            case HONOR_CANCEL -> Material.RED_STAINED_GLASS_PANE;
+            case HONOR_CONFIRM, REVOKE_CONFIRM -> Material.LIME_STAINED_GLASS_PANE;
+            case HONOR_CANCEL, REVOKE_CANCEL -> Material.RED_STAINED_GLASS_PANE;
             case SUBJECT_HEAD, RATER_HEAD -> Material.PLAYER_HEAD;
             case TIER_DYE -> slot.dyeKind() != null ? mapDyeMaterial(slot.dyeKind()) : Material.WHITE_DYE;
             case GIVE_BANNER, DIRECTION_BANNER_POSITIVE -> Material.GREEN_BANNER;

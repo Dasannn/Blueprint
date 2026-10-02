@@ -12,6 +12,9 @@ commands:
     description: Social profile and actions
 
 permissions:
+  socialblueprint.admin.revoke:
+    description: Revoke an honor rating without deleting its history.
+    default: op
   socialblueprint.*:
     description: All SocialBlueprint permissions
     default: op
@@ -29,6 +32,7 @@ permissions:
     description: All administrative SocialBlueprint permissions
     default: op
     children:
+      socialblueprint.admin.revoke: true
       socialblueprint.admin.adjust: true
       socialblueprint.admin.config: true
       socialblueprint.admin.update: true

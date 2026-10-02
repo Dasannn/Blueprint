@@ -16,7 +16,9 @@ public record ReputationEvent(
         HonorKind kind,
         double cost,
         String reason,
-        Instant createdAt
+        Instant createdAt,
+        Long revokedRatingId,
+        String revokedBy
 ) {
     /**
      * Maximum sane magnitude for a single reputation delta (±10,000).
@@ -30,7 +32,23 @@ public record ReputationEvent(
     public static final int MAX_DELTA = 10_000;
     public static final int MAX_REASON_LENGTH = 100;
 
+    public ReputationEvent(long id, PlayerId actor, PlayerId target, int delta,
+                           HonorKind kind, double cost, String reason, Instant createdAt) {
+        this(id, actor, target, delta, kind, cost, reason, createdAt, null, null);
+    }
+
+    public boolean canRevoke() {
+        return revokedBy == null && (kind.isPlayerHonor() || kind == HonorKind.SYSTEM_KILL
+                || kind == HonorKind.ADMIN_GIVE || kind == HonorKind.ADMIN_TAKE);
+    }
+
     public ReputationEvent {
+        if (kind == HonorKind.REVOCATION) {
+            if (actor == null || reason == null || reason.isBlank() || revokedRatingId == null || revokedRatingId <= 0 || delta != 0 || cost != 0)
+                throw new IllegalArgumentException("A revocation must reference a rating and carry no delta or cost");
+        } else if (revokedRatingId != null) {
+            throw new IllegalArgumentException("Only a revocation may reference a rating");
+        }
         Objects.requireNonNull(target, "Target must not be null");
         Objects.requireNonNull(kind, "Kind must not be null");
         Objects.requireNonNull(createdAt, "CreatedAt must not be null");

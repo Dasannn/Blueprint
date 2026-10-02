@@ -73,6 +73,23 @@ public class StatusAdminCommand {
             return CompletableFuture.completedFuture(null);
         }
 
+        if ("revoke".equals(action)) {
+            if (!PermissionChecker.hasPermission(sender, "admin-revoke", snapshot)) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+                return CompletableFuture.completedFuture(null);
+            }
+            if (args.length != 3) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.revoke-usage"));
+                return CompletableFuture.completedFuture(null);
+            }
+            java.util.OptionalLong ratingId = ArgumentParser.parsePositiveLong(args[2]);
+            if (ratingId.isEmpty()) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.revoke-rejected"));
+                return CompletableFuture.completedFuture(null);
+            }
+            return honorService.adminRevoke(sender, args[1], ratingId.getAsLong(), snapshot);
+        }
+
         // Permission check for give/take/reset
         if (!PermissionChecker.hasPermission(sender, "admin-adjust", snapshot)) {
             sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
@@ -139,7 +156,8 @@ public class StatusAdminCommand {
         boolean canAdjust = PermissionChecker.hasPermission(sender, "admin-adjust", snapshot);
         boolean canImport = PermissionChecker.hasPermission(sender, "admin-import", snapshot);
 
-        if (!canAdjust && !canImport) {
+        boolean canRevoke = PermissionChecker.hasPermission(sender, "admin-revoke", snapshot);
+        if (!canAdjust && !canImport && !canRevoke) {
             return Collections.emptyList();
         }
 
@@ -151,6 +169,7 @@ public class StatusAdminCommand {
                 actions.add("take");
                 actions.add("reset");
             }
+            if (canRevoke) actions.add("revoke");
             if (canImport) {
                 actions.add("import");
             }

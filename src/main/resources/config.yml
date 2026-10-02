@@ -136,6 +136,8 @@ psychosis:
 # Honor Economy (SB-050, SB-054, Decision 0001)
 # ==============================================================================
 honor:
+  reason:
+    min-length: 3
   # Base monetary cost to give or remove honor (withdrawn via Vault economy).
   cost: 500.0
 
@@ -164,6 +166,7 @@ honor:
 # Action-to-permission node mapping resolved at check time.
 # ==============================================================================
 permissions:
+  admin-revoke: socialblueprint.admin.revoke
   show: "socialblueprint.show"
   show-others: "socialblueprint.show.others"
   give-reputation: "socialblueprint.give"
@@ -490,3 +493,10 @@ history:
   # Cost in currency to reveal an anonymous rater's identity in the /status GUI (T-124).
   reveal-cost: 100.0
 
+
+# All language lists apply to every reader (SB-151).
+chat-filter:
+  enabled: true
+  words:
+    es: [idiota, imbecil, estupido, mierda, puta, cabron]
+    en: [idiot, asshole, bastard, shit, fuck, bitch]

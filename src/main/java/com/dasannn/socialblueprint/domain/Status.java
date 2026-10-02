@@ -27,7 +27,7 @@ public record Status(int value) implements Comparable<Status> {
             return ZERO;
         }
         long total = 0;
-        for (ReputationEvent event : events) {
+        for (ReputationEvent event : activeEvents(events)) {
             if (event != null) {
                 total += event.delta();
             }
@@ -55,7 +55,7 @@ public record Status(int value) implements Comparable<Status> {
         Objects.requireNonNull(now, "Instant 'now' must not be null when decay is enabled");
 
         double weightedSum = 0.0;
-        for (ReputationEvent event : events) {
+        for (ReputationEvent event : activeEvents(events)) {
             if (event == null) {
                 continue;
             }
@@ -105,6 +105,18 @@ public record Status(int value) implements Comparable<Status> {
                 .setScale(0, RoundingMode.HALF_UP)
                 .intValueExact();
         return Status.of(rounded);
+    }
+
+    private static java.util.List<ReputationEvent> activeEvents(Iterable<ReputationEvent> events) {
+        java.util.List<ReputationEvent> all = new java.util.ArrayList<>();
+        java.util.Set<Long> revoked = new java.util.HashSet<>();
+        for (ReputationEvent event : events) {
+            if (event == null) continue;
+            all.add(event);
+            if (event.kind() == HonorKind.REVOCATION) revoked.add(event.revokedRatingId());
+        }
+        return all.stream().filter(e -> e.kind() != HonorKind.REVOCATION
+                && e.revokedBy() == null && !revoked.contains(e.id())).toList();
     }
 
     public Status plus(int delta) {

@@ -22,7 +22,7 @@ class SerenityStorageTest {
             engine.runMigrations(new MigrationRunner(List.of(new Migration_1_InitialSchema(), new Migration_2_RaterReveal(),
                     new Migration_3_KillPenaltyClaim(), new Migration_4_PendingCompensation())));
             new ProfileRepository(engine).save(PlayerProfile.create(id, "Peaceful", NOW.minus(Duration.ofDays(365))));
-            assertThat(engine.runMigrations()).isEqualTo(5);
+            assertThat(engine.runMigrations()).isEqualTo(7);
             var repository = new PsychosisRepository(engine);
             assertThat(repository.loadStreak(id).activeMillis()).isZero();
             repository.saveStreakAsync(id, 25 * 3_600_000d, 0).join();

@@ -6,6 +6,8 @@ package com.dasannn.socialblueprint.feature.gui;
  */
 public enum GuiIconKind {
     FILLER,
+    REVOKE_CONFIRM,
+    REVOKE_CANCEL,
     HONOR_CONFIRM,
     HONOR_CANCEL,
     SUBJECT_HEAD,

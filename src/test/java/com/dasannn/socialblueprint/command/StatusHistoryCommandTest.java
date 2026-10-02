@@ -283,6 +283,25 @@ class StatusHistoryCommandTest {
     }
 
     @Test
+    void allHistoryReadersSeeFilteredReasonAndRevokeAdminsSeeIds() {
+        Player target = registerPlayer("FilteredTarget");
+        PlayerId targetId = PlayerId.of(target.getUniqueId());
+        ReputationEvent rating = reputationRepo.save(new ReputationEvent(PlayerId.of(UUID.randomUUID()),
+                targetId, 1, HonorKind.POSITIVE, 500, "IMBÉCIL, idiot &a", baseTime));
+        var admin = new MockPlayerRecord("Admin", false, "socialblueprint.admin.revoke");
+        var console = new MockSenderRecord("Console", true);
+        for (CommandSender reader : List.of(admin.player, console.sender)) {
+            recordingRegistry.renderCalls.clear();
+            historyCommand.execute(reader, new String[]{"FilteredTarget"}, configManager.snapshot()).join();
+            assertThat(recordingRegistry.findCalls("status.history-entry")).singleElement().satisfies(call ->
+                    assertThat(call.stringPlaceholders()).containsEntry("reason", "bobba, bobba"));
+            assertThat(recordingRegistry.findCalls("honor.rating-id")).singleElement().satisfies(call ->
+                    assertThat(call.stringPlaceholders()).containsEntry("id", String.valueOf(rating.id())));
+        }
+        assertThat(reputationRepo.findByTarget(targetId).getFirst().reason()).isEqualTo("IMBÉCIL, idiot &a");
+    }
+
+    @Test
     @DisplayName("SB-085: System, player and revealed ratings have only date, delta and reason in both languages")
     void historyHasNoActorEvenAfterReveal() {
         Player target = registerPlayer("Target");
