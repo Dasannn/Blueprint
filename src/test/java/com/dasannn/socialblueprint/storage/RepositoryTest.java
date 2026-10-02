@@ -15,8 +15,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,8 +45,9 @@ class RepositoryTest {
     void setUp() {
         storage = StorageEngine.inMemory();
         storage.runMigrations();
-        statusCache = new StatusCache();
-        reputationRepo = new ReputationRepository(storage, statusCache);
+        Clock clock = Clock.fixed(baseTime, ZoneOffset.UTC);
+        statusCache = new StatusCache(Duration.ofSeconds(60), clock);
+        reputationRepo = new ReputationRepository(storage, statusCache, DecayConfig::defaults, clock);
         psychosisRepo = new PsychosisRepository(storage);
         profileRepo = new ProfileRepository(storage);
         auditRepo = new AuditRepository(storage);
