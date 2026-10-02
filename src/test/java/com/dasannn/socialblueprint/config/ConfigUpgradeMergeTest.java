@@ -54,6 +54,46 @@ class ConfigUpgradeMergeTest {
     }
 
     @Test
+    void upgradeMergesChatColoursPreservesOwnerValuesAndLiveEditsRoundTrip() throws Exception {
+        String bundled;
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
+            bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        String old = bundled.replace("medium-colour: '#AAAAAA'", "medium-colour: '#999999'")
+                .replaceAll("(?m)^    (?:high|extreme)-colour:.*\\r?\\n", "");
+        Files.writeString(configFile.toPath(), old);
+        ConfigManager manager = new ConfigManager(configFile, messageRegistry, Runnable::run, () -> "1.0", testLogger);
+        manager.initialize();
+        assertThat(manager.config().psychosis().chat().mediumColour()).isEqualTo("#999999");
+        assertThat(manager.config().psychosis().chat().highColour()).isEqualTo("#666666");
+        assertThat(manager.config().psychosis().chat().extremeColour()).isEqualTo("#303030");
+        assertThat(manager.get("psychosis.chat.medium-colour")).isEqualTo("#999999");
+        assertThat(manager.get("psychosis.chat.high-colour")).isEqualTo("#666666");
+        assertThat(manager.get("psychosis.chat.extreme-colour")).isEqualTo("#303030");
+        for (String level : List.of("medium", "high", "extreme")) {
+            String key = "psychosis.chat." + level + "-colour";
+            assertThat(manager.isEditableKey(key)).isTrue();
+            var before = manager.snapshot();
+            String disk = Files.readString(configFile.toPath());
+            for (String invalid : List.of("#000000", "#010101", "#202020", "#2B2B2B", "black", "#123", "#GGGGGG")) {
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> manager.set(key, invalid))
+                        .isInstanceOf(ConfigValidationException.class).hasMessageContaining(level + "-colour");
+                assertThat(manager.snapshot()).isSameAs(before);
+                assertThat(Files.readString(configFile.toPath())).isEqualTo(disk);
+            }
+        }
+        manager.set("psychosis.chat.medium-colour", "#AAAAAA");
+        manager.set("psychosis.chat.high-colour", "#777777");
+        manager.set("psychosis.chat.extreme-colour", "#404040");
+        var chat = manager.config().psychosis().chat();
+        manager.reload();
+        assertThat(manager.config().psychosis().chat()).isEqualTo(chat);
+        assertThat(YamlConfiguration.loadConfiguration(configFile).getString("psychosis.chat.extreme-colour")).isEqualTo("#404040");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> manager.set("psychosis.chat.extreme-colour", "#FFFFFF"))
+                .hasMessageContaining("extreme-colour");
+    }
+
+    @Test
     void upgradeAdoptsCustomChatExtentAndRetiresTheOldKey() throws Exception {
         for (int legacy : List.of(20, 17, 25)) {
             String bundled;

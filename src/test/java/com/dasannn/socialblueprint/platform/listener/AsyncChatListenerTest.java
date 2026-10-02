@@ -194,6 +194,53 @@ class AsyncChatListenerTest {
     }
 
     @Test
+    void episodeColourIsGradedAndShortMessagesStillDarkenOnlyOnEpisodes() {
+        var chat = configManager.snapshot().config().psychosis().chat();
+        for (PsychosisLevel level : PsychosisLevel.values()) {
+            boolean sawEpisode = false;
+            for (int sequence = 0; sequence < 1000; sequence++) {
+                Component body = AsyncChatListener.messageBody("hi", level, 123, sequence, chat);
+                boolean episode = ChatCorruption.isEpisode("hi", level, 123, sequence, chat);
+                assertThat(AsyncChatListener.extractPlainText(body)).isEqualTo("hi");
+                assertThat(body.color()).isEqualTo(episode ? TextColor.fromHexString(chat.colour(level)) : null);
+                assertThat(body.clickEvent()).isNull();
+                assertThat(body.hoverEvent()).isNull();
+                if ((sequence & 1) != 0) assertThat(body.color()).isNull();
+                sawEpisode |= episode;
+            }
+            assertThat(sawEpisode).isEqualTo(level.hasMadnessEffects());
+        }
+    }
+
+    @Test
+    void foreignRendererBeforeOrAfterOurListenerIsPreservedAndLoggedOnce() {
+        var logger = Logger.getLogger(AsyncChatListener.class.getName());
+        java.util.List<java.util.logging.LogRecord> records = new java.util.ArrayList<>();
+        var handler = new java.util.logging.Handler() {
+            public void publish(java.util.logging.LogRecord record) { records.add(record); }
+            public void flush() {}
+            public void close() {}
+        };
+        logger.addHandler(handler);
+        try {
+            ChatRenderer foreign = (p, name, body, viewer) -> body;
+            AsyncChatEvent early = chatEvent(null, Component.text("hi"));
+            early.renderer(foreign);
+            chatListener.onChat(early);
+            chatListener.onRenderedChat(early);
+            assertThat(early.renderer()).isSameAs(foreign);
+            AsyncChatEvent late = chatEvent(null, Component.text("hi"));
+            chatListener.onChat(late);
+            assertThat(late.renderer()).isNotSameAs(foreign);
+            late.renderer(foreign);
+            chatListener.onRenderedChat(late);
+            assertThat(late.renderer()).isSameAs(foreign);
+            assertThat(records).hasSize(1);
+            assertThat(records.getFirst().getMessage()).contains("replaced the chat renderer");
+        } finally { logger.removeHandler(handler); }
+    }
+
+    @Test
     @DisplayName("T-043: Name hover summary displays status, tier, confidence, psychosis, and contributors in English")
     void hoverSummaryInEnglish() {
         configManager.set("language", "en");
@@ -378,7 +425,11 @@ class AsyncChatListenerTest {
                     String expectedText = ChatCorruption.corrupt(original, view.psychosis(),
                             uuid.getMostSignificantBits() ^ uuid.getLeastSignificantBits(), sequence,
                             snapshot.config().psychosis().chat());
+                    boolean episode = ChatCorruption.isEpisode(original, view.psychosis(),
+                            uuid.getMostSignificantBits() ^ uuid.getLeastSignificantBits(), sequence,
+                            snapshot.config().psychosis().chat());
                     Component expectedBody = Component.text(expectedText);
+                    if (episode) expectedBody = expectedBody.color(TextColor.fromHexString("#303030"));
                     if (!expectedText.equals(original)) changed.set(true);
                     Component first = null;
                     for (int reader = 0; reader < 4; reader++) {
@@ -409,7 +460,7 @@ class AsyncChatListenerTest {
     }
 
     private static AsyncChatEvent chatEvent(Player player, Component message) {
-        return new AsyncChatEvent(true, player, Collections.emptySet(), (p, dn, m, v) -> m,
+        return new AsyncChatEvent(true, player, Collections.emptySet(), ChatRenderer.defaultRenderer(),
                 message, message, SignedMessage.system(AsyncChatListener.extractPlainText(message), message));
     }
 

@@ -34,14 +34,15 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             if (!Double.isFinite(high) || high < medium) fail("episodes.duration-scale.high", "Must be finite and >= medium");
             if (!Double.isFinite(extreme) || extreme < high) fail("episodes.duration-scale.extreme", "Must be finite and >= high");
         }
-        public int ticks(int base, PsychosisLevel level) {
+        public int ticks(int base, PsychosisLevel level) { return ticks(base, level, 100); }
+        public int ticks(int base, PsychosisLevel level, int cap) {
             double factor = switch (level) {
                 case MEDIUM -> medium;
                 case HIGH -> high;
                 case EXTREME -> extreme;
                 default -> 1;
             };
-            return (int) Math.min(100, Math.ceil(base * factor));
+            return (int) Math.min(cap, Math.ceil(base * factor));
         }
     }
     public record Phantom(java.util.List<String> mobs, double distance, int durationTicks) {
@@ -54,7 +55,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
         int fadeIn = (int) ((long) total * flash.fadeInTicks() / flash.totalTicks());
         int fadeOut = (int) ((long) total * flash.fadeOutTicks() / flash.totalTicks());
         return new PresentationConfig(rules,
-                new Sky(sky.mode(), durationScale.ticks(sky.durationTicks(), level)),
+                new Sky(sky.mode(), durationScale.ticks(sky.durationTicks(), level, 200)),
                 new Particles(particles.type(), particles.placement(), particles.count(), particles.radius(),
                         durationScale.ticks(particles.durationTicks(), level)),
                 new Flash(flash.channel(), fadeIn, total - fadeIn - fadeOut, fadeOut), sounds, episodes,
@@ -213,7 +214,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             episodes = new Episodes(medium, high, extreme, quiet);
         }
         return new PresentationConfig(rules,
-                new Sky(choice(root, "sky.mode", "night", Set.of("night", "storm")), integer(root, "sky.duration-ticks", 60, 1, 100)),
+                new Sky(choice(root, "sky.mode", "night", Set.of("night", "storm")), integer(root, "sky.duration-ticks", 100, 1, 200)),
                 new Particles(particle, choice(root, "particles.placement", "around", Set.of("around", "beneath")),
                         integer(root, "particles.count", 8, 1, MAX_PARTICLE_COUNT), number(root, "particles.radius-blocks", 1, true),
                         integer(root, "particles.duration-ticks", 40, 1, 100)), flash,

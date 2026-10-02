@@ -119,8 +119,14 @@ public record PsychosisConfigSection(
         if (minLetters < 1) throw new ConfigValidationException("psychosis.chat.min-letters", "Must be positive");
         try {
             return new ChatCorruptionConfig(integer(section, "medium-rate", 10), integer(section, "high-rate", 25),
-                    integer(section, "extreme-rate", 40), mediumExtent, highExtent, extremeExtent, minLetters);
+                    integer(section, "extreme-rate", 40), mediumExtent, highExtent, extremeExtent, minLetters,
+                    section.getString("medium-colour", "#AAAAAA"), section.getString("high-colour", "#666666"),
+                    section.getString("extreme-colour", "#303030"));
         } catch (IllegalArgumentException ex) {
+            for (String leaf : java.util.List.of("medium-colour", "high-colour", "extreme-colour")) {
+                if (ex.getMessage().startsWith(leaf + " "))
+                    throw new ConfigValidationException("psychosis.chat." + leaf, ex.getMessage());
+            }
             throw new ConfigValidationException("psychosis.chat", ex.getMessage());
         }
     }

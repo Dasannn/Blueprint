@@ -50,7 +50,7 @@ class PresentationConfigTest {
     @Test void invalidPresentationValuesNameTheirPath() {
         Map<String, Object> invalid = Map.ofEntries(
                 Map.entry("episodes.duration-scale", "bad"), Map.entry("episodes.duration-scale.unknown", 1),
-                Map.entry("sky.mode", "day"), Map.entry("sky.duration-ticks", 0),
+                Map.entry("sky.mode", "day"), Map.entry("sky.duration-ticks", 201),
                 Map.entry("sky.cooldown-ticks", 0), Map.entry("sky.session-cap", -1),
                 Map.entry("sky.enabled", "yes"), Map.entry("sky.unknown", 1),
                 Map.entry("particles.count", 0), Map.entry("particles.radius-blocks", Double.NaN),
@@ -100,10 +100,13 @@ class PresentationConfigTest {
                     AmbientEffectType.ADVANCEMENT_TOAST, AmbientEffectType.BOSS_BAR, AmbientEffectType.SILVERFISH)) {
                 long base = type == AmbientEffectType.PARTICLES ? effects.presentation().particles().durationTicks()
                         : effects.presentation().durationTicks(type, config.sounds());
-                long expected = Math.min(100, (long) Math.ceil(base * new double[]{1, 1.5, 2}[index]));
+                long expected = Math.min(type == AmbientEffectType.SKY ? 200 : 100, (long) Math.ceil(base * new double[]{1, 1.5, 2}[index]));
                 if (type == AmbientEffectType.PARTICLES) expected = Math.max(expected, 41); // Fixed client tail is not shortened.
                 assertThat(scaled.durationTicks(type, config.sounds())).as(type + " at " + level).isEqualTo(expected);
             }
+            assertThat(scaled.sky().durationTicks()).isEqualTo(new int[]{100, 150, 200}[index]);
+            assertThat(effects.quietInterval(level).toMillis()).isGreaterThan(scaled.sky().durationTicks() * 50L);
+            assertThat(effects.presentation().episodes().intervalTicks(level)).isGreaterThan(scaled.sky().durationTicks());
             assertThat(scaled.flash().totalTicks()).isEqualTo(new int[]{40, 60, 80}[index]);
             assertThat(scaled.particles().count()).isEqualTo(effects.presentation().particles().count());
             assertThat(scaled.particles().emissionDelay(scaled.particles().count() - 1) + 41)
@@ -115,6 +118,19 @@ class PresentationConfigTest {
                 "minecraft:skeleton", "minecraft:spider", "minecraft:creeper", "minecraft:enderman");
         assertThat(effects.presentation().phantom().distance()).isEqualTo(8);
         assertThat(effects.presentation().phantom().durationTicks()).isEqualTo(20);
+    }
+
+    @Test void skyAloneAllowsTwoHundredTicksAndStillCapsScaling() {
+        YamlConfiguration yaml = shipped();
+        yaml.set("effects.sky.duration-ticks", 200);
+        var config = PresentationConfig.load(yaml).scaled(PsychosisLevel.EXTREME);
+        assertThat(config.sky().durationTicks()).isEqualTo(200);
+        assertThat(config.flash().totalTicks()).isLessThanOrEqualTo(100);
+        yaml.set("effects.particles.duration-ticks", 101);
+        assertThatThrownBy(() -> PresentationConfig.load(yaml)).hasMessageContaining("effects.particles.duration-ticks");
+        yaml.set("effects.particles.duration-ticks", 40);
+        yaml.set("effects.sky.duration-ticks", 0);
+        assertThatThrownBy(() -> PresentationConfig.load(yaml)).hasMessageContaining("effects.sky.duration-ticks");
     }
 
     @Test void tuningLeavesValidateOnLoadAndLiveEditWithoutChangingSnapshotOrDisk() throws Exception {
