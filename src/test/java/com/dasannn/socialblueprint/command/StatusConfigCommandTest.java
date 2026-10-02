@@ -85,6 +85,10 @@ class StatusConfigCommandTest {
         assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofSeconds(45), snapshot, messageRegistry)).isEqualTo("45 s");
         assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofMillis(1), snapshot, messageRegistry)).isEqualTo("1 s");
         assertThat(messageRegistry.getRaw(snapshot, "rating-wait.allowed")).isEqualTo("&aYou can rate");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.rating-id")).isEqualTo("&7Revoke: /status admin revoke {id}");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.revoke-success")).isEqualTo("&aRevoked rating {id} from {rater} to {player}.");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.revoke-not-found")).isEqualTo("&cRating {id} not found.");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.revoke-not-revocable")).isEqualTo("&cRating {id} is not revocable (already revoked or unsupported kind).");
     }
 
     @Test
@@ -95,7 +99,10 @@ class StatusConfigCommandTest {
         assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofSeconds(105), snapshot, messageRegistry)).isEqualTo("1 min 45 s");
         assertThat(messageRegistry.getRaw(snapshot, "rating-wait.allowed")).isEqualTo("&aPuedes valorar");
         assertThat(messageRegistry.getRaw(snapshot, "rating-wait.blocked")).isEqualTo("&ePodrás volver a valorar en {time}");
-        assertThat(messageRegistry.getRaw(snapshot, "honor.rating-id")).isEqualTo("&7Revocar: /status admin revoke {player} {id}");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.rating-id")).isEqualTo("&7Revocar: /status admin revoke {id}");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.revoke-success")).isEqualTo("&aReseña {id} de {rater} a {player} revocada.");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.revoke-not-found")).isEqualTo("&cLa reseña {id} no existe.");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.revoke-not-revocable")).isEqualTo("&cLa reseña {id} no se puede revocar (ya revocada o tipo no revocable).");
         assertThat(messageRegistry.getRaw(snapshot, "honor.revoked")).isEqualTo("&cRevocada por {admin}");
     }
 

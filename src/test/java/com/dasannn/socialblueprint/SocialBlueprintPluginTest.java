@@ -12,7 +12,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import net.milkbowl.vault.economy.Economy;
 import com.dasannn.socialblueprint.storage.StorageEngine;
@@ -42,7 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class SocialBlueprintPluginTest {
 
-    @TempDir
+    // Not @TempDir: on Windows the SQLite files can stay locked for a moment after the
+    // engine closes, and a failed JUnit cleanup fails a test that asserted nothing wrong.
     File tempDir;
 
     private SocialBlueprintPlugin plugin;
@@ -56,6 +56,7 @@ class SocialBlueprintPluginTest {
     @BeforeEach
     @SuppressWarnings({"sunapi", "removal"})
     void setUp() throws Exception {
+        tempDir = java.nio.file.Files.createTempDirectory("sb-plugin-test").toFile();
         // Prepare data folder with config.yml and language files
         copyResource("config.yml", new File(tempDir, "config.yml"));
         copyResource("messages_en.yml", new File(tempDir, "messages_en.yml"));
@@ -196,6 +197,7 @@ class SocialBlueprintPluginTest {
         // Windows, which fails the test for a reason that has nothing to do
         // with what it asserts.
         if (plugin == null) {
+            deleteQuietly(tempDir.toPath());
             return;
         }
         for (int i = 0; i < 100 && plugin.getStorageEngine() == null && plugin.isEnabled(); i++) {
@@ -204,6 +206,20 @@ class SocialBlueprintPluginTest {
         if (plugin.getStorageEngine() != null) {
             plugin.getStorageEngine().close();
         }
+        deleteQuietly(tempDir.toPath());
+    }
+
+    private static void deleteQuietly(java.nio.file.Path root) throws InterruptedException {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            try (var paths = java.nio.file.Files.walk(root)) {
+                for (var path : paths.sorted(java.util.Comparator.reverseOrder()).toList())
+                    java.nio.file.Files.deleteIfExists(path);
+                return;
+            } catch (java.io.IOException | java.io.UncheckedIOException locked) {
+                Thread.sleep(100);
+            }
+        }
+        root.toFile().deleteOnExit();
     }
 
     @Test

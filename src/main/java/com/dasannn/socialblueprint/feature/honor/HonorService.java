@@ -805,20 +805,52 @@ public class HonorService {
         }
         PlayerId admin = sender instanceof Player p ? PlayerId.of(p.getUniqueId()) : PlayerId.CONSOLE;
         String adminName = sender.getName(); // Bukkit access is captured before the storage hop.
-        return profileService.resolveTargetIdentityAsync(targetInput).thenCompose(identity -> {
-            if (identity.isEmpty()) {
+        CompletableFuture<Optional<TargetIdentity>> identity = ratingId == -1
+                ? profileService.resolveTargetIdentityAsync(targetInput)
+                : CompletableFuture.completedFuture(Optional.empty());
+        return identity.thenCompose(target -> {
+            if (ratingId == -1 && target.isEmpty()) {
                 mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot,
                         "status.not-found", Map.of("player", targetInput))));
                 return CompletableFuture.completedFuture(null);
             }
-            return reputationRepository.revokeAsync(admin, adminName, identity.get().id(), ratingId,
-                    clock.instant(), auditRepository).handle((changed, error) -> {
-                mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot,
-                        error != null ? "honor.write-failed" : Boolean.TRUE.equals(changed)
-                                ? "honor.revoke-success" : "honor.revoke-rejected",
-                        Map.of("id", ratingId == -1 ? messageRegistry.getRaw(snapshot, "honor.last-rating") : String.valueOf(ratingId), "player", identity.get().name()))));
-                return (Void) null;
-            });
+            return reputationRepository.revokeRatingAsync(admin, adminName,
+                    target.map(TargetIdentity::id).orElse(null), ratingId, clock.instant(), auditRepository)
+                    .thenCompose(result -> {
+                        var response = new CompletableFuture<Void>();
+                        // Identity lookup can touch Bukkit: initiate both lookups on the main thread.
+                        mainThreadRunner.accept(() -> {
+                            if (!result.revoked()) {
+                                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot,
+                                        ratingId == -1 ? "honor.revoke-rejected" : result.rating() == null
+                                                ? "honor.revoke-not-found" : "honor.revoke-not-revocable",
+                                        Map.of("id", String.valueOf(ratingId))));
+                                response.complete(null);
+                                return;
+                            }
+                            ReputationEvent rating = result.rating();
+                            var rater = rating.actor() == null
+                                    ? CompletableFuture.completedFuture(Optional.<TargetIdentity>empty())
+                                    : profileService.resolveTargetIdentityAsync(rating.actor().toString());
+                            var recipient = profileService.resolveTargetIdentityAsync(rating.target().toString());
+                            rater.thenCombine(recipient, (from, to) -> Map.of(
+                                    "id", String.valueOf(rating.id()),
+                                    "rater", from.map(TargetIdentity::name).orElseGet(() -> rating.actor() == null
+                                            ? messageRegistry.getRaw(snapshot, "status.system-actor") : rating.actor().toString()),
+                                    "player", to.map(TargetIdentity::name).orElse(rating.target().toString())))
+                                    .whenComplete((placeholders, error) -> mainThreadRunner.accept(() -> {
+                                        if (error == null) {
+                                            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot,
+                                                    "honor.revoke-success", placeholders));
+                                            response.complete(null);
+                                        } else response.completeExceptionally(error);
+                                    }));
+                        });
+                        return response;
+                    });
+        }).exceptionally(error -> {
+            mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.write-failed")));
+            return null;
         });
     }
 

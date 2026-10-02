@@ -1217,7 +1217,7 @@ live-editable and reject empty entries.
 **SB-152.** Administrators can **revoke** one rating, positive or negative,
 from a player's history: by shift-clicking its column in the history GUI with
 permission `socialblueprint.admin.revoke`, after a confirmation, or by
-`/status admin revoke <player> <rating-id>` (the admin view of the history
+`/status admin revoke <rating-id>` (the admin view of the history
 shows ids). A revocation does not delete the rating. It writes a revocation
 event referencing it and an audit record, and the revoked rating stops counting
 towards status and decay, so the player's status is recalculated as if it had
@@ -1258,10 +1258,16 @@ record, and invalidates the profile cache immediately. Both languages have
 messages and the command has tab completion.
 
 **SB-159.** Owner, 2026-10-02: the admin history id lore line shows the exact
-command `Revocar: /status admin revoke <player> <id>` (translated in English).
+command `Revocar: /status admin revoke <id>` (translated in English).
 Chat/console history also shows the exact command, without requiring a click.
 `/status admin revoke <player> last` revokes that player's most recent
-non-revoked revocable rating, ordered by timestamp then id.
+non-revoked revocable rating, ordered by timestamp then id. The player is
+its recipient, not its rater. Explicit ids are looked up globally; the legacy
+`/status admin revoke <player> <id>` form remains accepted and ignores the
+player for lookup, even when unrelated to either side. Success names the actual
+id, rater and recipient in both languages. A missing id and an existing but
+non-revocable id have distinct messages. Revocation preserves the audit, mind
+reversal, once-only and no-refund rules (SB-152).
 
 ## 16. Acceptance criteria for release 2
 

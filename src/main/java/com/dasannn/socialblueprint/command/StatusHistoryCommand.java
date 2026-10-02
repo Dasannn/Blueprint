@@ -107,7 +107,7 @@ public class StatusHistoryCommand {
             if (event.kind() == com.dasannn.socialblueprint.domain.HonorKind.REVOCATION) continue;
             if (PermissionChecker.hasPermission(sender, "admin-revoke", snapshot)
                     || PermissionChecker.hasPermission(sender, "admin-adjust", snapshot))
-                sender.sendMessage(messageRegistry.render(snapshot, "honor.rating-id", Map.of("id", String.valueOf(event.id()), "player", targetName)));
+                sender.sendMessage(messageRegistry.render(snapshot, "honor.rating-id", Map.of("id", String.valueOf(event.id()))));
             if (event.revokedBy() != null)
                 sender.sendMessage(messageRegistry.render(snapshot, "honor.revoked", Map.of("admin", event.revokedBy())));
             String timeStr = DATE_FORMATTER.format(event.createdAt());

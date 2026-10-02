@@ -885,7 +885,10 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 if (subArgs.length == 1) {
                     return adminCommand.tabComplete(sender, subArgs, snapshot);
                 }
-                if (subArgs.length == 3 && "revoke".equalsIgnoreCase(subArgs[0]))
+                if ("revoke".equalsIgnoreCase(subArgs[0])
+                        && !PermissionChecker.hasPermission(sender, "admin-revoke", snapshot)) return Collections.emptyList();
+                if ("revoke".equalsIgnoreCase(subArgs[0]) && (subArgs.length >= 3
+                        || subArgs[1].matches("[0-9]+")))
                     return adminCommand.tabComplete(sender, subArgs, snapshot);
                 if (subArgs.length == 2 && !"import".equalsIgnoreCase(subArgs[0])) {
                     String current = subArgs[1].toLowerCase(Locale.ROOT);
