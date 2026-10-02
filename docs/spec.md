@@ -1013,8 +1013,19 @@ and the kill-count thresholds of SB-125.
 **SB-131.** Psychosis levels are read from `P`: Neutral at `0`, **Low** below
 20, **Medium** from 20, **High** from 50, **Extreme** from 80 up to 100. The
 three thresholds are configurable, strictly increasing and inside `(0, 100]`.
-Low still triggers no madness effects (SB-096). Serenity effects keep their
+At exactly `0` the player is Neutral: neither in psychosis nor serene, and no
+madness or serenity effect plays. Serenity effects keep their
 `minimum-serenity` against `S`.
+
+**SB-139.** **Low psychosis has effects** (owner, 2026-10-02), superseding the
+"lowest level triggers none" of SB-096. The mild catalogue effects lower their
+floor from Medium to Low and ship with `minimum-level: low`: particles, screen
+flash, source-less sounds, fake connection, boss bar and private chat. Low
+episodes use `effects.episodes.low.interval-ticks` (default 4800, four minutes),
+duration scale `effects.episodes.duration-scale.low` (default 1.0) and one
+effect at a time. The ordering rules of SB-116 extend to four levels: intervals
+strictly decrease and duration scales do not decrease from Low to Extreme.
+Chat corruption still starts at Medium. Every other effect keeps its floor.
 
 **SB-132.** **Nothing resets the value at once, and nothing disappears on a
 timer.** A bad action applied while the player is serene lowers `S` by its
@@ -1091,9 +1102,9 @@ the two-line display of SB-022 and SB-117. Labels live in both message files.
 ### 15.2 Effects
 
 **SB-140.** Madness episodes can start **several effects at once**. The
-number started together is at most 2 at Medium, 3 at High and 4 at Extreme,
-under `effects.episodes.<medium|high|extreme>.max-concurrent` (positive,
-non-decreasing by level). Effects in one episode are distinct ids, each
+number started together is at most 1 at Low, 2 at Medium, 3 at High and 4 at
+Extreme, under `effects.episodes.<low|medium|high|extreme>.max-concurrent`
+(positive, non-decreasing by level). Effects in one episode are distinct ids, each
 respecting its own minimum level, cooldown and session cap; fewer start when
 fewer are available. The episode ends when every one of them has cleared and
 its final sound has finished, then SB-097's quiet interval applies. Raising the
@@ -1184,6 +1195,8 @@ time, so a release bumps one number.
 - [ ] A release 1 world upgrades with no invented history (SB-136).
 - [ ] Admin reset works for one player and for all, audited (SB-137).
 - [ ] Profiles show one mental-state line in both languages (SB-138).
+- [ ] Low psychosis plays mild effects one at a time; Neutral plays none
+      (SB-131, SB-139).
 - [ ] Medium/High/Extreme start up to 2/3/4 distinct effects together, still
       with quiet intervals and limits; serenity one at a time (SB-140).
 - [ ] False-death lines, particle types and serene kinds rotate from their

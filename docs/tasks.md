@@ -27,9 +27,10 @@ second place where progress is recorded.
 | P8 Legacy import | `feat/p8-legacy-import` | **done** — review closed, 263 tests green in both languages (`ca72c41`) |
 | P9 Rating decay | `feat/p9-decay` | **done** — review closed, 267 tests green in both languages (`2b83756`) |
 | P10 History GUI, anonymity | `feat/p10-gui` | **done** — review closed, 460 tests green in both languages (`7b9a0a0`) |
-| P11 Hardening | `integration/r1` | in progress — T-101 audited and fix round running, T-104 done (`6cfc569`), T-106 done (`d9386d0`); P12's two follow-up branches merged, 571 tests green |
+| P11 Hardening | `integration/r1` | **done** — released as v1.0 (`477107a`); the live boxes never walked (name change, two-client catalogue, `language: en`, reload mid-effect) move to T-207 |
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
-| P13 Psychosis effects and chat | `feat/p13-tuning` | in progress — owner third live-test tuning implemented; Claude build and live checks pending; catalogue and serenity gates remain T-156/T-169/T-174 |
+| P13 Psychosis effects and chat | `feat/p13-tuning` | **done** — released in v1.0; T-169/T-174 two-client walks move to T-207 |
+| P14 Release 2 | `integration/r2` | in progress — spec §15 and decision 0007 approved 2026-10-02; T-200 to T-204 dispatched in parallel |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -326,3 +327,22 @@ Serenity shares clean sounds, gentle particles and kindly apparitions locally,
 while dawn remains private; no serene title exists. Inventory deception is
 forbidden and no opt-out remains. T-174 supplies the full-catalogue and serenity
 evidence for P11's revised acceptance boxes.
+
+---
+
+## P14 — Release 2
+
+Spec §15 and §16, decision 0007. Branches start from `main` at `943deb2` and
+merge into `integration/r2`. T-200, T-202, T-203 and T-204 run in parallel;
+T-201 and T-205 follow T-200; T-206 follows everything else.
+
+| id | task | spec | status |
+|---|---|---|---|
+| T-200 | Signed mental-state value: storage, `mind_event` log, migration from release 1, level thresholds, the apply rule (no spill past Neutral, linear, capped), kill input reusing R1 eligibility, admin `mind reset` / `reset-all`, configuration and upgrade merging. Retire the 72-hour window and the active-hours curve. | SB-130 to SB-132, SB-133 (kill), SB-135 to SB-137 | in progress — `feat/r2-mind` |
+| T-201 | After T-200, the remaining inputs: death, near-death, sleepless night, clean day, sleep and the five peaceful actions, with duel exemption, idle rule and rolling 24-hour caps. | SB-133, SB-134 | todo |
+| T-202 | Low effects and floors, `max-concurrent` per level, false-death line list, particle type lists, serene apparition kind list with turtle, fox, armadillo and bee. | SB-139 to SB-143 | in progress — `feat/r2-effects` |
+| T-203 | Mandatory reasons, word filter for chat and reasons, admin revoke from the GUI and the command. | SB-150 to SB-152 | in progress — `feat/r2-honor` |
+| T-204 | Filter the `plugin.yml` version from `pom.xml`. | SB-155 | in progress — `feat/r2-version` |
+| T-205 | After T-200, one mental-state line in hover, profiles, chest and `/status psychosis`, both languages. | SB-138 | todo |
+| T-206 | After T-201 to T-205, the `/status admin features` switch GUI over every input and effect. | SB-145 | todo |
+| T-207 | Live acceptance walk for §16, including the release-1 boxes carried over. | §16 | todo |
