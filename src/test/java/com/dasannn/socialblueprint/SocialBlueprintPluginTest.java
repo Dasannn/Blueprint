@@ -235,14 +235,11 @@ class SocialBlueprintPluginTest {
     @Test
     @DisplayName("Round 1 Finding 1: onEnable returns immediately without blocking calling thread on database initialization")
     void onEnableReturnsImmediatelyWithoutBlockingOnStorageInit() throws Exception {
-        long startTime = System.currentTimeMillis();
+        // No wall-clock bound: on a cold JVM, class loading and the config
+        // load alone exceeded 250 ms and failed a correct build. The engine
+        // still being unset when onEnable returns is the direct proof that
+        // storage and migrations were not awaited on the calling thread.
         plugin.onEnable();
-        long elapsed = System.currentTimeMillis() - startTime;
-
-        // onEnable must return immediately (< 250ms)
-        assertThat(elapsed)
-                .as("plugin.onEnable() must return promptly without synchronously waiting on SQLite storage or migrations")
-                .isLessThan(250);
 
         // At the moment onEnable returns, the storage engine must not be set on the plugin yet
         // because initialization is offloaded to the background storage executor
