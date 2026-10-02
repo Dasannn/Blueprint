@@ -24,6 +24,29 @@ class PresentationConfigTest {
                 getClass().getClassLoader().getResourceAsStream("config.yml"), StandardCharsets.UTF_8));
     }
 
+    @Test void particleBudgetsRejectOversizedLoadsAndLiveEdits() throws Exception {
+        ConfigManager manager = manager();
+        manager.initialize();
+        for (String key : List.of("effects.particles.count", "effects.serenity.particles.count")) {
+            for (int invalid : List.of(PresentationConfig.MAX_PARTICLE_COUNT + 1, Integer.MAX_VALUE)) {
+                YamlConfiguration yaml = shipped();
+                yaml.set(key, invalid);
+                assertThatThrownBy(() -> PluginConfig.load(yaml)).hasMessageContaining(key);
+                RuntimeSnapshot before = manager.snapshot();
+                String disk = Files.readString(folder.resolve("config.yml"));
+                assertThatThrownBy(() -> manager.set(key, Integer.toString(invalid))).hasMessageContaining(key);
+                assertThat(manager.snapshot()).isSameAs(before);
+                assertThat(Files.readString(folder.resolve("config.yml"))).isEqualTo(disk);
+            }
+            manager.set(key, Integer.toString(PresentationConfig.MAX_PARTICLE_COUNT));
+        }
+        PresentationConfig.Particles particles = manager.snapshot().config().effects().serenity().particles();
+        assertThat(particles.fitsAudience(8)).isTrue();
+        assertThat(particles.fitsAudience(9)).isFalse();
+        assertThat(particles.fitsAudience(Integer.MAX_VALUE)).isFalse();
+        assertThat(particles.fitsAudience(0)).isFalse();
+    }
+
     @Test void invalidPresentationValuesNameTheirPath() {
         Map<String, Object> invalid = Map.ofEntries(
                 Map.entry("sky.mode", "day"), Map.entry("sky.duration-ticks", 0),
@@ -164,10 +187,12 @@ class PresentationConfigTest {
         ConfigManager manager = manager();
         File file = folder.resolve("config.yml").toFile();
         for (String id : List.of("private-chat", "fake-connection")) YamlFileUpdater.removeLeafAndSave(file, "effects." + id);
-        YamlFileUpdater.updateLeafAndSave(file, "effects.whisper.cooldown", "7m");
-        YamlFileUpdater.updateLeafAndSave(file, "effects.whisper.session-cap", "9");
-        YamlFileUpdater.updateLeafAndSave(file, "effects.fake-announcement.cooldown", "17m");
-        YamlFileUpdater.updateLeafAndSave(file, "effects.fake-announcement.session-cap", "8");
+        YamlConfiguration legacy = YamlConfiguration.loadConfiguration(file);
+        legacy.set("effects.whisper.cooldown", "7m");
+        legacy.set("effects.whisper.session-cap", 9);
+        legacy.set("effects.fake-announcement.cooldown", "17m");
+        legacy.set("effects.fake-announcement.session-cap", 8);
+        legacy.save(file);
         File messages = folder.resolve("messages_en.yml").toFile();
         YamlFileUpdater.removeLeafAndSave(messages, "effects.private-chat");
         YamlFileUpdater.removeLeafAndSave(messages, "effects.fake-connection");
@@ -182,6 +207,21 @@ class PresentationConfigTest {
                 .isEqualTo(manager.snapshot().messages().resolveRaw("effects.whisper-1", new java.util.HashSet<>(), null));
         manager.reload();
         assertThat(manager.snapshot().config().effects().getEffect(AmbientEffectType.WHISPER)).isEqualTo(config.getEffect(AmbientEffectType.WHISPER));
+        YamlConfiguration retired = YamlConfiguration.loadConfiguration(file);
+        for (String id : List.of("whisper", "fake-announcement")) {
+            for (String leaf : List.of("cooldown", "session-cap")) {
+                String key = "effects." + id + "." + leaf;
+                assertThat(shipped().contains(key)).isFalse();
+                assertThat(retired.contains(key)).isFalse();
+                assertThat(manager.isEditableKey(key)).isFalse();
+                assertThatThrownBy(() -> manager.get(key)).isInstanceOf(ConfigValidationException.class).hasMessageContaining(key);
+                assertThatThrownBy(() -> manager.set(key, "0")).isInstanceOf(ConfigValidationException.class);
+            }
+        }
+        manager.set("effects.private-chat.session-cap", "0");
+        assertThat(manager.snapshot().config().effects().getEffect(AmbientEffectType.WHISPER).sessionCap()).isZero();
+        manager.reload();
+        assertThat(manager.snapshot().config().effects().getEffect(AmbientEffectType.WHISPER).sessionCap()).isZero();
     }
 
     @Test void upgradeAdoptsOwnerCadenceWithoutResettingExistingLimits() throws Exception {

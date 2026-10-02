@@ -50,7 +50,16 @@ public class ProfileService {
     public static final int MAX_VIEW_CACHE_SIZE = 1000;
     public static final int MAX_PENDING_LOADS = 1000;
 
-    private record CachedView(PlayerSocialView view, Instant expiresAt, int generation) {}
+    private record CachedView(PlayerSocialView view, Instant expiresAt, int generation, long configGeneration, RuntimeSnapshot snapshot) {}
+    private record LoadKey(PlayerId id, long configGeneration, RuntimeSnapshot snapshot) {
+        @Override public boolean equals(Object other) {
+            return other instanceof LoadKey key && id.equals(key.id) && configGeneration == key.configGeneration
+                    && snapshot == key.snapshot;
+        }
+        @Override public int hashCode() {
+            return 31 * (31 * id.hashCode() + Long.hashCode(configGeneration)) + System.identityHashCode(snapshot);
+        }
+    }
 
     private final StorageEngine storageEngine;
     private final ReputationRepository reputationRepository;
@@ -72,12 +81,13 @@ public class ProfileService {
             }
     );
 
-    private final ConcurrentMap<PlayerId, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
+    private final ConcurrentMap<LoadKey, CompletableFuture<PlayerSocialView>> inFlightLoads = new ConcurrentHashMap<>();
     private final ConcurrentMap<PlayerId, Integer> playerGenerations = new ConcurrentHashMap<>();
     private final Set<PlayerId> evictedPlayers = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<PlayerId, Long> lastQuitEpochs = new ConcurrentHashMap<>();
     private final AtomicLong quitEpoch = new AtomicLong();
     private final Object loadLock = new Object();
+    private volatile long configGeneration;
 
     public ProfileService(
             StorageEngine storageEngine,
@@ -133,6 +143,7 @@ public class ProfileService {
             synchronized (loadLock) {
                 CachedView cached = viewCache.get(id);
                 if (cached != null && cached.generation() == playerGenerations.getOrDefault(id, 0)
+                        && cached.configGeneration() == configGeneration && cached.snapshot() == snapshot
                         && clock.instant().isBefore(cached.expiresAt())) return withSerenity(cached.view(), snapshot);
             }
         }
@@ -144,7 +155,7 @@ public class ProfileService {
      * If the profile is in the cache and unexpired, returns it immediately without waiting on JDBC or a future.
      * If absent or expired, returns the neutral default immediately and schedules an asynchronous background fetch
      * on the storage executor (submitting to the executor takes the queue lock, but does not block on database I/O).
-     * Maintains exactly one in-flight load per player and bounds total pending loads.
+     * Coalesces in-flight loads per player and configuration generation and bounds total pending loads.
      */
     public PlayerSocialView getViewQuick(PlayerId id, RuntimeSnapshot snapshot) {
         if (id == null) {
@@ -159,12 +170,13 @@ public class ProfileService {
         if (cached != null) {
             Instant now = clock.instant();
             int currentGen = playerGenerations.getOrDefault(id, 0);
-            if (cached.generation() == currentGen && now.isBefore(cached.expiresAt())) {
+            if (cached.generation() == currentGen && cached.configGeneration() == configGeneration
+                    && cached.snapshot() == snapshot && now.isBefore(cached.expiresAt())) {
                 return withSerenity(cached.view(), snapshot);
             }
             // Expired on read or generation moved: invalidate and queue background rebuild (Finding 2)
             synchronized (loadLock) {
-                viewCache.remove(id, cached);
+                if (cached.snapshot() == snapshot || cached.snapshot() != configManager.snapshot()) viewCache.remove(id, cached);
             }
             loadViewAsync(id, cached.view().name(), snapshot);
             return PlayerSocialView.neutral(id, cached.view().name(), snapshot.config().tiers().ladder());
@@ -185,25 +197,20 @@ public class ProfileService {
 
     /**
      * Computes the complete {@link PlayerSocialView} asynchronously on the storage executor.
-     * Ensures only one in-flight load exists per player and bounds total pending loads.
+     * Coalesces loads per player and configuration generation and bounds total pending loads.
      */
     public CompletableFuture<PlayerSocialView> loadViewAsync(PlayerId id, String fallbackName, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(id, "PlayerId must not be null");
         Objects.requireNonNull(snapshot, "RuntimeSnapshot must not be null");
 
-        CompletableFuture<PlayerSocialView> existing = inFlightLoads.get(id);
-        if (existing != null) {
-            return existing;
-        }
-
         CompletableFuture<PlayerSocialView> future;
         int loadGen;
         long requestEpoch;
+        LoadKey key;
         synchronized (loadLock) {
-            existing = inFlightLoads.get(id);
-            if (existing != null) {
-                return existing;
-            }
+            key = new LoadKey(id, configGeneration, snapshot);
+            CompletableFuture<PlayerSocialView> existing = inFlightLoads.get(key);
+            if (existing != null) return existing;
 
             if (inFlightLoads.size() >= MAX_PENDING_LOADS) {
                 return CompletableFuture.completedFuture(
@@ -212,15 +219,15 @@ public class ProfileService {
             }
 
             future = new CompletableFuture<>();
-            inFlightLoads.put(id, future);
+            inFlightLoads.put(key, future);
             loadGen = playerGenerations.getOrDefault(id, 0);
             requestEpoch = quitEpoch.get();
         }
 
-        storageEngine.supplyAsync(() -> loadViewInternal(id, fallbackName, snapshot, loadGen, requestEpoch))
+        storageEngine.supplyAsync(() -> loadViewInternal(id, fallbackName, snapshot, loadGen, requestEpoch, key.configGeneration()))
                 .whenComplete((view, ex) -> {
                     synchronized (loadLock) {
-                        inFlightLoads.remove(id, future);
+                        inFlightLoads.remove(key, future);
                     }
                     if (ex != null) {
                         future.completeExceptionally(ex);
@@ -236,7 +243,7 @@ public class ProfileService {
         return loadViewAsync(id, fallbackName, configManager.snapshot());
     }
 
-    private PlayerSocialView loadViewInternal(PlayerId id, String fallbackName, RuntimeSnapshot snapshot, int initialGen, long requestEpoch) {
+    private PlayerSocialView loadViewInternal(PlayerId id, String fallbackName, RuntimeSnapshot snapshot, int initialGen, long requestEpoch, long loadConfigGeneration) {
         int expectedGen = initialGen;
         while (true) {
             synchronized (loadLock) {
@@ -275,8 +282,9 @@ public class ProfileService {
             PlayerSocialView view = new PlayerSocialView(id, name, status.value(), tier, conf, psych, contributors, magnitude);
 
             synchronized (loadLock) {
-                if (evictedPlayers.contains(id) || lastQuitEpochs.getOrDefault(id, 0L) > requestEpoch) {
-                    // A quit rejects every earlier load, including those that finish after rejoin.
+                if (loadConfigGeneration != configGeneration || snapshot != configManager.snapshot()
+                        || evictedPlayers.contains(id) || lastQuitEpochs.getOrDefault(id, 0L) > requestEpoch) {
+                    // Old configuration and pre-quit requests may finish, but cannot publish or retry into the current cache.
                     return view;
                 }
                 int currentGen = playerGenerations.getOrDefault(id, 0);
@@ -292,7 +300,7 @@ public class ProfileService {
                     if (kill.context() == com.dasannn.socialblueprint.domain.CombatContext.OPEN
                             && expiry.isAfter(now) && expiry.isBefore(expiresAt)) expiresAt = expiry;
                 }
-                viewCache.put(id, new CachedView(view, expiresAt, currentGen));
+                viewCache.put(id, new CachedView(view, expiresAt, currentGen, loadConfigGeneration, snapshot));
                 statusCache.put(id, status, cfg.decay().toDomain());
                 return view;
             }
@@ -406,8 +414,9 @@ public class ProfileService {
                     }
                     TargetIdentity target = optIdentity.get();
                     int gen = playerGenerations.getOrDefault(target.id(), 0);
+                    long loadConfigGeneration = configGeneration;
                     return storageEngine.supplyAsync(() ->
-                            Optional.of(loadViewInternal(target.id(), target.name(), snapshot, gen, requestEpoch))
+                            Optional.of(loadViewInternal(target.id(), target.name(), snapshot, gen, requestEpoch, loadConfigGeneration))
                     );
                 });
     }
@@ -426,10 +435,12 @@ public class ProfileService {
 
         int gen;
         long requestEpoch;
+        long loadConfigGeneration;
         synchronized (loadLock) {
             evictedPlayers.remove(id);
             gen = playerGenerations.getOrDefault(id, 0);
             requestEpoch = quitEpoch.get();
+            loadConfigGeneration = configGeneration;
         }
         return storageEngine.submitAsync(() -> {
             Instant now = Instant.now();
@@ -438,7 +449,7 @@ public class ProfileService {
                     .map(p -> p.withName(name, now))
                     .orElseGet(() -> PlayerProfile.create(id, name, now));
             profileRepository.save(profile);
-            loadViewInternal(id, name, snapshot, gen, requestEpoch);
+            loadViewInternal(id, name, snapshot, gen, requestEpoch, loadConfigGeneration);
         }).exceptionally(error -> {
             logger.log(Level.WARNING, "Failed to warm up profile for player " + id + " (" + name + ")", error);
             return null;
@@ -461,6 +472,7 @@ public class ProfileService {
 
     public void invalidateAll() {
         synchronized (loadLock) {
+            configGeneration++;
             viewCache.clear();
             for (PlayerId id : playerGenerations.keySet()) {
                 playerGenerations.compute(id, (k, g) -> (g == null ? 1 : g + 1));
@@ -489,7 +501,8 @@ public class ProfileService {
         }
         if (cached == null) return false;
         int currentGen = playerGenerations.getOrDefault(id, 0);
-        return cached.generation() == currentGen && clock.instant().isBefore(cached.expiresAt());
+        return cached.generation() == currentGen && cached.configGeneration() == configGeneration
+                && cached.snapshot() == configManager.snapshot() && clock.instant().isBefore(cached.expiresAt());
     }
 
     public StatusCache statusCache() {

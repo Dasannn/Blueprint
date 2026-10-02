@@ -735,8 +735,9 @@ class P4CommandsPermissionsTest {
             int withdrawsBefore = economyWithdrawCount.get();
             int depositsBefore = economyDepositCount.get();
 
-            // Simulate database write failure right before confirmation by closing engine
-            failingEngine.close();
+            // Fail only the rating insert. Closing the engine no longer reaches the
+            // write: confirmation now rereads the actor's history before charging.
+            StorageTestSupport.setFailReputationTrigger(failingEngine);
 
             // Confirm rating (Stage 2: charge succeeds, DB write fails, refund triggered)
             customExecutor.onCommand(actor, null, "status", new String[]{"confirm"});
@@ -1102,7 +1103,7 @@ class P4CommandsPermissionsTest {
         economyBalances.put(actor.getUniqueId(), 1000.0);
 
         // Prepare rating while enabled
-        honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, null, configManager.snapshot()).join();
+        drainQueueUntilDone(mainThreadQueue, honorService.preparePlayerHonor(actor, "ShutdownTarget", HonorKind.POSITIVE, null, configManager.snapshot()));
         drainMainThread();
 
         // Confirm rating with shutdownHonorService while disabled

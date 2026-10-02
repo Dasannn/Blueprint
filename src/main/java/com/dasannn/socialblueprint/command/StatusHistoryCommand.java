@@ -116,7 +116,7 @@ public class StatusHistoryCommand {
             String rawReason = event.reason();
             if (rawReason == null || rawReason.isBlank()) {
                 reasonStr = "-";
-            } else if (snapshot.messages().isKnownKey(rawReason)) {
+            } else if (event.kind() == com.dasannn.socialblueprint.domain.HonorKind.SYSTEM_KILL && snapshot.messages().isKnownKey(rawReason)) {
                 // Translated from the message key rather than printed raw (T-134)
                 reasonStr = messageRegistry.getRaw(snapshot, rawReason);
             } else {

@@ -141,7 +141,10 @@ class FakeSilverfishServiceTest {
         String source = Files.readString(Path.of("src/main/java/com/dasannn/socialblueprint/feature/effects/FakeSilverfishService.java"));
         assertThat(source).contains("EntityType.SILVERFISH.getKey()", "Registry.ENTITY_TYPE.get(key)",
                 "getMethod(\"bukkitToMinecraft\", EntityType.class)");
-        assertThat(source.replaceAll("\\s+", "")).doesNotContain(".getField(", ".getDeclaredField(");
+        assertThat(source).doesNotContain("getField(\"SILVERFISH\")", "getDeclaredField(\"SILVERFISH\")");
+        assertThat(source.replaceAll("\\s+", "")).contains(
+                ".getConstructor(int.class,UUID.class,double.class,double.class,double.class,float.class,float.class,entityTypeClass,int.class,vector,double.class)")
+                .doesNotContain("c.getParameterCount()==1");
     }
 
     @Test

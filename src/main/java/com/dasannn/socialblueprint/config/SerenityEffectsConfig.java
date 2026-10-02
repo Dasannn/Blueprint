@@ -52,7 +52,7 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                         integer(root, "source-less-sounds.playback-ticks", 60, 1, 100)),
                 new PresentationConfig.Particles(choice(root, "particles.type", "end_rod", Set.of("end_rod", "smoke")),
                         choice(root, "particles.placement", "around", Set.of("around", "beneath")),
-                        integer(root, "particles.count", 8, 1, Integer.MAX_VALUE), number(root, "particles.radius-blocks", 1, true), integer(root, "particles.duration-ticks", 40, 1, 100)),
+                        integer(root, "particles.count", 8, 1, PresentationConfig.MAX_PARTICLE_COUNT), number(root, "particles.radius-blocks", 1, true), integer(root, "particles.duration-ticks", 40, 1, 100)),
                 choice(root, "apparition.kind", "cat", Set.of("cat", "fox", "wolf")),
                 number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 60, 1, 100));
         ConfigurationSection section = root.getConfigurationSection("effects.serenity");

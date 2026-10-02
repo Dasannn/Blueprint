@@ -529,20 +529,32 @@ class ProfileServiceTest {
         // Enqueue load with captured snapshot1
         CompletableFuture<PlayerSocialView> future = profileService.loadViewAsync(target, "Player", snapshot1);
 
+        java.util.concurrent.CountDownLatch secondHold = new java.util.concurrent.CountDownLatch(1);
+        storage.submitAsync(() -> {
+            try { secondHold.await(); }
+            catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+        });
+        CompletableFuture<PlayerSocialView> currentLoad;
         try {
-            // Mutate a value the load actually reads (tier1 threshold raised from 5 to 10) between enqueue and execution
             configManager.set("tiers.tier1.threshold", "10");
             RuntimeSnapshot snapshot2 = configManager.snapshot();
             assertThat(snapshot2.config().tiers().ladder().resolve(5)).isEqualTo(Tier.PARTICULAR);
-        } finally {
-            // Release executor to let the load execute
+            currentLoad = profileService.loadViewAsync(target, "Player", snapshot2);
+            assertThat(currentLoad).isNotSameAs(future);
             holdLatch.countDown();
+            assertThat(future.get(5, java.util.concurrent.TimeUnit.SECONDS).tier()).isEqualTo(Tier.AFABLE);
+            assertThat(profileService.isCached(target)).isFalse();
+            assertThat(profileService.statusCache().get(target)).isEmpty();
+        } finally {
+            holdLatch.countDown();
+            secondHold.countDown();
         }
-
-        PlayerSocialView view1 = future.get(5, java.util.concurrent.TimeUnit.SECONDS);
-        assertThat(view1.tier())
-                .as("Tier must be resolved from captured snapshot1 (AFABLE), not from reloaded config (PARTICULAR)")
+        assertThat(currentLoad.get(5, java.util.concurrent.TimeUnit.SECONDS).tier()).isEqualTo(Tier.PARTICULAR);
+        assertThat(profileService.getViewCached(target, configManager.snapshot()).tier()).isEqualTo(Tier.PARTICULAR);
+        // A late request carrying the obsolete snapshot also cannot replace the current cache.
+        assertThat(profileService.loadViewAsync(target, "Player", snapshot1).get(5, java.util.concurrent.TimeUnit.SECONDS).tier())
                 .isEqualTo(Tier.AFABLE);
+        assertThat(profileService.getViewCached(target, configManager.snapshot()).tier()).isEqualTo(Tier.PARTICULAR);
     }
 
     @Test
