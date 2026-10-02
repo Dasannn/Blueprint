@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.config.SoundLayerConfig;
 import com.dasannn.socialblueprint.config.SoundSlotConfig;
 import com.dasannn.socialblueprint.config.PresentationConfig;
+import com.dasannn.socialblueprint.domain.PsychosisLevel;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.bossbar.BossBar;
 import com.dasannn.socialblueprint.config.CatalogueLines;
@@ -113,6 +114,11 @@ public class AmbientEffectDispatcher {
     }
 
     public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+        return dispatch(player, type, config, snapshot, PsychosisLevel.HIGH);
+    }
+
+    public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot,
+                            PsychosisLevel level) {
         Objects.requireNonNull(player, "player must not be null");
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(config, "config must not be null");
@@ -124,7 +130,7 @@ public class AmbientEffectDispatcher {
             }
             case BOSS_BAR -> dispatchBar(player, config.presentation().bar(), snapshot);
             case FALSE_DEATH -> dispatchFalseDeath(player, config.presentation().deathRange(), snapshot);
-            case SKY -> dispatchSky(player, config.presentation().sky());
+            case SKY -> dispatchSky(player, config.presentation().sky(), level);
             case PARTICLES -> dispatchParticles(player, config.presentation().particles());
             case SCREEN_FLASH -> dispatchScreen(player, config.presentation().flash(), snapshot);
             case SOURCE_LESS_SOUNDS -> dispatchSourceLess(player, config.presentation(), snapshot);
@@ -626,9 +632,11 @@ public class AmbientEffectDispatcher {
                 registry.cleanPresentation(entry);
     }
 
-    private boolean dispatchSky(Player player, PresentationConfig.Sky config) {
-        boolean night = config.mode().equals("night");
-        return dispatchSky(player, config.durationTicks(), 18000L, night, !night);
+    private boolean dispatchSky(Player player, PresentationConfig.Sky config,
+                                PsychosisLevel level) {
+        SkyDecision sky = SkyDecision.choose(level, config.mode(), random);
+        if (!sky.night() && !sky.storm()) return false;
+        return dispatchSky(player, config.durationTicks(), 18000L, sky.night(), sky.storm());
     }
 
     private boolean dispatchSky(Player player, int duration, long time, boolean changesTime, boolean changesWeather) {

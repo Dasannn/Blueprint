@@ -269,7 +269,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             episodes = new Episodes(low, medium, high, extreme, quiet, lowCount, mediumCount, highCount, extremeCount);
         }
         return new PresentationConfig(rules,
-                new Sky(choice(root, "sky.mode", "night", Set.of("night", "storm")), integer(root, "sky.duration-ticks", 100, 1, 200)),
+                new Sky(choice(root, "sky.mode", "escalating", Set.of("night", "storm", "both", "escalating")), integer(root, "sky.duration-ticks", 100, 1, 200)),
                 new Particles(particle, choice(root, "particles.placement", "around", Set.of("around", "beneath")),
                         integer(root, "particles.count", 8, 1, MAX_PARTICLE_COUNT), number(root, "particles.radius-blocks", 1, true),
                         integer(root, "particles.duration-ticks", 40, 1, 100)), flash,
