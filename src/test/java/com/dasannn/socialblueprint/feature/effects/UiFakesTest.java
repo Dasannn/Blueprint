@@ -24,7 +24,7 @@ class UiFakesTest {
         PresentationConfig config = PresentationConfig.load(shipped());
         for (AmbientEffectType type : List.of(AmbientEffectType.ADVANCEMENT_TOAST, AmbientEffectType.BOSS_BAR,
                 AmbientEffectType.WHISPER, AmbientEffectType.FAKE_ANNOUNCEMENT)) {
-            assertThat(config.rules().get(type).allows(PsychosisLevel.LOW)).isFalse();
+            assertThat(config.rules().get(type).allows(PsychosisLevel.LOW)).isEqualTo(type.floor() == PsychosisLevel.LOW);
             assertThat(config.rules().get(type).allows(PsychosisLevel.MEDIUM)).isTrue();
         }
         assertThat(config.rules().get(AmbientEffectType.FALSE_DEATH).allows(PsychosisLevel.MEDIUM)).isFalse();
@@ -103,6 +103,36 @@ class UiFakesTest {
             yaml.set("effects." + entry.getKey(), entry.getValue());
             assertThatThrownBy(() -> PresentationConfig.load(yaml)).hasMessageContaining("effects." + entry.getKey());
         }
+    }
+
+    @Test void dispatchingAConcurrentPrivateLineOrSkippedRendererKeepsTheActiveBar() {
+        UUID owner = UUID.randomUUID();
+        var messages = MessageRegistry.fromMaps(Map.of("effects.boss-bar.lines", "{player}",
+                "effects.private-chat.lines", "{player}"), Map.of(), "en", null);
+        var snapshot = messages.snapshot();
+        var registry = new AmbientEntityRegistry();
+        List<Runnable> tasks = new java.util.ArrayList<>();
+        var hidden = new java.util.concurrent.atomic.AtomicInteger();
+        var dispatcher = new AmbientEffectDispatcher(null, messages, null, new FakeSilverfishService(null, registry, null),
+                (action, delay) -> { tasks.add(action); return () -> {}; });
+        var viewer = (org.bukkit.entity.Player) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{org.bukkit.entity.Player.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "getUniqueId" -> owner;
+                        case "getName" -> "Subject";
+                        case "showBossBar", "sendMessage" -> null;
+                        case "hideBossBar" -> { hidden.incrementAndGet(); yield null; }
+                        default -> null;
+                    };
+                });
+        var config = snapshot.config().effects();
+        assertThat(dispatcher.dispatch(viewer, AmbientEffectType.BOSS_BAR, config, snapshot)).isTrue();
+        assertThat(dispatcher.dispatch(viewer, AmbientEffectType.WHISPER, config, snapshot)).isTrue();
+        assertThat(dispatcher.dispatch(viewer, AmbientEffectType.SKY, config, snapshot)).isFalse();
+        assertThat(hidden).hasValue(0); assertThat(registry.presentationsFor(owner)).hasSize(1);
+        assertThat(tasks).hasSize(1);
+        tasks.getFirst().run();
+        assertThat(hidden).hasValue(1); assertThat(registry.presentationsFor(owner)).isEmpty();
     }
 
     @Test void customUsesWhisperStateAndBarOnlyRemovesItsOwnInstance() throws Exception {

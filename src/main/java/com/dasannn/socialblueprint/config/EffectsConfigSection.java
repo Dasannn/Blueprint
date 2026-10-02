@@ -34,7 +34,7 @@ public record EffectsConfigSection(
         Objects.requireNonNull(serenity, "serenity must not be null");
         Objects.requireNonNull(checkInterval, "checkInterval must not be null");
         if (checkInterval.isNegative() || checkInterval.isZero()
-                || checkInterval.compareTo(Duration.ofMillis((Long.MAX_VALUE - 20_000L) / 3L)) > 0) {
+                || checkInterval.compareTo(Duration.ofMillis((Long.MAX_VALUE - 20_000L) / 4L)) > 0) {
             throw new ConfigValidationException("effects.check-interval", "Check interval must be positive and fit the episode cadence");
         }
         Objects.requireNonNull(silverfish, "silverfish config must not be null");
@@ -79,7 +79,8 @@ public record EffectsConfigSection(
 
     public Duration quietInterval(PsychosisLevel level) {
         Duration configured = switch (level) {
-            case LOW, NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
+            case NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
+            case LOW -> mediumQuietInterval.plusSeconds(1);
             case MEDIUM -> mediumQuietInterval;
             case HIGH -> highQuietInterval;
             case EXTREME -> extremeQuietInterval;
@@ -98,10 +99,11 @@ public record EffectsConfigSection(
         // Distinct cadence must survive the scheduler's check interval, even when
         // all owner-provided quiet periods and per-effect cooldowns are zero.
         int checks = switch (level) {
+            case LOW -> 4;
             case MEDIUM -> 3;
             case HIGH -> 2;
             case EXTREME -> 1;
-            case LOW, NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
+            case NEUTRAL, SERENITY -> throw new IllegalArgumentException("This direction has no madness episodes");
         };
         Duration minimum = checkInterval.multipliedBy(checks);
         return configured.compareTo(minimum) < 0 ? minimum : configured;

@@ -71,17 +71,19 @@ class PresentationEffectsTest {
         PresentationConfig config = PresentationConfig.load(yaml);
         for (AmbientEffectType type : config.rules().keySet()) {
             PresentationConfig.Rule rule = config.rules().get(type);
-            assertThat(rule.allows(PsychosisLevel.LOW)).isFalse();
-            assertThat(rule.allows(PsychosisLevel.MEDIUM)).isEqualTo(type.floor() == PsychosisLevel.MEDIUM);
+            assertThat(rule.allows(PsychosisLevel.LOW)).isEqualTo(type.floor() == PsychosisLevel.LOW);
+            assertThat(rule.allows(PsychosisLevel.MEDIUM)).isEqualTo(type.floor().ordinal() <= PsychosisLevel.MEDIUM.ordinal());
             assertThat(rule.allows(PsychosisLevel.HIGH)).isTrue();
             assertThat(rule.allows(PsychosisLevel.EXTREME)).isTrue();
             yaml.set("effects." + type.configId() + ".minimum-level", "extreme");
             PresentationConfig.Rule raised = PresentationConfig.load(yaml).rules().get(type);
             assertThat(raised.allows(PsychosisLevel.HIGH)).isFalse();
             assertThat(raised.allows(PsychosisLevel.EXTREME)).isTrue();
-            yaml.set("effects." + type.configId() + ".minimum-level", "low");
-            assertThatThrownBy(() -> PresentationConfig.load(yaml)).isInstanceOf(ConfigValidationException.class)
-                    .hasMessageContaining(type.configId() + ".minimum-level");
+            if (type.floor() != PsychosisLevel.LOW) {
+                yaml.set("effects." + type.configId() + ".minimum-level", "low");
+                assertThatThrownBy(() -> PresentationConfig.load(yaml)).isInstanceOf(ConfigValidationException.class)
+                        .hasMessageContaining(type.configId() + ".minimum-level");
+            }
             yaml.set("effects." + type.configId() + ".minimum-level", rule.minimumLevel().name());
         }
         yaml.set("effects.sky.minimum-level", "medium");
@@ -231,6 +233,39 @@ class PresentationEffectsTest {
         var unavailable = new AmbientEffectDispatcher(null, messages, null, new FakeSilverfishService(null, registry, null), (task, ticks) -> null);
         assertThat(unavailable.showPhantom(phantom, 20, () -> { throw new AssertionError("must not send without removal"); })).isFalse();
         assertThat(registry.getActiveCount()).isZero();
+    }
+
+    @Test void concurrentGhostAndPhantomHaveIndependentExpiryAndFailedSpawnPreservesSiblings() {
+        for (String ending : List.of("expiry", "quit", "world-change", "disable")) {
+            UUID owner = UUID.randomUUID(), world = UUID.randomUUID();
+            var registry = new AmbientEntityRegistry();
+            List<Scheduled> tasks = new ArrayList<>(); var dispatcher = dispatcher(registry, tasks);
+            AtomicInteger removedGhost = new AtomicInteger(), removedMob = new AtomicInteger(), failed = new AtomicInteger();
+            var ghost = new ActiveEntityEntry(owner, 700, null, world, null, removedGhost::incrementAndGet);
+            var mob = new ActiveEntityEntry(owner, 701, null, world, null, removedMob::incrementAndGet);
+            assertThat(dispatcher.showEntities(List.of(ghost), AmbientEffectType.VICTIM_GHOST, 80, () -> {})).isTrue();
+            assertThat(dispatcher.showPhantom(mob, 20, () -> {})).isTrue();
+            var skipped = new ActiveEntityEntry(owner, 702, null, world, null, failed::incrementAndGet);
+            assertThat(dispatcher.showEntities(List.of(skipped), AmbientEffectType.VICTIM_GHOST, 40,
+                    () -> { throw new IllegalStateException("packet failure"); })).isFalse();
+            assertThat(failed).hasValue(1);
+            assertThat(removedGhost).hasValue(0); assertThat(removedMob).hasValue(0);
+            assertThat(registry.presentationsFor(owner)).hasSize(2);
+            switch (ending) {
+                case "expiry" -> {
+                    tasks.get(1).action().run();
+                    assertThat(removedMob).hasValue(1); assertThat(removedGhost).hasValue(0);
+                    assertThat(registry.presentationsFor(owner)).hasSize(1);
+                    tasks.getFirst().action().run();
+                }
+                case "quit" -> new AmbientEffectsListener(registry, null, dispatcher).cleanupPlayer(owner, true);
+                case "world-change" -> new AmbientEffectsListener(registry, null, dispatcher).cleanupPlayer(owner, false);
+                case "disable" -> dispatcher.cancelAllPending();
+                default -> throw new AssertionError(ending);
+            }
+            assertThat(removedGhost).hasValue(1); assertThat(removedMob).hasValue(1);
+            assertThat(registry.presentationsFor(owner)).isEmpty(); assertThat(registry.getActiveCount()).isZero();
+        }
     }
 
     @Test void phantomUsesTheSamePickableBoundsGuardAsSereneAnimals() {

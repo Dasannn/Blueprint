@@ -23,5 +23,5 @@ public enum PsychosisLevel {
         return displayName;
     }
 
-    public boolean hasMadnessEffects() { return this == MEDIUM || this == HIGH || this == EXTREME; }
+    public boolean hasMadnessEffects() { return this == LOW || this == MEDIUM || this == HIGH || this == EXTREME; }
 }

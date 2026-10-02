@@ -31,7 +31,7 @@ public final class ChatCorruption {
 
     public static boolean isEpisode(String message, PsychosisLevel level, long speakerSeed,
                                     long sequence, ChatCorruptionConfig config) {
-        if (!level.hasMadnessEffects() || (sequence & 1) != 0) return false;
+        if (level.ordinal() < PsychosisLevel.MEDIUM.ordinal() || (sequence & 1) != 0) return false;
         Random random = new Random(seed(message, speakerSeed, sequence));
         int rate = switch (level) {
             case LOW, NEUTRAL, SERENITY -> 0;

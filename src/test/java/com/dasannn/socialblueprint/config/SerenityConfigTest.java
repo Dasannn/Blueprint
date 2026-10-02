@@ -52,7 +52,7 @@ class SerenityConfigTest {
         assertThatThrownBy(() -> manager.set("effects.serenity.source-less-sounds.playback-ticks", "100"))
                 .hasMessageContaining("effects.serenity.source-less-sounds.playback-ticks");
         for (var bad : Map.of("episodes.quiet-ticks", 0, "dawn.time-ticks", 24000, "particles.count", 0,
-                "apparition.kind", "zombie", "dawn.duration-ticks", 101).entrySet()) {
+                "apparition.kinds", List.of("zombie"), "dawn.duration-ticks", 101).entrySet()) {
             var invalid = shipped(); invalid.set("effects.serenity." + bad.getKey(), bad.getValue());
             assertThatThrownBy(() -> PluginConfig.load(invalid)).hasMessageContaining("effects.serenity." + bad.getKey());
         }

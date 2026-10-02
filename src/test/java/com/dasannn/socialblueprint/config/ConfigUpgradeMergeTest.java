@@ -194,6 +194,7 @@ class ConfigUpgradeMergeTest {
         old.set("effects.episodes.duration-scale", null);
         old.set("effects.silverfish.cooldown", "7m");
         old.set("effects.silverfish.session-cap", 9);
+        old.set("effects.episodes.low", null);
         old.set("effects.episodes.medium.interval-ticks", 7200);
         old.set("effects.episodes.high.interval-ticks", 3600);
         old.set("effects.episodes.extreme.interval-ticks", 800);
