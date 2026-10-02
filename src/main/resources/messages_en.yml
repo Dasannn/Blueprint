@@ -280,6 +280,7 @@ features:
         honor-review: "&fHonor review"
       chat: "&fChat corruption"
     effects:
+      creeper: "&fCreeper fuse"
       silverfish: "&fPhantom mobs"
       sky: "&fSky"
       particles: "&fParticles"

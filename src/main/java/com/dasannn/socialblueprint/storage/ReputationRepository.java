@@ -236,20 +236,12 @@ public final class ReputationRepository {
                 if (compensationId != null && compensationRepository != null) {
                     compensationRepository.markEventWrittenInternal(conn, compensationId);
                 }
-                conn.commit();
-                // Reputation is durable first. Finish the mind transaction in this same
-                // executor task, so a queued revocation cannot overtake its input.
                 if (saved.kind().isPlayerHonor()) {
-                    try {
-                        MindInput input = saved.kind() == HonorKind.NEGATIVE ? MindInput.HONOR_REVIEW_NEGATIVE : MindInput.HONOR_REVIEW;
-                        MindRepository.applyInternal(conn, saved.target(), input, mindConfig,
-                                Long.toString(saved.id()), saved.createdAt());
-                        conn.commit();
-                    } catch (SQLException | RuntimeException mindFailure) {
-                        conn.rollback();
-                        LOGGER.log(Level.WARNING, "Failed to apply mind input for durable rating " + saved.id(), mindFailure);
-                    }
+                    MindInput input = saved.kind() == HonorKind.NEGATIVE ? MindInput.HONOR_REVIEW_NEGATIVE : MindInput.HONOR_REVIEW;
+                    MindRepository.applyInternal(conn, saved.target(), input, mindConfig,
+                            Long.toString(saved.id()), saved.createdAt());
                 }
+                conn.commit();
                 if (compensationId != null && compensationRepository != null) {
                     compensationRepository.deleteCompensationAsync(compensationId)
                             .exceptionally(error -> {

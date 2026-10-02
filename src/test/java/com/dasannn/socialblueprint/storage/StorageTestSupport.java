@@ -12,6 +12,18 @@ public final class StorageTestSupport {
 
     private StorageTestSupport() {}
 
+    /** Occupies the storage executor until {@code release} opens; {@code blocked} opens once it holds it. */
+    public static java.util.concurrent.CompletableFuture<Void> blockExecutor(StorageEngine storage,
+            java.util.concurrent.CountDownLatch blocked, java.util.concurrent.CountDownLatch release) {
+        return storage.executeAsync(conn -> {
+            blocked.countDown();
+            try {
+                if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("Storage was not released");
+            } catch (InterruptedException ex) { throw new AssertionError(ex); }
+            return null;
+        });
+    }
+
     public static void executeSql(StorageEngine storage, String sql) {
         Objects.requireNonNull(storage, "storage must not be null");
         Objects.requireNonNull(sql, "sql must not be null");

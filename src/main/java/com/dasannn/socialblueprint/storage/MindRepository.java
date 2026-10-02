@@ -43,7 +43,7 @@ public final class MindRepository {
                 result.requestedDelta(), result.appliedDelta(), result.before(), result.after(), now, null), kind.bad() || kind == MindInput.CLEAN_DAY);
         return result;
     }
-    /** SB-146: undo the historical applied delta, including across Neutral. */
+    /** SB-146: bounded reversal of the historical applied delta, including across Neutral. */
     static void reverseHonorInternal(Connection conn, PlayerId player, long ratingId, PlayerId admin, Instant now) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement("SELECT applied_delta FROM mind_event WHERE player_uuid = ? AND kind = 'honor-review' AND source = ?")) {
             ps.setString(1, player.toString()); ps.setString(2, Long.toString(ratingId));

@@ -156,6 +156,14 @@ public final class MindInputListener implements Listener {
             peaceful(event.getPlayer(), MindInput.HARVESTING, block.getType().name(), manager.snapshot());
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void harvesting(PlayerHarvestBlockEvent event) {
+        var block = event.getHarvestedBlock();
+        if (block.getBlockData() instanceof Ageable crop
+                && MindTriggers.harvesting(block.getType().name(), crop.getAge(), crop.getMaximumAge()))
+            peaceful(event.getPlayer(), MindInput.HARVESTING, block.getType().name(), manager.snapshot());
+    }
+
     private MindNight night(World world) { return nights.computeIfAbsent(world.getUID(), ignored -> new MindNight(13000, 23000)); }
     private void credits(World world, java.util.List<MindNight.Credit> credits, RuntimeSnapshot snapshot) {
         for (var credit : credits) {

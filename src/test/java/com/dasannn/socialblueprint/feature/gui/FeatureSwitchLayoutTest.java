@@ -28,7 +28,7 @@ class FeatureSwitchLayoutTest {
         for (MindInput input : MindInput.values()) expected.add("psychosis.inputs." + input.id() + ".enabled");
         expected.add("psychosis.inputs.honor-review.enabled");
         for (String id : List.of("sky", "particles", "screen-flash", "source-less-sounds", "block-change", "sign",
-                "hurt-flash", "victim-ghost", "advancement-toast", "boss-bar", "false-death", "fake-connection", "private-chat", "silverfish"))
+                "hurt-flash", "victim-ghost", "advancement-toast", "boss-bar", "false-death", "fake-connection", "private-chat", "silverfish", "creeper"))
             expected.add("effects." + id + ".enabled");
         expected.add("psychosis.chat.enabled");
         for (String id : List.of("dawn", "source-less-sounds", "particles", "apparition")) expected.add("effects.serenity." + id + ".enabled");

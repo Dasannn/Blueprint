@@ -2289,4 +2289,26 @@ public class StatusGuiServiceTest {
         @Override public Clock withZone(ZoneId zone) { this.zone = zone; return this; }
         @Override public Instant instant() { return now; }
     }
+
+    @Test
+    void mindWriteFailureRollsBackRatingAndRefundsCharge() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        UUID actorUuid = UUID.randomUUID();
+        economyBalances.put(actorUuid, 10000.0);
+        Player actor = createMockPlayer("Actor", actorUuid, "socialblueprint.give-reputation");
+        awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, "Helpful neighbor", configManager.snapshot()));
+        double approved = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
+        com.dasannn.socialblueprint.storage.StorageTestSupport.executeSql(storage,
+                "CREATE TRIGGER fail_honor_mind BEFORE INSERT ON mind_event BEGIN SELECT RAISE(ABORT, 'mind failure'); END");
+        awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+        assertThat(reputationRepo.findByTargetAsync(target).join()).isEmpty();
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        assertThat(mind.events(target)).isEmpty();
+        assertThat(mind.value(target)).isZero();
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
+        assertThat(deposits).containsExactly(approved);
+        assertThat(compensationRepo.findByPlayerAsync(actorUuid).join()).isEmpty();
+        assertThat(messageRegistry.hasCall("honor.write-failed")).isTrue();
+    }
 }

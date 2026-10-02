@@ -21,8 +21,9 @@ class FeatureSwitchEffectsTest {
     @Test void liveSwitchStopsNextSelectionIncludingPhantomsAndCanReenableWithoutRestart() {
         var manager = manager();
         var state = new PlayerEffectState();
-        for (String key : List.of("effects.particles.enabled", "effects.silverfish.enabled")) {
-            var type = key.contains("silverfish") ? AmbientEffectType.SILVERFISH : AmbientEffectType.PARTICLES;
+        for (String key : List.of("effects.particles.enabled", "effects.silverfish.enabled", "effects.creeper.enabled")) {
+            var type = key.contains("silverfish") ? AmbientEffectType.SILVERFISH
+                    : key.contains("creeper") ? AmbientEffectType.CREEPER_SOUND : AmbientEffectType.PARTICLES;
             assertThat(AmbientEffectScheduler.availableEffects(manager.config().effects(), state, PsychosisLevel.HIGH, 1_000_000, new Random(0))).contains(type);
             manager.set(key, "false");
             assertThat(AmbientEffectScheduler.availableEffects(manager.config().effects(), state, PsychosisLevel.HIGH, 1_000_000, new Random(0))).doesNotContain(type);
@@ -53,7 +54,7 @@ class FeatureSwitchEffectsTest {
 
     @Test void newSwitchesAreValidatedAtomicallyMergedAndPersisted() throws Exception {
         var manager = manager();
-        for (String key : List.of("psychosis.chat.enabled", "effects.silverfish.enabled")) {
+        for (String key : List.of("psychosis.chat.enabled", "effects.silverfish.enabled", "effects.creeper.enabled")) {
             var before = manager.snapshot();
             String file = Files.readString(folder.resolve("config.yml"));
             assertThatThrownBy(() -> manager.set(key, "sometimes")).hasMessageContaining(key);
@@ -64,14 +65,18 @@ class FeatureSwitchEffectsTest {
         var restarted = manager();
         assertThat(restarted.config().psychosis().chat().enabled()).isFalse();
         assertThat(restarted.config().effects().silverfish().enabled()).isFalse();
+        assertThat(restarted.config().effects().creeper().enabled()).isFalse();
         var yaml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(folder.resolve("config.yml").toFile());
         yaml.set("psychosis.chat.enabled", null);
         yaml.set("effects.silverfish.enabled", null);
+        yaml.set("effects.creeper.enabled", null);
         yaml.set("permissions.admin-features", null);
         yaml.save(folder.resolve("config.yml").toFile());
         var upgraded = manager();
         assertThat(upgraded.get("psychosis.chat.enabled")).isEqualTo("true");
         assertThat(upgraded.get("effects.silverfish.enabled")).isEqualTo("true");
+        assertThat(upgraded.config().effects().creeper().enabled()).isTrue();
+        assertThat(upgraded.get("effects.creeper.enabled")).isEqualTo("true");
         assertThat(upgraded.config().permissions().node("admin-features")).isEqualTo("socialblueprint.admin.features");
         assertThatThrownBy(() -> upgraded.set("permissions.admin-features", "")).hasMessageContaining("permissions.admin-features");
     }

@@ -112,9 +112,12 @@ public class AmbientEffectScheduler {
             }
             PlayerId id = PlayerId.of(player.getUniqueId());
 
-            // The view contains only plain values. Its database load runs on the storage executor;
-            // a cold cache returns NEUTRAL until loaded. Player access and dispatch stay on this main thread.
-            PlayerSocialView view = profileService.getViewQuick(id, snapshot);
+            var known = profileService.findViewCached(id, snapshot);
+            if (known.isEmpty()) {
+                profileService.getViewQuick(id, snapshot);
+                continue;
+            }
+            PlayerSocialView view = known.get();
             PsychosisLevel level = view.psychosis();
             PlayerEffectState state = getOrCreateState(player.getUniqueId());
             if (state.changeDirection(level)) {
@@ -133,7 +136,7 @@ public class AmbientEffectScheduler {
                 if (!effects.isEmpty()) {
                     String effect = effects.get(random.nextInt(effects.size()));
                     if (dispatcher.dispatchSerene(player, effect, snapshot,
-                            () -> profileService.getViewQuick(id, snapshot).psychosis() == PsychosisLevel.SERENITY)) {
+                            () -> directionStillMatches(id, true))) {
                         long ticks = SereneEpisode.reservationTicks(effect, serene, snapshot.config().sounds());
                         state.recordSerene(effect, now, ticks);
                         dispatcher.reserveEpisode(player.getUniqueId(), ticks);
@@ -191,7 +194,18 @@ public class AmbientEffectScheduler {
         long quietMillis = cfg.quietInterval(level).toMillis();
         state.recordEpisode(now, longestTicks * 50L + quietMillis);
         dispatcher.reserveEpisode(id, longestTicks + (quietMillis + 49L) / 50L);
-        dispatcher.guardDirection(id, () -> profileService.getViewQuick(PlayerId.of(id), snapshot).psychosis().hasMadnessEffects(), Math.max(1, longestTicks));
+        dispatcher.guardDirection(id, () -> directionStillMatches(PlayerId.of(id), false), Math.max(1, longestTicks));
+    }
+
+    boolean directionStillMatches(PlayerId id, boolean serenity) {
+        RuntimeSnapshot current = configManager.snapshot();
+        var known = profileService.findViewCached(id, current);
+        if (known.isEmpty()) {
+            profileService.getViewQuick(id, current);
+            return true;
+        }
+        return serenity ? known.get().psychosis() == PsychosisLevel.SERENITY
+                : known.get().psychosis().hasMadnessEffects();
     }
 
     private void requestVictim(UUID id, RuntimeSnapshot snapshot, PlayerEffectState state, long now, List<AmbientEffectType> candidates) {

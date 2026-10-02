@@ -280,6 +280,7 @@ features:
         honor-review: "&fValoración de honor"
       chat: "&fCorrupción del chat"
     effects:
+      creeper: "&fMecha de creeper"
       silverfish: "&fCriaturas fantasma"
       sky: "&fCielo"
       particles: "&fPartículas"

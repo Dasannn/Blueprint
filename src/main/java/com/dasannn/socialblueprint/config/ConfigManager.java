@@ -663,7 +663,7 @@ public class ConfigManager {
             List<Double> list = parseDoubleList(raw);
             return list.toString();
         }
-        if (EFFECT_CHOICE_LISTS.contains(path))
+        if (EFFECT_CHOICE_LISTS.contains(path) || path.startsWith("chat-filter.words."))
             return quotedList(((List<?>) parseValueForPath(path, raw)).stream().map(String.class::cast).toList());
         if ("kill-penalty.exempt-worlds".equals(path) || "effects.silverfish.mobs".equals(path)) {
             List<String> list = parseStringList(raw);
@@ -876,6 +876,7 @@ public class ConfigManager {
         set.add("effects.max-episode-ticks");
         set.add("effects.silverfish.cooldown");
         set.add("effects.silverfish.session-cap");
+        set.add("effects.creeper.enabled");
         set.add("effects.creeper.cooldown");
         set.add("effects.creeper.session-cap");
 
@@ -1031,6 +1032,7 @@ public class ConfigManager {
             if ("effects.silverfish.enabled".equals(path)) return String.valueOf(config.effects().silverfish().enabled());
             if ("effects.silverfish.cooldown".equals(path)) return formatDuration(config.effects().silverfish().cooldown());
             if ("effects.silverfish.session-cap".equals(path)) return String.valueOf(config.effects().silverfish().sessionCap());
+            if ("effects.creeper.enabled".equals(path)) return String.valueOf(config.effects().creeper().enabled());
             if ("effects.creeper.cooldown".equals(path)) return formatDuration(config.effects().creeper().cooldown());
             if ("effects.creeper.session-cap".equals(path)) return String.valueOf(config.effects().creeper().sessionCap());
         }

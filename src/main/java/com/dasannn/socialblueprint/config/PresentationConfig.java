@@ -262,10 +262,10 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
             if (low <= medium || medium <= high || high <= extreme) fail("episodes", "Intervals must decrease low > medium > high > extreme");
             long quiet = ticks(root, "episodes.quiet-ticks", 20);
             if (quiet > extreme) fail("episodes.quiet-ticks", "Must fit within the extreme interval to preserve level gradation");
-            int lowCount = integer(root, "episodes.low.max-concurrent", 1, 1, Integer.MAX_VALUE);
-            int mediumCount = integer(root, "episodes.medium.max-concurrent", 2, lowCount, Integer.MAX_VALUE);
-            int highCount = integer(root, "episodes.high.max-concurrent", 3, mediumCount, Integer.MAX_VALUE);
-            int extremeCount = integer(root, "episodes.extreme.max-concurrent", 4, highCount, Integer.MAX_VALUE);
+            int lowCount = integer(root, "episodes.low.max-concurrent", 1, 1, 1);
+            int mediumCount = integer(root, "episodes.medium.max-concurrent", 2, lowCount, 2);
+            int highCount = integer(root, "episodes.high.max-concurrent", 3, mediumCount, 3);
+            int extremeCount = integer(root, "episodes.extreme.max-concurrent", 4, highCount, 4);
             episodes = new Episodes(low, medium, high, extreme, quiet, lowCount, mediumCount, highCount, extremeCount);
         }
         return new PresentationConfig(rules,

@@ -28,7 +28,7 @@ public final class FeatureSwitchLayout {
     private static List<String> madness() {
         List<String> keys = new ArrayList<>();
         for (AmbientEffectType type : AmbientEffectType.values()) {
-            if (type != AmbientEffectType.CREEPER_SOUND) keys.add("effects." + type.configId() + ".enabled");
+            keys.add("effects." + type.configId() + ".enabled");
         }
         keys.add("psychosis.chat.enabled");
         return keys;

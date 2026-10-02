@@ -65,10 +65,10 @@ class R2EffectsConfigTest {
         for (var entry : Map.<String, List<?>>of(
                 "effects.episodes.low.interval-ticks", List.of(0, 2400, "bad"),
                 "effects.episodes.duration-scale.low", List.of(0.5, 1.1, Double.NaN, "bad"),
-                "effects.episodes.low.max-concurrent", List.of(0, -1, 1.5, "bad"),
-                "effects.episodes.medium.max-concurrent", List.of(0),
-                "effects.episodes.high.max-concurrent", List.of(1),
-                "effects.episodes.extreme.max-concurrent", List.of(2)).entrySet()) {
+                "effects.episodes.low.max-concurrent", List.of(0, -1, 2, 1.5, "bad"),
+                "effects.episodes.medium.max-concurrent", List.of(0, 3),
+                "effects.episodes.high.max-concurrent", List.of(1, 4),
+                "effects.episodes.extreme.max-concurrent", List.of(2, 5)).entrySet()) {
             for (Object bad : entry.getValue()) {
                 var yaml = resource("config.yml"); yaml.set(entry.getKey(), bad);
                 assertThatThrownBy(() -> EffectsConfigSection.load(yaml)).isInstanceOf(ConfigValidationException.class)
@@ -199,21 +199,25 @@ class R2EffectsConfigTest {
         manager.set(LIST_KEYS.get(2), "[bee, cat, wolf]");
         manager.set("effects.private-chat.max-visible-length", "80");
         manager.set("effects.false-death.lines", "['&7{player}" + "x".repeat(100) + "', '&8{player}']");
-        manager.set("effects.episodes.extreme.max-concurrent", "5");
-        manager.set("effects.episodes.high.max-concurrent", "4");
-        manager.set("effects.episodes.medium.max-concurrent", "3");
-        manager.set("effects.episodes.low.max-concurrent", "2");
+        assertThatThrownBy(() -> manager.set("effects.episodes.extreme.max-concurrent", "5"))
+                .hasMessageContaining("effects.episodes.extreme.max-concurrent");
+        assertThatThrownBy(() -> manager.set("effects.episodes.high.max-concurrent", "4"))
+                .hasMessageContaining("effects.episodes.high.max-concurrent");
+        assertThatThrownBy(() -> manager.set("effects.episodes.medium.max-concurrent", "3"))
+                .hasMessageContaining("effects.episodes.medium.max-concurrent");
+        assertThatThrownBy(() -> manager.set("effects.episodes.low.max-concurrent", "2"))
+                .hasMessageContaining("effects.episodes.low.max-concurrent");
         for (String key : LIST_KEYS) assertThat(manager.get(key)).isNotNull();
         var before = manager.snapshot(); String disk = Files.readString(folder.resolve("config.yml"));
         assertThatThrownBy(() -> manager.set(LIST_KEYS.get(0), "[smoke, dust]")).hasMessageContaining(LIST_KEYS.get(0) + "[1]");
         for (String bad : List.of("[smoke, '']", "[smoke, 1]", "[]", "smoke"))
             assertThatThrownBy(() -> manager.set(LIST_KEYS.get(0), bad)).hasMessageContaining(LIST_KEYS.get(0));
-        assertThatThrownBy(() -> manager.set("effects.episodes.high.max-concurrent", "2")).hasMessageContaining("effects.episodes.high.max-concurrent");
+        assertThatThrownBy(() -> manager.set("effects.episodes.high.max-concurrent", "1")).hasMessageContaining("effects.episodes.high.max-concurrent");
         assertThat(manager.snapshot()).isSameAs(before);
         assertThat(Files.readString(folder.resolve("config.yml"))).isEqualTo(disk);
         manager.reload();
         assertThat(manager.config().effects().serenity().animals()).containsExactly("bee", "cat", "wolf");
-        assertThat(manager.config().effects().presentation().maxConcurrent(PsychosisLevel.LOW)).isEqualTo(2);
+        assertThat(manager.config().effects().presentation().maxConcurrent(PsychosisLevel.LOW)).isEqualTo(1);
         assertThat(manager.snapshot().messages().lineKeys("effects.false-death.lines")).hasSize(2);
     }
 }

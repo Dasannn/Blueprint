@@ -16,5 +16,5 @@ public enum AmbientEffectType {
         };
     }
 
-    public String configId() { if (this == WHISPER) return "private-chat"; if (this == FAKE_ANNOUNCEMENT) return "fake-connection"; return name().toLowerCase(java.util.Locale.ROOT).replace('_', '-'); }
+    public String configId() { if (this == CREEPER_SOUND) return "creeper"; if (this == WHISPER) return "private-chat"; if (this == FAKE_ANNOUNCEMENT) return "fake-connection"; return name().toLowerCase(java.util.Locale.ROOT).replace('_', '-'); }
 }

@@ -853,4 +853,87 @@ class AmbientEffectSchedulerTest {
             now += 1_000_000L;
         }
     }
+
+    @Test void toggleDuringPlaybackExpiresNormallyButKnownDirectionChangeCancels() throws Exception {
+        for (AmbientEffectType type : AmbientEffectType.values())
+            configManager.set("effects." + type.configId() + ".enabled", Boolean.toString(type == AmbientEffectType.BOSS_BAR));
+        UUID uuid = UUID.randomUUID();
+        Player player = createMockPlayer(uuid, "Subject");
+        onlinePlayers.add(player);
+        PlayerId id = PlayerId.of(uuid);
+        for (boolean serenePlayback : List.of(false, true)) {
+            for (boolean changeDirection : List.of(false, true)) {
+                configManager.set("effects.boss-bar.enabled", "true");
+                for (String effect : com.dasannn.socialblueprint.config.SerenityEffectsConfig.EFFECTS)
+                    configManager.set("effects.serenity." + effect + ".enabled", Boolean.toString(effect.equals("apparition")));
+                profileService.mind().resetAsync(id, PlayerId.CONSOLE, Instant.now()).join();
+                profileService.mind().applyAsync(id, serenePlayback ? com.dasannn.socialblueprint.domain.MindInput.SLEEP
+                        : com.dasannn.socialblueprint.domain.MindInput.DEATH,
+                        new com.dasannn.socialblueprint.domain.MindInputConfig(true, 50, 50, 100), "setup", Instant.now()).join();
+                profileService.loadViewAsync(id, "Subject", configManager.snapshot()).join();
+                record Scheduled(Runnable action, long delay, java.util.concurrent.atomic.AtomicBoolean cancelled) {}
+                List<Scheduled> tasks = new ArrayList<>();
+                var restored = new java.util.concurrent.atomic.AtomicInteger();
+                var registry = new AmbientEntityRegistry();
+                var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                        new FakeSilverfishService(null, registry, null), (action, delay) -> {
+                            var cancelled = new java.util.concurrent.atomic.AtomicBoolean();
+                            tasks.add(new Scheduled(action, delay, cancelled));
+                            return () -> cancelled.set(true);
+                        }) {
+                    @Override public boolean dispatch(Player subject, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+                        assertThat(type).isEqualTo(AmbientEffectType.BOSS_BAR);
+                        return startPresentation(uuid, type, config.presentation().bar().durationTicks(), restored::incrementAndGet) != null;
+                    }
+                    @Override public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
+                            java.util.function.BooleanSupplier eligible) {
+                        boolean started = startPresentation(uuid, AmbientEffectType.SCREEN_FLASH, 40, restored::incrementAndGet) != null;
+                        guardDirection(uuid, eligible, 40);
+                        return started;
+                    }
+                };
+                var running = new AmbientEffectScheduler(null, configManager, profileService, dispatcher, () -> onlinePlayers);
+                running.tickAt(1_000_000);
+                assertThat(registry.presentationsFor(uuid)).hasSize(1);
+                var expiry = tasks.getFirst();
+                var guard = tasks.stream().filter(task -> task.delay() == 1).findFirst().orElseThrow();
+                String toggleKey = serenePlayback ? "effects.serenity.apparition.enabled" : "effects.boss-bar.enabled";
+                var blocked = new java.util.concurrent.CountDownLatch(1);
+                var release = new java.util.concurrent.CountDownLatch(1);
+                var blocking = com.dasannn.socialblueprint.storage.StorageTestSupport.blockExecutor(storage, blocked, release);
+                try {
+                    assertThat(blocked.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                    configManager.set(toggleKey, "false");
+                    assertThat(profileService.findViewCached(id, configManager.snapshot())).isEmpty();
+                    running.tickAt(1_000_001);
+                    guard.action().run();
+                    assertThat(restored).hasValue(0);
+                    assertThat(expiry.cancelled()).isFalse();
+                } finally { release.countDown(); }
+                blocking.join();
+                profileService.loadViewAsync(id, "Subject", configManager.snapshot()).join();
+                assertThat(running.directionStillMatches(id, serenePlayback)).isTrue();
+                if (changeDirection) {
+                    profileService.mind().resetAsync(id, PlayerId.CONSOLE, Instant.now()).join();
+                    profileService.mind().applyAsync(id, serenePlayback ? com.dasannn.socialblueprint.domain.MindInput.DEATH
+                            : com.dasannn.socialblueprint.domain.MindInput.SLEEP,
+                            new com.dasannn.socialblueprint.domain.MindInputConfig(true, 50, 50, 100), "setup", Instant.now()).join();
+                    profileService.loadViewAsync(id, "Subject", configManager.snapshot()).join();
+                    assertThat(running.directionStillMatches(id, serenePlayback)).isFalse();
+                    assertThat(running.directionStillMatches(id, !serenePlayback)).isTrue();
+                    running.tickAt(1_000_002);
+                    assertThat(expiry.cancelled()).isTrue();
+                } else {
+                    running.tickAt(1_000_002);
+                    assertThat(restored).hasValue(0);
+                    assertThat(expiry.cancelled()).isFalse();
+                    expiry.action().run();
+                }
+                assertThat(restored).hasValue(1);
+                assertThat(registry.presentationsFor(uuid)).isEmpty();
+                dispatcher.cancelPending(uuid);
+                assertThat(restored).hasValue(1);
+            }
+        }
+    }
 }

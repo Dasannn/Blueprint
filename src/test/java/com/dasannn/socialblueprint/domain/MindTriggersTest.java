@@ -101,4 +101,25 @@ class MindTriggersTest {
         assertThat(night.time(18000)).isEmpty();
         assertThat(night.time(24000)).containsExactly(new MindNight.Credit(deep, MindInput.SLEEP));
     }
+
+    @Test void rightClickHarvestCreditsOnlyMatureCropsThroughTheSharedPeacefulInput() throws Exception {
+        assertThat(MindTriggers.harvesting("SWEET_BERRY_BUSH", 3, 3)).isTrue();
+        assertThat(MindTriggers.harvesting("SWEET_BERRY_BUSH", 2, 3)).isFalse();
+        assertThat(MindTriggers.harvesting("STONE", 3, 3)).isFalse();
+        var method = com.dasannn.socialblueprint.platform.listener.MindInputListener.class
+                .getMethod("harvesting", org.bukkit.event.player.PlayerHarvestBlockEvent.class);
+        var handler = method.getAnnotation(org.bukkit.event.EventHandler.class);
+        assertThat(handler.priority()).isEqualTo(org.bukkit.event.EventPriority.MONITOR);
+        assertThat(handler.ignoreCancelled()).isTrue();
+        try (var engine = com.dasannn.socialblueprint.storage.StorageEngine.inMemory()) {
+            engine.runMigrations();
+            var mind = new com.dasannn.socialblueprint.storage.MindRepository(engine);
+            var id = player();
+            var config = new MindInputConfig(true, 0.02, 0.02, 1);
+            mind.applyAsync(id, MindInput.PLANTING, config, "WHEAT", NOW).join();
+            var harvest = mind.applyAsync(id, MindInput.HARVESTING, config, "SWEET_BERRY_BUSH", NOW).join();
+            assertThat(harvest.enabled()).isFalse();
+            assertThat(mind.events(id)).hasSize(1);
+        }
+    }
 }

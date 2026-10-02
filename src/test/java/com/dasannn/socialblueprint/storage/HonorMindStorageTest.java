@@ -113,7 +113,7 @@ class HonorMindStorageTest {
         }
     }
 
-    @Test void reversalClampsAtEitherExtremeAndAuditFailureRollsItBack() {
+    @Test void boundedReversalAtEitherExtremeRecordsActualDeltaAndAuditFailureRollsItBack() {
         try (var engine = StorageEngine.inMemory()) {
             engine.runMigrations(); var rep = new ReputationRepository(engine, new StatusCache());
             var mind = new MindRepository(engine); var audits = new AuditRepository(engine);
@@ -193,7 +193,7 @@ class HonorMindStorageTest {
         }
     }
 
-    @Test void mindWriteFailureKeepsDurableRatingAndRollsBackMindValue() {
+    @Test void mindWriteFailureRollsBackRatingAndMindValue() {
         try (var engine = StorageEngine.inMemory()) {
             engine.runMigrations(); var rep = new ReputationRepository(engine, new StatusCache());
             var mind = new MindRepository(engine); var target = player();
@@ -203,10 +203,33 @@ class HonorMindStorageTest {
                 }
                 return null;
             });
-            var rating = commit(rep, target, HonorKind.POSITIVE, NOW);
-            assertThat(rep.findByTarget(target)).containsExactly(rating);
+            assertThatThrownBy(() -> commit(rep, target, HonorKind.POSITIVE, NOW))
+                    .isInstanceOf(java.util.concurrent.CompletionException.class);
+            assertThat(rep.findByTarget(target)).isEmpty();
             assertThat(mind.events(target)).isEmpty();
             assertThat(mind.value(target)).isZero();
+        }
+    }
+
+    @Test void boundedReversalRecordsPartialDeltaWhenOnlyOnePointFits() {
+        try (var engine = StorageEngine.inMemory()) {
+            engine.runMigrations();
+            var rep = new ReputationRepository(engine, new StatusCache());
+            var mind = new MindRepository(engine);
+            for (HonorKind kind : List.of(HonorKind.POSITIVE, HonorKind.NEGATIVE)) {
+                var target = player();
+                var saved = commit(rep, target, kind, NOW);
+                boolean positive = kind == HonorKind.POSITIVE;
+                mind.resetAsync(target, PlayerId.CONSOLE, NOW).join();
+                mind.applyAsync(target, positive ? MindInput.DEATH : MindInput.SLEEP,
+                        new MindInputConfig(true, 99, 99, 2), "setup", NOW).join();
+                rep.revokeAsync(PlayerId.CONSOLE, "Admin", target, saved.id(), NOW, new AuditRepository(engine)).join();
+                var reversal = mind.events(target).getLast();
+                assertThat(reversal.requestedDelta()).isEqualTo(positive ? -2 : 2);
+                assertThat(reversal.appliedDelta()).isEqualTo(positive ? -1 : 1);
+                assertThat(reversal.after()).isEqualTo(positive ? -100 : 100);
+                assertThat(mind.value(target)).isEqualTo(reversal.after());
+            }
         }
     }
 }

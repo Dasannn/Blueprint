@@ -456,6 +456,7 @@ effects:
 
   # Creeper fuse sound effect (SB-040)
   creeper:
+    enabled: true
     cooldown: 8m
     session-cap: 6
 

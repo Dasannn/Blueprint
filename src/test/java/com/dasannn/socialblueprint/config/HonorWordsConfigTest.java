@@ -48,4 +48,22 @@ class HonorWordsConfigTest {
         assertThat(manager.snapshot().config().chatFilter().enabled()).isFalse();
         assertThat(manager.snapshot().config().permissions().node("admin-revoke")).isEqualTo("socialblueprint.admin.revoke");
     }
+
+    @Test void commentedAndQuotedWordListsRemainListsAfterReload() {
+        var manager = new ConfigManager(new File(folder, "config.yml"),
+                new MessageRegistry(folder, "en", null), Runnable::run, null);
+        manager.initialize();
+        for (String language : List.of("en", "es")) {
+            String key = "chat-filter.words." + language;
+            for (String raw : List.of("[idiot] # moderation", "['idiot', \"fool\"] # quoted entries")) {
+                manager.set(key, raw);
+                var yaml = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(new File(folder, "config.yml"));
+                assertThat(yaml.isList(key)).isTrue();
+                assertThat(yaml.getStringList(key)).contains("idiot");
+                if (raw.contains("fool")) assertThat(yaml.getStringList(key)).containsExactly("idiot", "fool");
+                manager.reload();
+                assertThat(manager.config().chatFilter().apply("idiot", "bobba")).isEqualTo("bobba");
+            }
+        }
+    }
 }

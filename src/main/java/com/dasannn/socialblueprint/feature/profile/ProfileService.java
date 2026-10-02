@@ -142,15 +142,21 @@ public class ProfileService {
 
     /** Cache-only chat read: no executor submission, JDBC or platform lookup. */
     public PlayerSocialView getViewCached(PlayerId id, RuntimeSnapshot snapshot) {
+        return findViewCached(id, snapshot).orElseGet(() -> PlayerSocialView.neutral(
+                id != null ? id : PlayerId.CONSOLE, "", snapshot.config().tiers().ladder()));
+    }
+
+    /** A missing/invalidated view is unknown, not an authoritative Neutral direction. */
+    public Optional<PlayerSocialView> findViewCached(PlayerId id, RuntimeSnapshot snapshot) {
         if (id != null) {
             synchronized (loadLock) {
                 CachedView cached = viewCache.get(id);
                 if (cached != null && cached.generation() == playerGenerations.getOrDefault(id, 0)
                         && cached.configGeneration() == configGeneration && cached.snapshot() == snapshot
-                        && clock.instant().isBefore(cached.expiresAt())) return cached.view();
+                        && clock.instant().isBefore(cached.expiresAt())) return Optional.of(cached.view());
             }
         }
-        return PlayerSocialView.neutral(id != null ? id : PlayerId.CONSOLE, "", snapshot.config().tiers().ladder());
+        return Optional.empty();
     }
 
     /**

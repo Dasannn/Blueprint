@@ -1107,8 +1107,8 @@ of 2 (cure 2 / gain 2), a negative rating a bad action of 2 (drain 2 / weight
 ratings per receiving player count per rolling 24 hours; later ones still
 change status but not the mental state. Administrator adjustments and system
 penalties (SB-032) do not apply. Revoking a rating (SB-152) writes a
-compensating mind event that reverses exactly the delta the rating applied,
-if it applied one. Configured under `psychosis.inputs.honor-review` with
+compensating mind event that reverses the delta the rating applied,
+as far as the [-100, 100] scale allows. Configured under `psychosis.inputs.honor-review` with
 `enabled`, `gain`, `cure`, `serene-drain`, `psychosis-weight` and `cap`.
 
 ### 15.2 Effects
