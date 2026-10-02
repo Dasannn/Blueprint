@@ -18,6 +18,25 @@ class HonorAllowanceTrackerTest {
     private final Instant baseTime = Instant.parse("2026-09-29T12:00:00Z");
 
     @Test
+    void waitUsesBothLimitsAndExpiresExactlyWithoutRestoringRevokedAllowance() {
+        var actor = PlayerId.of(UUID.randomUUID()); var target = PlayerId.of(UUID.randomUUID());
+        var events = new ArrayList<ReputationEvent>();
+        for (int i = 0; i < 4; i++) events.add(new ReputationEvent(i + 1, actor, target, 1,
+                HonorKind.POSITIVE, 500, "Helpful", baseTime.plusSeconds(i * 10), null, i == 1 ? "Admin" : null));
+        var wait = tracker.waitFor(actor, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(30), Duration.ofSeconds(45));
+        assertThat(wait.cooldown()).isEqualTo(Duration.ofSeconds(45));
+        assertThat(wait.cap()).isEqualTo(Duration.ofSeconds(3580));
+        assertThat(wait.remaining()).isEqualTo(wait.cap());
+        assertThat(tracker.waitFor(actor, target, HonorKind.NEGATIVE, events, baseTime.plusSeconds(30), Duration.ofSeconds(45)).remaining())
+                .isEqualTo(Duration.ofSeconds(45));
+        assertThat(tracker.waitFor(actor, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(3610), Duration.ofSeconds(45)).remaining()).isZero();
+        assertThat(tracker.canIssue(actor, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(3610))).isTrue();
+        assertThat(tracker.waitFor(PlayerId.of(UUID.randomUUID()), target, HonorKind.POSITIVE, events, baseTime, Duration.ofHours(1)).remaining()).isZero();
+        events.add(new ReputationEvent(actor, target, -1, HonorKind.NEGATIVE, 500, "Future", baseTime.plusSeconds(10000)));
+        assertThat(tracker.waitFor(actor, target, HonorKind.POSITIVE, events, baseTime.plusSeconds(3610), Duration.ofSeconds(45)).remaining()).isZero();
+    }
+
+    @Test
     @DisplayName("T-016, T-020: At most three positive ratings per actor-target pair in rolling window")
     void positiveCapEnforced() {
         PlayerId actor = PlayerId.of(UUID.randomUUID());

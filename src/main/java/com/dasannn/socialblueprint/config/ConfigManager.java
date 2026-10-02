@@ -386,6 +386,16 @@ public class ConfigManager {
     /**
      * Returns whether a path is a supported editable leaf (either in config.yml or messages).
      */
+    public java.util.List<String> editableKeys(RuntimeSnapshot snapshot) {
+        Set<String> keys = new java.util.TreeSet<>(SUPPORTED_CONFIG_LEAVES);
+        snapshot.leafValues().keySet().stream().filter(this::isSupportedConfigLeaf).forEach(keys::add);
+        keys.addAll(snapshot.messages().activeMessages().keySet());
+        keys.addAll(snapshot.messages().fallbackMessages().keySet());
+        keys.addAll(snapshot.messages().bundledActiveMessages().keySet());
+        keys.addAll(snapshot.messages().bundledFallbackMessages().keySet());
+        return java.util.List.copyOf(keys);
+    }
+
     public boolean isEditableKey(String path) {
         return isEditableKey(snapshot(), path);
     }

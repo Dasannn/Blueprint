@@ -37,6 +37,11 @@ public record ReputationEvent(
         this(id, actor, target, delta, kind, cost, reason, createdAt, null, null);
     }
 
+    public static java.util.List<ReputationEvent> visibleHistory(java.util.List<ReputationEvent> events, boolean canRevoke) {
+        return events == null ? java.util.List.of() : events.stream()
+                .filter(e -> e.kind() != HonorKind.REVOCATION && (canRevoke || e.revokedBy() == null)).toList();
+    }
+
     public boolean canRevoke() {
         return revokedBy == null && (kind.isPlayerHonor() || kind == HonorKind.SYSTEM_KILL
                 || kind == HonorKind.ADMIN_GIVE || kind == HonorKind.ADMIN_TAKE);

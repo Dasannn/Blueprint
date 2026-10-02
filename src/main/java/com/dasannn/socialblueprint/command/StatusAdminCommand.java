@@ -89,6 +89,8 @@ public class StatusAdminCommand {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.revoke-usage"));
                 return CompletableFuture.completedFuture(null);
             }
+            if ("last".equalsIgnoreCase(args[2]))
+                return honorService.adminRevoke(sender, args[1], -1, snapshot);
             java.util.OptionalLong ratingId = ArgumentParser.parsePositiveLong(args[2]);
             if (ratingId.isEmpty()) {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.revoke-rejected"));
@@ -191,6 +193,8 @@ public class StatusAdminCommand {
             return matches;
         }
 
+        if (canRevoke && args.length == 3 && "revoke".equalsIgnoreCase(args[0])
+                && "last".startsWith(args[2].toLowerCase(Locale.ROOT))) return List.of("last");
         if (args.length > 1 && "mind".equalsIgnoreCase(args[0]) && mindCommand != null)
             return mindCommand.tabComplete(sender, java.util.Arrays.copyOfRange(args, 1, args.length), snapshot);
         return Collections.emptyList();

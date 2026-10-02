@@ -73,7 +73,8 @@ class DuelCombatListenerTest {
 
     private final Map<UUID, Player> mockPlayers = new HashMap<>();
     private final Map<String, PlayerLookup.KnownPlayer> knownPlayers = new HashMap<>();
-    private final Instant baseTime = Instant.parse("2026-09-30T12:00:00Z");
+    // Relative to now: status decay reads the wall clock, so a fixed past date slowly decays the fixtures.
+    private final Instant baseTime = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
 
     @BeforeEach
     void setUp() throws Exception {

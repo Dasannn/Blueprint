@@ -273,18 +273,20 @@ public final class ReputationRepository {
             try {
                 conn.setAutoCommit(false);
                 ReputationEvent rating = findByTargetStrictInternal(conn, target.toString()).stream()
-                        .filter(e -> e.id() == ratingId).findFirst().orElse(null);
+                        .filter(e -> ratingId == -1 ? e.canRevoke() : e.id() == ratingId)
+                        .max(java.util.Comparator.comparing(ReputationEvent::createdAt).thenComparingLong(ReputationEvent::id))
+                        .orElse(null);
                 if (rating == null || !rating.canRevoke()) {
                     conn.rollback();
                     return false;
                 }
                 ReputationEvent revocation = new ReputationEvent(0, admin, target, 0, HonorKind.REVOCATION,
-                        0, adminName, now, ratingId, null);
+                        0, adminName, now, rating.id(), null);
                 ReputationEvent saved = saveInternal(conn, revocation);
                 if (rating.kind().isPlayerHonor())
-                    MindRepository.reverseHonorInternal(conn, target, ratingId, admin, now);
+                    MindRepository.reverseHonorInternal(conn, target, rating.id(), admin, now);
                 auditRepository.saveInternal(conn, new AuditEvent(admin, "admin_revoke", target,
-                        "rating=" + ratingId + ";reason=" + rating.reason(), "revocation=" + saved.id(), now));
+                        "rating=" + rating.id() + ";reason=" + rating.reason(), "revocation=" + saved.id(), now));
                 conn.commit();
                 return true;
             } catch (Exception ex) {

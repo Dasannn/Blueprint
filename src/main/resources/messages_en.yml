@@ -93,10 +93,11 @@ status:
   read-failed: '&cFailed to read profile.'
 
 honor:
-  revoke-usage: '&eUsage: /status admin revoke <player> <rating-id>'
+  revoke-usage: '&eUsage: /status admin revoke <player> <rating-id|last>'
   revoke-success: '&aRevoked rating {id} for {player}.'
   revoke-rejected: '&cRating not found, already revoked, or not revocable.'
-  rating-id: '&7Rating id: {id}'
+  last-rating: 'last'
+  rating-id: '&7Revoke: /status admin revoke {player} {id}'
   revoked: '&cRevoked by {admin}'
   revoke-title: '&cRevoke rating {id}?'
   revoke-confirm: '&aConfirm revocation'
@@ -104,7 +105,7 @@ honor:
   revoke-hint: '&7Shift-click to revoke this rating.'
   cost-preview: '&7The cost to issue this opinion is &e${cost}&7. Type &b/status confirm&7 to confirm.'
   cooldown: '&cYou must wait &e{time}&c before rating this player again.'
-  cap-reached: '&cYou have reached the evaluation limit for this player.'
+  cap-reached: '&cYou have reached the evaluation limit. You can rate again in {time}.'
   given: '&aYou have granted honor to &e{target}&a.'
   removed: '&cYou have removed honor from &e{target}&c.'
   reason-required: '&cA written reason is required to give or remove honor.'
@@ -241,7 +242,9 @@ chat-filter:
   replacement: 'bobba'
 # Administrative mental-state resets (SB-137).
 mind-admin:
-  usage: '&eUsage: /status admin mind reset <player> | reset-all [confirm]'
+  set: '&aMental state set to {value} for {player}.'
+  invalid-value: '&cUse a finite value between -100 and 100: {value}'
+  usage: '&eUsage: /status admin mind set <player> <value> | reset <player> | reset-all [confirm]'
   reset: '&aMental state reset to Neutral for {player}.'
   confirm: '&eRepeat /status admin mind reset-all confirm within 30 seconds to reset every stored player.'
   confirm-expired: '&cNo active confirmation. Run /status admin mind reset-all again.'
@@ -300,3 +303,12 @@ features:
         source-less-sounds: "&fSerene sounds"
         particles: "&fSerene particles"
         apparition: "&fSerene apparition"
+
+rating-wait:
+  hours: '{hours} h {minutes} min'
+  minutes: '{minutes} min {seconds} s'
+  seconds: '{seconds} s'
+  allowed: '&aYou can rate'
+  blocked: '&eYou can rate again in {time}'
+config-suffix:
+  ambiguous: '&eAmbiguous key {key}. Matches: {keys}'

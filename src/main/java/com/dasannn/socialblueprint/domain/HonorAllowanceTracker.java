@@ -78,6 +78,27 @@ public final class HonorAllowanceTracker {
         return count;
     }
 
+    /** SB-156: revoked ratings still consume cooldown and allowance. */
+    public record Wait(java.time.Duration cooldown, java.time.Duration cap) {
+        public java.time.Duration remaining() { return cooldown.compareTo(cap) >= 0 ? cooldown : cap; }
+    }
+
+    public Wait waitFor(PlayerId actor, PlayerId target, HonorKind kind,
+                        Collection<ReputationEvent> events, Instant now, java.time.Duration cooldown) {
+        var pair = events == null ? java.util.List.<ReputationEvent>of() : events.stream()
+                .filter(e -> e != null && actor.equals(e.actor()) && target.equals(e.target())
+                        && e.kind().isPlayerHonor() && !e.createdAt().isAfter(now)).toList();
+        Instant cooldownEnd = pair.stream().map(e -> e.createdAt().plus(cooldown))
+                .max(Instant::compareTo).orElse(now);
+        var capped = pair.stream().filter(e -> matchesSign(kind, e.kind())
+                        && e.createdAt().isAfter(now.minus(config.window())))
+                .sorted(java.util.Comparator.comparing(ReputationEvent::createdAt)).toList();
+        Instant capEnd = capped.size() < config.maxPerTarget() ? now
+                : capped.get(capped.size() - config.maxPerTarget()).createdAt().plus(config.window());
+        return new Wait(java.time.Duration.between(now, cooldownEnd.isAfter(now) ? cooldownEnd : now),
+                java.time.Duration.between(now, capEnd));
+    }
+
     private static boolean matchesSign(HonorKind requested, HonorKind eventKind) {
         if (requested == HonorKind.POSITIVE && eventKind == HonorKind.POSITIVE) {
             return true;

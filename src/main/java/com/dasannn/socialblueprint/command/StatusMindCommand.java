@@ -31,7 +31,23 @@ public final class StatusMindCommand {
         PlayerId actor = sender instanceof Player player ? PlayerId.of(player.getUniqueId()) : PlayerId.CONSOLE;
         Instant now = clock.instant();
         CompletableFuture<Void> operation;
-        if (args.length == 2 && "reset".equalsIgnoreCase(args[0])) {
+        if (args.length == 3 && "set".equalsIgnoreCase(args[0])) {
+            var value = ArgumentParser.parseMindValue(args[2]);
+            if (value.isEmpty()) {
+                reply(sender, snapshot, "mind-admin.invalid-value", Map.of("value", args[2]));
+                return CompletableFuture.completedFuture(null);
+            }
+            String adminName = sender.getName();
+            operation = profiles.resolveTargetIdentityAsync(args[1]).thenCompose(target -> {
+                if (target.isEmpty()) {
+                    reply(sender, snapshot, "status.not-found", Map.of("player", args[1]));
+                    return CompletableFuture.completedFuture(null);
+                }
+                return profiles.mind().setAsync(target.get().id(), value.getAsDouble(), actor, adminName, now)
+                        .thenRun(() -> reply(sender, snapshot, "mind-admin.set",
+                                Map.of("player", target.get().name(), "value", Double.toString(value.getAsDouble()))));
+            });
+        } else if (args.length == 2 && "reset".equalsIgnoreCase(args[0])) {
             String input = args[1];
             operation = profiles.resolveTargetIdentityAsync(input).thenCompose(target -> {
                 if (target.isEmpty()) {
@@ -71,10 +87,12 @@ public final class StatusMindCommand {
     }
     public List<String> tabComplete(CommandSender sender, String[] args, RuntimeSnapshot snapshot) {
         if (!PermissionChecker.hasPermission(sender, "admin-mind", snapshot)) return List.of();
-        if (args.length == 1) return List.of("reset", "reset-all").stream()
+        if (args.length == 1) return List.of("reset", "reset-all", "set").stream()
                 .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
         if (args.length == 2 && "reset-all".equalsIgnoreCase(args[0]) && "confirm".startsWith(args[1].toLowerCase(Locale.ROOT)))
             return List.of("confirm");
+        if (args.length == 3 && "set".equalsIgnoreCase(args[0])) return List.of("-100", "0", "100").stream()
+                .filter(value -> value.startsWith(args[2])).toList();
         return List.of();
     }
 }

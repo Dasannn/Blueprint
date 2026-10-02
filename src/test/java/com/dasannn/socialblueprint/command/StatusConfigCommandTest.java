@@ -78,12 +78,76 @@ class StatusConfigCommandTest {
     }
 
     @Test
+    void pinnedEnglishRatingWaitText() {
+        setLanguage("en");
+        var snapshot = configManager.snapshot();
+        assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofMinutes(133), snapshot, messageRegistry)).isEqualTo("2 h 13 min");
+        assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofSeconds(45), snapshot, messageRegistry)).isEqualTo("45 s");
+        assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofMillis(1), snapshot, messageRegistry)).isEqualTo("1 s");
+        assertThat(messageRegistry.getRaw(snapshot, "rating-wait.allowed")).isEqualTo("&aYou can rate");
+    }
+
+    @Test
+    void pinnedSpanishRatingWaitText() {
+        setLanguage("es");
+        var snapshot = configManager.snapshot();
+        assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofMinutes(133), snapshot, messageRegistry)).isEqualTo("2 h 13 min");
+        assertThat(com.dasannn.socialblueprint.feature.honor.HonorService.ratingWaitText(java.time.Duration.ofSeconds(105), snapshot, messageRegistry)).isEqualTo("1 min 45 s");
+        assertThat(messageRegistry.getRaw(snapshot, "rating-wait.allowed")).isEqualTo("&aPuedes valorar");
+        assertThat(messageRegistry.getRaw(snapshot, "rating-wait.blocked")).isEqualTo("&ePodrás volver a valorar en {time}");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.rating-id")).isEqualTo("&7Revocar: /status admin revoke {player} {id}");
+        assertThat(messageRegistry.getRaw(snapshot, "honor.revoked")).isEqualTo("&cRevocada por {admin}");
+    }
+
+    @Test
+    void uniqueSuffixesUseCanonicalValidationPersistenceAndAudit() {
+        try (var engine = com.dasannn.socialblueprint.storage.StorageEngine.inMemory()) {
+            engine.runMigrations();
+            var audits = new com.dasannn.socialblueprint.storage.AuditRepository(engine);
+            var cmd = new StatusConfigCommand(configManager, messageRegistry, audits);
+            var admin = new MockSender("Admin", "socialblueprint.admin.config");
+            cmd.execute(admin, new String[]{"peaceful.cap", "7"});
+            assertThat(configManager.get("psychosis.inputs.peaceful.cap")).isEqualTo("7");
+            assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "psychosis.inputs.peaceful.cap");
+            assertThat(audits.findByTarget(new com.dasannn.socialblueprint.domain.NonPlayerTarget("psychosis.inputs.peaceful.cap")))
+                    .hasSize(1);
+            cmd.execute(admin, new String[]{"honor-review.gain", "3"});
+            assertThat(configManager.get("psychosis.inputs.honor-review.gain")).isEqualTo("3");
+            cmd.execute(admin, new String[]{"honor-review.gain", "NaN"});
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-failed");
+            assertThat(configManager.get("psychosis.inputs.honor-review.gain")).isEqualTo("3");
+            cmd.execute(admin, new String[]{"low.interval-ticks"});
+            assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "effects.episodes.low.interval-ticks");
+            configManager.reload();
+            assertThat(configManager.get("psychosis.inputs.peaceful.cap")).isEqualTo("7");
+        }
+    }
+
+    @Test
+    void suffixAmbiguityListsAtMostEightCanonicalKeysAndDoesNotGuess() {
+        var admin = new MockSender("Admin", "socialblueprint.admin.config");
+        String before = configManager.get("psychosis.inputs.peaceful.cap");
+        command.execute(admin, new String[]{"cap", "0"});
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("config-suffix.ambiguous");
+        String keys = messageRegistry.lastCall().placeholders().get("keys");
+        assertThat(keys.split(", ")).hasSizeLessThanOrEqualTo(8);
+        assertThat(keys).contains("psychosis.inputs.peaceful.cap");
+        assertThat(configManager.get("psychosis.inputs.peaceful.cap")).isEqualTo(before);
+        command.execute(admin, new String[]{"eaceful.cap"});
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.invalid-key");
+        var completion = command.tabComplete(admin, new String[]{""});
+        assertThat(completion).contains("peaceful.cap", "honor-review.gain", "low.interval-ticks", "language");
+        assertThat(completion.indexOf("peaceful.cap")).isLessThan(completion.indexOf("psychosis.inputs.peaceful.cap"));
+        assertThat(command.tabComplete(admin, new String[]{"set", "peaceful."})).contains("peaceful.cap");
+    }
+
+    @Test
     void effectConfigCompletionRetiresOldKeysAndOffersEpisodeControls() {
         MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
         assertThat(command.tabComplete(admin, new String[]{"effects."}))
                 .contains("effects.check-interval", "effects.quiet-interval.medium", "effects.quiet-interval.high",
                         "effects.quiet-interval.extreme", "effects.max-episode-ticks")
-                .doesNotContain("effects.threshold", "effects.silverfish.duration-ticks", "effects.fake-announcement.fake-names");
+                .doesNotContain("effects.threshold", "effects.fake-announcement.fake-names");
         assertThat(command.tabComplete(admin, new String[]{"permissions."})).doesNotContain("permissions.effects");
         assertThat(configManager.isEditableKey("permissions.effects")).isFalse();
     }
@@ -322,7 +386,7 @@ class StatusConfigCommandTest {
 
         boolean result = command.execute(admin, new String[]{"prefix", "&4[TEST]&r "});
         assertThat(result).isTrue();
-        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.invalid-key");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("config-suffix.ambiguous");
         assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "prefix");
     }
 

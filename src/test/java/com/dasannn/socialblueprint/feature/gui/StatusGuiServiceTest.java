@@ -208,6 +208,91 @@ public class StatusGuiServiceTest {
     // =========================================================================
 
     @Test
+    void revokedColumnsDisappearBeforePaginationButStillBlockRatingBanners() {
+        var target = PlayerId.of(UUID.randomUUID()); var actorId = UUID.randomUUID();
+        var viewer = createMockPlayer("Viewer", actorId, "socialblueprint.show-others");
+        var admin = createMockPlayer("Admin", UUID.randomUUID(), "socialblueprint.admin.revoke");
+        var snapshot = configManager.snapshot(); var now = testClock.instant();
+        var view = PlayerSocialView.neutral(target, "TargetUser", snapshot.config().tiers().ladder());
+        var events = new ArrayList<ReputationEvent>();
+        for (int i = 0; i < 10; i++) events.add(new ReputationEvent(i + 1, PlayerId.of(actorId), target, 1,
+                HonorKind.POSITIVE, 500, "Helpful neighbor", now, null, i < 2 ? "Owner" : null));
+        var regularPages = guiService.computeAllPages(view, events, Set.of(), viewer, snapshot);
+        assertThat(regularPages).hasSize(1);
+        assertThat(regularPages.getFirst().get(36).eventId()).isEqualTo(3);
+        assertThat(regularPages.getFirst().get(44)).isNull();
+        assertThat(regularPages.getFirst().get(StatusGuiService.SLOT_PAGE_INFO).titlePlaceholders()).containsEntry("total", "1");
+        var adminPages = guiService.computeAllPages(view, events, Set.of(), admin, snapshot);
+        assertThat(adminPages).hasSize(2);
+        assertThat(adminPages.getFirst().get(36).lore()).contains(
+                GuiLoreLine.ofKey("honor.rating-id", Map.of("player", "TargetUser", "id", "1")),
+                GuiLoreLine.ofKey("honor.revoked", Map.of("admin", "Owner")));
+        var revokedOnly = events.subList(0, 2);
+        var hidden = guiService.computeAllPages(view, revokedOnly, Set.of(), viewer, snapshot).getFirst();
+        assertThat(hidden.get(36)).isNull();
+        for (int banner : List.of(StatusGuiService.SLOT_TOP_GIVE_BANNER, StatusGuiService.SLOT_TOP_TAKE_BANNER))
+            assertThat(hidden.get(banner).lore()).anySatisfy(line -> assertThat(line.key()).isEqualTo("rating-wait.blocked"));
+        var expired = StatusGuiService.buildPageLayout(view, revokedOnly, 0, 1, Set.of(), viewer, snapshot, null,
+                messageRegistry, now.plus(snapshot.config().honor().cooldownPerPair()));
+        assertThat(expired.get(StatusGuiService.SLOT_TOP_GIVE_BANNER).lore()).contains(GuiLoreLine.ofKey("rating-wait.allowed"));
+    }
+
+    @Test
+    void capWaitIsIdenticalInCommandRejectionAndGuiBanner() {
+        var now = Instant.now(); var actorUuid = UUID.randomUUID(); var actorId = PlayerId.of(actorUuid);
+        var target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", false));
+        var actor = createMockPlayer("Actor", actorUuid, "socialblueprint.give-reputation");
+        var snapshot = configManager.snapshot();
+        for (int i = 0; i < 3; i++) reputationRepo.save(new ReputationEvent(actorId, target, 1, HonorKind.POSITIVE,
+                500, "Helpful neighbor", now.minus(snapshot.config().honor().capWindow()).plusSeconds(45 + i)));
+        var service = new HonorService(configManager, messageRegistry, reputationRepo, auditRepo, profileService,
+                mockEconomy, mainThreadQueue::add, Clock.fixed(now, ZoneOffset.UTC));
+        awaitQueued(service.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, "Helpful neighbor", snapshot));
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("honor.cap-reached");
+            assertThat(call.placeholders()).containsEntry("time", "45 s");
+        });
+        var view = PlayerSocialView.neutral(target, "TargetUser", snapshot.config().tiers().ladder());
+        var layout = StatusGuiService.buildPageLayout(view, reputationRepo.findByTarget(target), 0, 1, Set.of(), actor,
+                snapshot, null, messageRegistry, now);
+        assertThat(layout.get(StatusGuiService.SLOT_TOP_GIVE_BANNER).lore()).contains(
+                GuiLoreLine.ofKey("rating-wait.blocked", Map.of("time", "45 s")));
+        assertThat(layout.get(StatusGuiService.SLOT_TOP_TAKE_BANNER).lore()).contains(GuiLoreLine.ofKey("rating-wait.allowed"));
+        assertThat(service.getPendingConfirmation(actorUuid)).isEmpty();
+        messageRegistry.clearCalls();
+        var gui = new StatusGuiService(messageRegistry, profileService, reputationRepo, raterRevealRepo, service,
+                mainThreadQueue::add, mockEconomy, uuid -> createMockOfflinePlayer(uuid, "Actor"),
+                Clock.fixed(now, ZoneOffset.UTC), null);
+        var holder = new StatusGuiHolder(actorUuid, "TargetUser", List.of(layout), new HashSet<>(), snapshot);
+        awaitQueued(gui.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
+        awaitQueued(gui.consumePendingReason(actor, "Helpful neighbor"));
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("honor.cap-reached");
+            assertThat(call.placeholders()).containsEntry("time", "45 s");
+        });
+    }
+
+    @Test
+    void revokeLastCommandUsesPermissionAndShowsNoEmptySuccessfulRevocations() {
+        var target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", false));
+        reputationRepo.save(new ReputationEvent(PlayerId.CONSOLE, target, 1, HonorKind.ADMIN_GIVE, 0, "Admin", Instant.now()));
+        var cmd = new com.dasannn.socialblueprint.command.StatusAdminCommand(honorService, messageRegistry);
+        var denied = createMockPlayer("Denied", UUID.randomUUID(), "socialblueprint.admin.adjust");
+        awaitQueued(cmd.execute(denied, new String[]{"revoke", "TargetUser", "last"}, configManager.snapshot()));
+        assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();
+        var admin = createMockPlayer("Owner", UUID.randomUUID(), "socialblueprint.admin.revoke");
+        awaitQueued(cmd.execute(admin, new String[]{"revoke", "TargetUser", "last"}, configManager.snapshot()));
+        assertThat(messageRegistry.hasCall("honor.revoke-success")).isTrue();
+        assertThat(reputationRepo.findByTarget(target).getFirst().revokedBy()).isEqualTo("Owner");
+        messageRegistry.clearCalls();
+        awaitQueued(cmd.execute(admin, new String[]{"revoke", "TargetUser", "last"}, configManager.snapshot()));
+        assertThat(messageRegistry.hasCall("honor.revoke-rejected")).isTrue();
+        assertThat(cmd.tabComplete(admin, new String[]{"revoke", "TargetUser", "l"}, configManager.snapshot())).containsExactly("last");
+    }
+
+    @Test
     void historyAndConfirmationFilterReasonsWithoutChangingStoredText() {
         String reason = "Helpful idiot, IMBÉCIL!";
         Player actor = openGiveConfirmation(reason);
@@ -252,7 +337,7 @@ public class StatusGuiServiceTest {
         var layout = StatusGuiService.buildPageLayout(null, events, 0, 1, Set.of(), admin,
                 configManager.snapshot(), null, messageRegistry);
         for (int slot : List.of(27, 36, 45))
-            assertThat(layout.get(slot).lore()).contains(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(ratingId))));
+            assertThat(layout.get(slot).lore()).contains(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(ratingId), "player", "Player")));
         var denied = new StatusGuiHolder(actor.getUniqueId(), "TargetUser", List.of(layout), new HashSet<>(), configManager.snapshot());
         awaitQueued(guiService.handleClick(actor, denied, 36, true));
         assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();

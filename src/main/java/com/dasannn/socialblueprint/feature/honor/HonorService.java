@@ -29,7 +29,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -316,27 +315,13 @@ public class HonorService {
             RuntimeSnapshot snapshot,
             Instant now
     ) {
-        Duration cooldown = snapshot.config().honor().cooldownPerPair();
-
-        // 1. Cooldown per actor-target pair (SB-053)
-        Optional<ReputationEvent> lastRating = actorEvents.stream()
-                .filter(e -> target.id().equals(e.target()) && e.kind().isPlayerHonor())
-                .max(Comparator.comparing(ReputationEvent::createdAt));
-
-        if (lastRating.isPresent()) {
-            Instant expiresAt = lastRating.get().createdAt().plus(cooldown);
-            if (now.isBefore(expiresAt)) {
-                Duration remaining = Duration.between(now, expiresAt);
-                actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.cooldown",
-                        Map.of("time", formatDuration(remaining))));
-                return null;
-            }
-        }
-
-        // 2. Allowance cap per actor-target pair inside rolling window (SB-054)
-        HonorAllowanceTracker allowanceTracker = new HonorAllowanceTracker(snapshot.config().honor().toAllowanceConfig());
-        if (!allowanceTracker.canIssue(PlayerId.of(actor.getUniqueId()), target.id(), kind, actorEvents, now)) {
-            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.cap-reached"));
+        HonorAllowanceTracker tracker = new HonorAllowanceTracker(snapshot.config().honor().toAllowanceConfig());
+        var wait = tracker.waitFor(PlayerId.of(actor.getUniqueId()), target.id(), kind, actorEvents, now,
+                snapshot.config().honor().cooldownPerPair());
+        if (!wait.remaining().isZero()) {
+            actor.sendMessage(messageRegistry.renderWithPrefix(snapshot,
+                    wait.cooldown().isZero() ? "honor.cap-reached" : "honor.cooldown",
+                    Map.of("time", ratingWaitText(wait.remaining(), snapshot, messageRegistry))));
             return null;
         }
 
@@ -831,7 +816,7 @@ public class HonorService {
                 mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot,
                         error != null ? "honor.write-failed" : Boolean.TRUE.equals(changed)
                                 ? "honor.revoke-success" : "honor.revoke-rejected",
-                        Map.of("id", String.valueOf(ratingId), "player", identity.get().name()))));
+                        Map.of("id", ratingId == -1 ? messageRegistry.getRaw(snapshot, "honor.last-rating") : String.valueOf(ratingId), "player", identity.get().name()))));
                 return (Void) null;
             });
         });
@@ -998,18 +983,12 @@ public class HonorService {
                 });
     }
 
-    public static String formatDuration(Duration duration) {
-        long seconds = Math.max(0, duration.getSeconds());
-        long hours = seconds / 3600;
-        long minutes = (seconds % 3600) / 60;
-        long secs = seconds % 60;
-        if (hours > 0) {
-            return hours + "h " + minutes + "m";
-        }
-        if (minutes > 0) {
-            return minutes + "m " + secs + "s";
-        }
-        return secs + "s";
+    public static String ratingWaitText(Duration duration, RuntimeSnapshot snapshot, MessageRegistry messages) {
+        long seconds = duration.getSeconds() + (duration.getNano() == 0 ? 0 : 1);
+        String key = seconds >= 3600 ? "rating-wait.hours" : seconds >= 60 ? "rating-wait.minutes" : "rating-wait.seconds";
+        return messages.getRaw(snapshot, key).replace("{hours}", Long.toString(seconds / 3600))
+                .replace("{minutes}", Long.toString(seconds / 60 % 60))
+                .replace("{seconds}", Long.toString(seconds % 60));
     }
 
     public static String formatCost(double cost) {

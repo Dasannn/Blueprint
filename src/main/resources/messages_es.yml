@@ -93,18 +93,19 @@ status:
   read-failed: '&cError al leer el perfil.'
 
 honor:
-  revoke-usage: '&eUso: /status admin revoke <jugador> <id-calificación>'
+  revoke-usage: '&eUso: /status admin revoke <jugador> <id-calificación|last>'
   revoke-success: '&aCalificación {id} de {player} anulada.'
   revoke-rejected: '&cLa calificación no existe, ya fue anulada o no se puede anular.'
-  rating-id: '&7Id de calificación: {id}'
-  revoked: '&cAnulada por {admin}'
+  last-rating: 'última'
+  rating-id: '&7Revocar: /status admin revoke {player} {id}'
+  revoked: '&cRevocada por {admin}'
   revoke-title: '&c¿Anular la calificación {id}?'
   revoke-confirm: '&aConfirmar anulación'
   revoke-cancel: '&cCancelar'
   revoke-hint: '&7Mayús-clic para anular esta calificación.'
   cost-preview: '&7El costo para emitir esta opinión es &e${cost}&7. Escribe &b/status confirm&7 para confirmar.'
   cooldown: '&cDebes esperar &e{time}&c antes de calificar a este jugador de nuevo.'
-  cap-reached: '&cHas alcanzado el límite de evaluaciones para este jugador.'
+  cap-reached: '&cHas alcanzado el límite de evaluaciones. Podrás volver a valorar en {time}.'
   given: '&aHas otorgado honor a &e{target}&a.'
   removed: '&cHas retirado honor a &e{target}&c.'
   reason-required: '&cSe requiere un motivo para dar o retirar honor.'
@@ -241,7 +242,9 @@ chat-filter:
   replacement: 'bobba'
 # Administrative mental-state resets (SB-137).
 mind-admin:
-  usage: '&eUso: /status admin mind reset <jugador> | reset-all [confirm]'
+  set: '&aEstado mental de {player} establecido en {value}.'
+  invalid-value: '&cUsa un valor finito entre -100 y 100: {value}'
+  usage: '&eUso: /status admin mind set <jugador> <valor> | reset <jugador> | reset-all [confirm]'
   reset: '&aEstado mental de {player} restablecido a Neutral.'
   confirm: '&eRepite /status admin mind reset-all confirm en 30 segundos para restablecer a todos los jugadores guardados.'
   confirm-expired: '&cNo hay confirmación activa. Ejecuta /status admin mind reset-all de nuevo.'
@@ -300,3 +303,12 @@ features:
         source-less-sounds: "&fSonidos serenos"
         particles: "&fPartículas serenas"
         apparition: "&fAparición serena"
+
+rating-wait:
+  hours: '{hours} h {minutes} min'
+  minutes: '{minutes} min {seconds} s'
+  seconds: '{seconds} s'
+  allowed: '&aPuedes valorar'
+  blocked: '&ePodrás volver a valorar en {time}'
+config-suffix:
+  ambiguous: '&eClave ambigua {key}. Coincidencias: {keys}'

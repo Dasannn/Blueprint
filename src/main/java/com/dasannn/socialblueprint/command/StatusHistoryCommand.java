@@ -94,6 +94,8 @@ public class StatusHistoryCommand {
             List<ReputationEvent> events,
             RuntimeSnapshot snapshot
     ) {
+        boolean canRevoke = PermissionChecker.hasPermission(sender, "admin-revoke", snapshot);
+        events = ReputationEvent.visibleHistory(events, canRevoke);
         sender.sendMessage(messageRegistry.render(snapshot, "status.history-header", Map.of("player", targetName)));
 
         if (events == null || events.isEmpty()) {
@@ -105,7 +107,7 @@ public class StatusHistoryCommand {
             if (event.kind() == com.dasannn.socialblueprint.domain.HonorKind.REVOCATION) continue;
             if (PermissionChecker.hasPermission(sender, "admin-revoke", snapshot)
                     || PermissionChecker.hasPermission(sender, "admin-adjust", snapshot))
-                sender.sendMessage(messageRegistry.render(snapshot, "honor.rating-id", Map.of("id", String.valueOf(event.id()))));
+                sender.sendMessage(messageRegistry.render(snapshot, "honor.rating-id", Map.of("id", String.valueOf(event.id()), "player", targetName)));
             if (event.revokedBy() != null)
                 sender.sendMessage(messageRegistry.render(snapshot, "honor.revoked", Map.of("admin", event.revokedBy())));
             String timeStr = DATE_FORMATTER.format(event.createdAt());

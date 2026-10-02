@@ -1183,8 +1183,11 @@ permission `socialblueprint.admin.revoke`, after a confirmation, or by
 shows ids). A revocation does not delete the rating. It writes a revocation
 event referencing it and an audit record, and the revoked rating stops counting
 towards status and decay, so the player's status is recalculated as if it had
-never been given. The history keeps the column and marks it
-`Anulada por {admin}` / `Revoked by {admin}`. A rating can be revoked once;
+never been given. Owner amendment, 2026-10-02: history GUI and chat/console
+history hide revoked ratings entirely from viewers without
+`socialblueprint.admin.revoke`; pages and counts exclude them. Administrators
+with that permission retain the column marked `Revocada por {admin}` /
+`Revoked by {admin}`. Status and aggregation are unchanged. A rating can be revoked once;
 a revocation cannot itself be revoked. No money is refunded and the rater's
 allowance (SB-054) is not restored. System penalties (SB-032) can be revoked
 the same way.
@@ -1193,6 +1196,34 @@ the same way.
 
 **SB-155.** The version in `plugin.yml` is filtered from `pom.xml` at build
 time, so a release bumps one number.
+
+**SB-156.** Owner, 2026-10-02: per-pair cooldown (SB-053) and cap-window
+(SB-054) rejections in commands and GUI show the time until rating is allowed
+again, human-readable (for example `2 h 13 min` or `45 s`). Both give/take
+banners in `/status <player>` show `Podrás volver a valorar en {time}` when
+blocked and `Puedes valorar` when allowed (translated in English). A tested
+plain-data calculation uses the same pair events and checks as issuance; when
+both limits apply, report the time until both allow the requested direction.
+
+**SB-157.** Owner, 2026-10-02: `/status config <key> [value]` also accepts
+any unique suffix on dot boundaries of an editable key, including
+`peaceful.cap`, `honor-review.gain`, `language`, and `low.interval-ticks`.
+Ambiguous suffixes list up to eight matching full keys without choosing one.
+Tab completion offers each key's shortest unique suffix first; full keys
+continue to work through the same validation, persistence and audit path.
+
+**SB-158.** Owner, 2026-10-02: `/status admin mind set <player> <value>`
+sets a finite signed value in [-100, 100], negative for Psychosis and positive
+for Serenity. It uses the `mind reset` permission, supports console and offline
+players, writes an `admin-set` mind event naming the administrator and an audit
+record, and invalidates the profile cache immediately. Both languages have
+messages and the command has tab completion.
+
+**SB-159.** Owner, 2026-10-02: the admin history id lore line shows the exact
+command `Revocar: /status admin revoke <player> <id>` (translated in English).
+Chat/console history also shows the exact command, without requiring a click.
+`/status admin revoke <player> last` revokes that player's most recent
+non-revoked revocable rating, ordered by timestamp then id.
 
 ## 16. Acceptance criteria for release 2
 

@@ -56,6 +56,47 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StatusCommandTest {
 
     @Test
+    void mindSetSupportsOfflineConsoleFiniteRangeAuditAndImmediateProfileRefresh() {
+        var target = PlayerId.of(UUID.randomUUID());
+        profileRepo.save(com.dasannn.socialblueprint.domain.PlayerProfile.create(target, "OfflineMind", Instant.now()));
+        var snapshot = configManager.snapshot();
+        profileService.loadViewAsync(target, "OfflineMind", snapshot).join();
+        var console = mockConsole(new ArrayList<>());
+        for (String value : List.of("-100", "42.5", "100", "0")) {
+            commandExecutor.onCommand(console, null, "status", new String[]{"admin", "mind", "set", "OfflineMind", value});
+            commandExecutor.lastExecution().join();
+            assertThat(profileService.mind().value(target)).isEqualTo(Double.parseDouble(value));
+            assertThat(profileService.findViewCached(target, snapshot)).isEmpty();
+            assertThat(profileService.loadViewAsync(target, "OfflineMind", snapshot).join().psychosisMagnitude())
+                    .isEqualTo(Math.abs(Double.parseDouble(value)));
+            var event = profileService.mind().events(target).getLast();
+            assertThat(event.kind()).isEqualTo("admin-set");
+            assertThat(event.actor()).isEqualTo(PlayerId.CONSOLE);
+            assertThat(event.source()).isEqualTo(console.getName());
+        }
+        assertThat(messageRegistry.hasCall("mind-admin.set")).isTrue();
+        assertThat(new com.dasannn.socialblueprint.storage.AuditRepository(storage).findByTarget(target)).hasSize(4);
+        for (String value : List.of("-101", "100.1", "NaN", "Infinity", "garbage")) {
+            messageRegistry.clearCalls();
+            commandExecutor.onCommand(console, null, "status", new String[]{"admin", "mind", "set", "OfflineMind", value});
+            commandExecutor.lastExecution().join();
+            assertThat(messageRegistry.hasCall("mind-admin.invalid-value")).isTrue();
+        }
+        var denied = mockPlayer("Denied", "socialblueprint.admin.adjust");
+        commandExecutor.onCommand(denied, null, "status", new String[]{"admin", "mind", "set", "OfflineMind", "10"});
+        commandExecutor.lastExecution().join();
+        assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();
+        assertThat(profileService.mind().events(target)).hasSize(4);
+        commandExecutor.onCommand(console, null, "status", new String[]{"admin", "mind", "set", "Nobody", "10"});
+        commandExecutor.lastExecution().join();
+        assertThat(messageRegistry.hasCall("status.not-found")).isTrue();
+        var admin = mockPlayer("Admin", "socialblueprint.admin.mind");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "s"})).containsExactly("set");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "set", "Online"})).contains("OnlineAlice");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "set", "OfflineMind", "-"})).containsExactly("-100");
+    }
+
+    @Test
     void psychosisDetailUsesExistingProfilePermissionsAndMessageLine() {
         Player player = mockPlayer("Peaceful", "socialblueprint.show");
         commandExecutor.onCommand(player, null, "status", new String[]{"psychosis"});

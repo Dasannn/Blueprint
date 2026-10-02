@@ -283,6 +283,31 @@ class StatusHistoryCommandTest {
     }
 
     @Test
+    void revokedHistoryIsInvisibleWithoutRevokePermissionIncludingEmptyHistory() {
+        var target = PlayerId.of(registerPlayer("RevokedTarget").getUniqueId());
+        var rating = reputationRepo.save(new ReputationEvent(PlayerId.of(UUID.randomUUID()), target, 1,
+                HonorKind.POSITIVE, 500, "Helpful", baseTime));
+        reputationRepo.revokeAsync(PlayerId.CONSOLE, "Owner", target, rating.id(), baseTime,
+                new com.dasannn.socialblueprint.storage.AuditRepository(storage)).join();
+        for (CommandSender viewer : List.of(new MockPlayerRecord("Adjust", false, "socialblueprint.admin.adjust").player,
+                new MockSenderRecord("Console", false).sender)) {
+            recordingRegistry.renderCalls.clear();
+            historyCommand.execute(viewer, new String[]{"RevokedTarget"}, configManager.snapshot()).join();
+            assertThat(recordingRegistry.findCalls("status.history-entry")).isEmpty();
+            assertThat(recordingRegistry.findCalls("honor.revoked")).isEmpty();
+            assertThat(recordingRegistry.findCalls("status.history-empty")).hasSize(1);
+        }
+        recordingRegistry.renderCalls.clear();
+        historyCommand.execute(new MockPlayerRecord("Revoke", false, "socialblueprint.admin.revoke").player,
+                new String[]{"RevokedTarget"}, configManager.snapshot()).join();
+        assertThat(recordingRegistry.findCalls("status.history-entry")).hasSize(1);
+        assertThat(recordingRegistry.findCalls("honor.revoked")).singleElement().satisfies(call ->
+                assertThat(call.stringPlaceholders()).containsEntry("admin", "Owner"));
+        assertThat(recordingRegistry.findCalls("honor.rating-id")).singleElement().satisfies(call ->
+                assertThat(call.stringPlaceholders()).containsEntry("id", Long.toString(rating.id())).containsEntry("player", "RevokedTarget"));
+    }
+
+    @Test
     void allHistoryReadersSeeFilteredReasonAndRevokeAdminsSeeIds() {
         Player target = registerPlayer("FilteredTarget");
         PlayerId targetId = PlayerId.of(target.getUniqueId());

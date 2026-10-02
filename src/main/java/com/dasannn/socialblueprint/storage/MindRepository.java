@@ -140,6 +140,25 @@ public final class MindRepository {
             ps.executeUpdate();
         }
     }
+    public CompletableFuture<Void> setAsync(PlayerId player, double value, PlayerId actor, String adminName, Instant now) {
+        if (!Double.isFinite(value) || value < -100 || value > 100) throw new IllegalArgumentException("Mind value must be in [-100, 100]");
+        Objects.requireNonNull(player); Objects.requireNonNull(actor); Objects.requireNonNull(adminName); Objects.requireNonNull(now);
+        return engine.executeAsync(conn -> {
+            boolean auto = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                double before = valueInternal(conn, player);
+                writeInternal(conn, new MindEvent(0, player, "admin-set", adminName, value - before, value - before,
+                        before, value, now, actor), true);
+                new AuditRepository(engine).saveInternal(conn, AuditEvent.forPlayer(actor, "mind-set", player,
+                        Double.toString(before), Double.toString(value), now));
+                conn.commit();
+                return (Void) null;
+            } catch (SQLException | RuntimeException ex) { conn.rollback(); throw ex; }
+            finally { conn.setAutoCommit(auto); }
+        }).thenApply(result -> { invalidate(player); return result; });
+    }
+
     public CompletableFuture<Integer> resetAsync(PlayerId player, PlayerId actor, Instant now) {
         return resetPlayersAsync(player, actor, now);
     }

@@ -344,12 +344,14 @@ public class StatusGuiService {
             Player viewer,
             RuntimeSnapshot snapshot
     ) {
-        int totalRatings = ratings != null ? ratings.size() : 0;
+        int totalRatings = ReputationEvent.visibleHistory(ratings,
+                viewer != null && PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot)).size();
         int totalPages = totalRatings == 0 ? 1 : (int) Math.ceil((double) totalRatings / StatusGuiHolder.RATINGS_PER_PAGE);
 
         List<GuiLayout> pages = new ArrayList<>(totalPages);
+        Instant now = clock.instant();
         for (int p = 0; p < totalPages; p++) {
-            pages.add(buildPageLayout(view, ratings, p, totalPages, reveals, viewer, snapshot, this::resolveRaterName, messageRegistry));
+            pages.add(buildPageLayout(view, ratings, p, totalPages, reveals, viewer, snapshot, this::resolveRaterName, messageRegistry, now));
         }
         return pages;
     }
@@ -364,7 +366,7 @@ public class StatusGuiService {
             RuntimeSnapshot snapshot,
             MessageRegistry messageRegistry
     ) {
-        int totalRatings = ratings != null ? ratings.size() : 0;
+        int totalRatings = ReputationEvent.visibleHistory(ratings, false).size();
         int totalPages = totalRatings == 0 ? 1 : (int) Math.ceil((double) totalRatings / StatusGuiHolder.RATINGS_PER_PAGE);
 
         List<GuiLayout> pages = new ArrayList<>(totalPages);
@@ -388,6 +390,16 @@ public class StatusGuiService {
             BiFunction<UUID, RuntimeSnapshot, String> raterNameResolver,
             MessageRegistry messageRegistry
     ) {
+        return buildPageLayout(view, ratings, page, totalPages, reveals, viewer, snapshot, raterNameResolver, messageRegistry, Instant.now());
+    }
+
+    public static GuiLayout buildPageLayout(PlayerSocialView view, List<ReputationEvent> ratings, int page,
+            int totalPages, Set<Long> reveals, Player viewer, RuntimeSnapshot snapshot,
+            BiFunction<UUID, RuntimeSnapshot, String> raterNameResolver, MessageRegistry messageRegistry, Instant now) {
+        var pairEvents = ratings;
+        ratings = ReputationEvent.visibleHistory(ratings,
+                viewer != null && PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot));
+        totalPages = Math.max(1, (ratings.size() + StatusGuiHolder.RATINGS_PER_PAGE - 1) / StatusGuiHolder.RATINGS_PER_PAGE);
         Map<Integer, GuiSlot> slots = new HashMap<>();
 
         // ---------------------------------------------------------------------
@@ -614,7 +626,7 @@ public class StatusGuiService {
                     List<GuiLoreLine> lore = new ArrayList<>(item.lore());
                     if (viewer != null && (PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot)
                             || PermissionChecker.hasPermission(viewer, "admin-adjust", snapshot))) {
-                        lore.add(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(event.id()))));
+                        lore.add(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(event.id()), "player", targetName)));
                         if (event.canRevoke() && PermissionChecker.hasPermission(viewer, "admin-revoke", snapshot))
                             lore.add(GuiLoreLine.ofKey("honor.revoke-hint"));
                     }
@@ -626,6 +638,20 @@ public class StatusGuiService {
             }
         }
 
+        if (view != null && viewer != null && !view.playerId().uuid().equals(viewer.getUniqueId())) {
+            var tracker = new com.dasannn.socialblueprint.domain.HonorAllowanceTracker(snapshot.config().honor().toAllowanceConfig());
+            for (int banner : List.of(SLOT_TOP_GIVE_BANNER, SLOT_TOP_TAKE_BANNER)) {
+                var kind = banner == SLOT_TOP_GIVE_BANNER ? HonorKind.POSITIVE : HonorKind.NEGATIVE;
+                var wait = tracker.waitFor(PlayerId.of(viewer.getUniqueId()), view.playerId(), kind, pairEvents, now,
+                        snapshot.config().honor().cooldownPerPair()).remaining();
+                GuiSlot item = slots.get(banner);
+                var lore = new ArrayList<>(item.lore());
+                lore.add(wait.isZero() ? GuiLoreLine.ofKey("rating-wait.allowed")
+                        : GuiLoreLine.ofKey("rating-wait.blocked", Map.of("time", HonorService.ratingWaitText(wait, snapshot, messageRegistry))));
+                slots.put(banner, new GuiSlot(item.slot(), item.iconKind(), item.owningPlayerId(), item.eventId(),
+                        item.tier(), item.dyeKind(), item.titleKey(), item.titlePlaceholders(), lore));
+            }
+        }
         slots.replaceAll((index, slot) -> resolveSlotText(slot, snapshot, messageRegistry));
         return new GuiLayout(INVENTORY_SIZE, slots);
     }

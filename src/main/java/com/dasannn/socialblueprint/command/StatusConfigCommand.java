@@ -25,95 +25,6 @@ public class StatusConfigCommand {
 
     private static final List<String> SUPPORTED_LANGUAGES = List.of("en", "es");
 
-    private static final List<String> SUGGESTED_KEYS = List.of(
-            "reload",
-            "language",
-            "chat-prefix",
-            "confidence.half-life",
-            "confidence.low-threshold",
-            "confidence.established-threshold",
-            "confidence.high-threshold",
-            "decay.enabled",
-            "decay.half-life",
-            "decay.floor",
-            "decay.cache-ttl",
-            "psychosis.levels.low",
-            "psychosis.levels.medium",
-            "psychosis.levels.high",
-            "psychosis.levels.extreme",
-            "psychosis.chat.enabled",
-            "permissions.admin-features",
-            "psychosis.chat.medium-rate",
-            "psychosis.chat.high-rate",
-            "psychosis.chat.extreme-rate",
-            "psychosis.chat.medium-extent",
-            "psychosis.chat.high-extent",
-            "psychosis.chat.extreme-extent",
-            "psychosis.serenity.ceiling",
-            "psychosis.serenity.idle-timeout-seconds",
-            "honor.cost",
-            "honor.multiplier-window",
-            "honor.cap-window",
-            "honor.cooldown-per-pair",
-            "honor.max-per-target",
-            "tiers.tier-4.prefix",
-            "tiers.tier-4.threshold",
-            "tiers.tier-3.prefix",
-            "tiers.tier-3.threshold",
-            "tiers.tier-2.prefix",
-            "tiers.tier-2.threshold",
-            "tiers.tier-1.prefix",
-            "tiers.tier-1.threshold",
-            "tiers.tier0.prefix",
-            "tiers.tier0.threshold",
-            "tiers.tier1.prefix",
-            "tiers.tier1.threshold",
-            "tiers.tier2.prefix",
-            "tiers.tier2.threshold",
-            "tiers.tier3.prefix",
-            "tiers.tier3.threshold",
-            "tiers.tier4.prefix",
-            "tiers.tier4.threshold",
-            "duel.challenge-timeout",
-            "duel.disconnect.combat-log-window",
-            "duel.disconnect.reconnect-grace-period",
-            "duel.disconnect.action",
-            "permissions.show",
-            "permissions.show-others",
-            "permissions.give-reputation",
-            "permissions.take-reputation",
-            "permissions.view-reputation",
-            "permissions.admin-adjust",
-            "permissions.admin-config",
-            "permissions.duel",
-            "permissions.version",
-            "permissions.admin-update",
-            "permissions.admin-import",
-            "effects.check-interval",
-            "effects.quiet-interval.medium",
-            "effects.quiet-interval.high",
-            "effects.quiet-interval.extreme",
-            "effects.max-episode-ticks",
-            "legacy-import.trust-name-lookup",
-            "update.check-on-startup",
-            "update.auto-download",
-            "update.repository",
-            "update.channel",
-            "update.api-url",
-            "update.max-download-bytes",
-            "kill-penalty.delta",
-            "kill-penalty.pair-cooldown",
-            "kill-penalty.cap-window",
-            "kill-penalty.max-loss",
-            "kill-penalty.exempt-worlds",
-            "sounds.creeper-fuse.key",
-            "sounds.creeper-fuse.volume",
-            "sounds.creeper-fuse.pitch",
-            "sounds.creeper-fuse.category",
-            "sounds.serenity-clean",
-            "history.reveal-cost"
-    );
-
     private final ConfigManager configManager;
     private final MessageRegistry messageRegistry;
     private final com.dasannn.socialblueprint.storage.AuditRepository auditRepository;
@@ -211,6 +122,16 @@ public class StatusConfigCommand {
         } else {
             key = args[0];
             rawValue = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
+        }
+
+        if (!configManager.isEditableKey(snapshot, key)) {
+            List<String> matches = suffixMatches(configManager.editableKeys(snapshot), key);
+            if (matches.size() > 1) {
+                sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "config-suffix.ambiguous",
+                        Map.of("key", key, "keys", String.join(", ", matches.stream().limit(8).toList()))));
+                return CompletableFuture.completedFuture(null);
+            }
+            if (matches.size() == 1) key = matches.getFirst();
         }
 
         // Get key value: /status config [get] <key>
@@ -325,18 +246,10 @@ public class StatusConfigCommand {
         }
 
         if (args.length == 1) {
-            String current = args[0].toLowerCase(Locale.ROOT);
-            List<String> suggestions = new ArrayList<>(SUGGESTED_KEYS);
-            suggestions.addAll(com.dasannn.socialblueprint.config.SerenityEffectsConfig.defaults().leafValues().keySet());
-            suggestions.add(0, "set");
-            suggestions.add(0, "get");
-            List<String> matches = new ArrayList<>();
-            for (String s : suggestions) {
-                if (s.toLowerCase(Locale.ROOT).startsWith(current)) {
-                    matches.add(s);
-                }
-            }
-            return matches;
+            List<String> keys = new ArrayList<>(List.of("get", "set", "reload"));
+            keys.addAll(keySuggestions(snapshot));
+            String prefix = args[0].toLowerCase(Locale.ROOT);
+            return keys.stream().filter(key -> key.toLowerCase(Locale.ROOT).startsWith(prefix)).toList();
         }
 
         // `/status config <key> <value>` and `/status config set <key> <value>`
@@ -351,28 +264,32 @@ public class StatusConfigCommand {
         }
 
         if (args.length == 2 && ("set".equalsIgnoreCase(args[0]) || "get".equalsIgnoreCase(args[0]))) {
-            String current = args[1].toLowerCase(Locale.ROOT);
-            List<String> matches = new ArrayList<>();
-            List<String> keys = new ArrayList<>(SUGGESTED_KEYS);
-            keys.addAll(com.dasannn.socialblueprint.config.SerenityEffectsConfig.defaults().leafValues().keySet());
-            for (com.dasannn.socialblueprint.domain.MindInput input : com.dasannn.socialblueprint.domain.MindInput.values()) {
-                String prefix = "psychosis.inputs." + input.id() + ".";
-                if (!keys.contains(prefix + "enabled")) keys.add(prefix + "enabled");
-                keys.add(prefix + (input.bad() ? "serene-drain" : "gain"));
-                keys.add(prefix + (input.bad() ? "psychosis-weight" : "cure"));
-                if (!input.bad() && !input.peaceful()) keys.add(prefix + "cap");
-            }
-            keys.addAll(List.of("psychosis.inputs.peaceful.cap", "psychosis.inputs.near-death.health",
-                    "psychosis.inputs.clean-day.active-minutes", "permissions.admin-mind"));
-            for (String s : keys) {
-                if (!"reload".equals(s) && s.toLowerCase(Locale.ROOT).startsWith(current)) {
-                    matches.add(s);
-                }
-            }
-            return matches;
+            String prefix = args[1].toLowerCase(Locale.ROOT);
+            return keySuggestions(snapshot).stream().filter(key -> key.toLowerCase(Locale.ROOT).startsWith(prefix)).toList();
         }
 
         return List.of();
+    }
+
+    static List<String> suffixMatches(List<String> keys, String suffix) {
+        return keys.stream().filter(key -> key.equals(suffix) || key.endsWith("." + suffix)).toList();
+    }
+
+    static String shortestSuffix(List<String> keys, String key) {
+        String[] parts = key.split("\\.");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String suffix = String.join(".", java.util.Arrays.copyOfRange(parts, i, parts.length));
+            if (suffixMatches(keys, suffix).size() == 1) return suffix;
+        }
+        return key;
+    }
+
+    private List<String> keySuggestions(RuntimeSnapshot snapshot) {
+        List<String> keys = configManager.editableKeys(snapshot);
+        var suggestions = new java.util.LinkedHashSet<String>();
+        keys.forEach(key -> suggestions.add(shortestSuffix(keys, key)));
+        suggestions.addAll(keys);
+        return List.copyOf(suggestions);
     }
 
     private static List<String> matchingLanguages(String current) {
