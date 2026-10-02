@@ -280,8 +280,15 @@ mechanic would be decorative. The command and its stored flag are removed.
 Madness effects stay private; serenity uses SB-120 visibility. All are
 cosmetic and incapable of touching status, Confidence or money (SB-100).
 
-**SB-102.** From **High**, the player sees a private night or storm for up to
-ten seconds, then their previous time and weather presentation returns. Use
+**SB-102.** From **High**, the player sees a private night, storm or both for up to
+ten seconds, then their previous time and weather presentation returns. The
+shipped `effects.sky.mode: escalating` chooses night or storm randomly per High
+episode; Extreme applies night and storm together. Explicit `night`, `storm`
+and `both` apply the chosen presentation at either eligible level. Rain visuals
+and sound are client-side only for the recipient. On first upgrade, exactly
+legacy `night` adopts `escalating`, even if explicitly chosen: it cannot be
+distinguished from the untouched default. Preserve `storm` and subsequent owner
+edits; document this ambiguity in the config comment. Use
 `setPlayerTime` and `setPlayerWeather`; neither changes the world. No other
 player sees this sky. Restore the prior override, or normal world tracking if
 there was none, without overwriting a newer change by another plugin. It leaves
@@ -727,7 +734,7 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 
 | Effect / clause | Keys and bounds |
 |---|---|
-| Sky / SB-102 | `mode` (`night` or `storm`), `duration-ticks` (1..200, default 100) |
+| Sky / SB-102 | `mode` (`night`, `storm`, `both` or `escalating`, default `escalating`), `duration-ticks` (1..200, default 100) |
 | Particles / SB-103 | `type`, `placement` (`around` or `beneath`), `count`, `radius-blocks`, `duration-ticks`; count and radius must be positive and finite |
 | Screen flash / SB-104 | `channel` (`title` or `action-bar`), `fade-in-ticks`, `duration-ticks`, `fade-out-ticks`; fades are nonnegative and included in total duration |
 | Source-less sounds / SB-105 | `sound-slot`, `offset.forward-blocks`, `offset.right-blocks`, `offset.up-blocks`, `playback-ticks`; finite recipient-relative offsets allow footsteps behind; playback ticks bound the audible tail after the last delayed layer |

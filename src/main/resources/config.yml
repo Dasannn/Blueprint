@@ -398,7 +398,10 @@ effects:
     minimum-level: high
     cooldown-ticks: 1200
     session-cap: 6
-    mode: night
+    # night, storm, both, escalating (High: random night/storm; Extreme: both).
+    # On first upgrade, exactly night is treated as the untouched legacy default,
+    # even if explicitly chosen; storm is preserved. Later owner edits are kept.
+    mode: escalating
     # Sky alone caps at 200 ticks: base 100 gives 5/7.5/10 seconds by level.
     duration-ticks: 100
   particles:

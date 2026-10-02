@@ -207,7 +207,7 @@ public class AmbientEffectScheduler {
                     || !state.canFire(type, cfg.getEffect(type), now)) continue;
             boolean success = type == AmbientEffectType.VICTIM_GHOST
                     ? victim != null && dispatcher.dispatchVictimGhost(player, scaled.presentation().ghost(), snapshot, victim)
-                    : dispatcher.dispatch(player, type, scaled, snapshot);
+                    : dispatcher.dispatch(player, type, scaled, snapshot, level);
             if (!success) continue;
             state.recordFired(type, now);
             delivered++;

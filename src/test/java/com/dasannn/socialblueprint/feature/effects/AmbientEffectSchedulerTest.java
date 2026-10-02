@@ -80,7 +80,7 @@ class AmbientEffectSchedulerTest {
                 serene.add(effect);
                 return true;
             }
-            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection config, RuntimeSnapshot snapshot, PsychosisLevel episodeLevel) {
                 throw new AssertionError("Serenity must never deliver madness");
             }
         };
@@ -157,7 +157,7 @@ class AmbientEffectSchedulerTest {
                 null, messageRegistry, configManager, silverfishService
         ) {
             @Override
-            public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+            public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot, PsychosisLevel episodeLevel) {
                 dispatchedList.add(new DispatchedRecord(player, type, System.currentTimeMillis()));
                 return true;
             }
@@ -289,11 +289,13 @@ class AmbientEffectSchedulerTest {
             var snapshot = new RuntimeSnapshot(original.config().withEffects(config), original.messages());
             configManager.snapshotReference().set(snapshot);
             List<Long> renderedDurations = new ArrayList<>();
+            List<PsychosisLevel> renderedLevels = new ArrayList<>();
             var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
                     new FakeSilverfishService(null, new AmbientEntityRegistry(), null)) {
-                @Override public boolean dispatch(Player viewer, AmbientEffectType type, EffectsConfigSection settings, RuntimeSnapshot captured) {
+                @Override public boolean dispatch(Player viewer, AmbientEffectType type, EffectsConfigSection settings, RuntimeSnapshot captured, PsychosisLevel episodeLevel) {
                     assertThat(type).isEqualTo(chosen);
                     assertThat(captured).isSameAs(snapshot);
+                    renderedLevels.add(episodeLevel);
                     renderedDurations.add(settings.presentation().durationTicks(type, captured.config().sounds()));
                     return true;
                 }
@@ -312,6 +314,7 @@ class AmbientEffectSchedulerTest {
                 if (chosen == AmbientEffectType.PARTICLES) expected = Math.max(expected, 45);
                 local.tickAt(now);
                 assertThat(renderedDurations.getLast()).isEqualTo(expected);
+                assertThat(renderedLevels.getLast()).isEqualTo(level);
                 long allowedAt = now + expected * 50 + config.quietInterval(level).toMillis();
                 assertThat(local.getState(id).canStartEpisode(allowedAt - 1)).isFalse();
                 assertThat(local.getState(id).canStartEpisode(allowedAt)).isTrue();
@@ -658,7 +661,7 @@ class AmbientEffectSchedulerTest {
                 new FakeSilverfishService(null, new AmbientEntityRegistry(), null)
         ) {
             @Override
-            public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+            public boolean dispatch(Player player, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot, PsychosisLevel episodeLevel) {
                 return dispatchSuccess.get();
             }
         };
@@ -881,7 +884,7 @@ class AmbientEffectSchedulerTest {
                             tasks.add(new Scheduled(action, delay, cancelled));
                             return () -> cancelled.set(true);
                         }) {
-                    @Override public boolean dispatch(Player subject, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot) {
+                    @Override public boolean dispatch(Player subject, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot, PsychosisLevel episodeLevel) {
                         assertThat(type).isEqualTo(AmbientEffectType.BOSS_BAR);
                         return startPresentation(uuid, type, config.presentation().bar().durationTicks(), restored::incrementAndGet) != null;
                     }
@@ -939,7 +942,7 @@ class AmbientEffectSchedulerTest {
     @Test void effectsDiagnosticsAreOptInAndDescribeDecisions() throws Exception {
         var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
                 new FakeSilverfishService(null, new AmbientEntityRegistry(), null)) {
-            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection cfg, RuntimeSnapshot snapshot) {
+            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection cfg, RuntimeSnapshot snapshot, PsychosisLevel episodeLevel) {
                 return true;
             }
             @Override public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
@@ -1001,7 +1004,7 @@ class AmbientEffectSchedulerTest {
         List<String> serene = new ArrayList<>();
         var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
                 new FakeSilverfishService(null, new AmbientEntityRegistry(), null)) {
-            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection cfg, RuntimeSnapshot snapshot) {
+            @Override public boolean dispatch(Player subject, AmbientEffectType effect, EffectsConfigSection cfg, RuntimeSnapshot snapshot, PsychosisLevel episodeLevel) {
                 throw new AssertionError("Cancelled victim read must not dispatch madness");
             }
             @Override public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,

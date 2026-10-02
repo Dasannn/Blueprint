@@ -237,6 +237,14 @@ public class ConfigManager {
         } catch (IOException error) { throw new ConfigValidationException(key, "Cannot adopt duration: " + error.getMessage()); }
     }
 
+    private File skyDefaultsFlag() { return new File(configFile.getParentFile(), "sky-defaults-v1.flag"); }
+
+    private void adoptSkyDefaults(YamlConfiguration before) {
+        if (skyDefaultsFlag().exists() || !"night".equals(before.get("effects.sky.mode"))) return;
+        try { YamlFileUpdater.updateLeafAndSave(configFile, "effects.sky.mode", "escalating"); }
+        catch (IOException error) { throw new ConfigValidationException("effects.sky.mode", "Cannot adopt defaults: " + error.getMessage()); }
+    }
+
     private File serenityDefaultsFlag() { return new File(configFile.getParentFile(), "serenity-defaults-v1.flag"); }
 
     private void adoptSerenityDefaults(YamlConfiguration before) {
@@ -385,6 +393,7 @@ public class ConfigManager {
             adoptEpisodeIntervals(beforeMerge);
             adoptEffectLists(beforeMerge, messagesBeforeMerge);
             adoptSerenityDefaults(beforeMerge);
+            adoptSkyDefaults(beforeMerge);
             adoptApparitionDuration(beforeMerge);
             adoptPrivateTextLimits(beforeMerge);
             adoptChatExtents(beforeMerge);
@@ -408,6 +417,11 @@ public class ConfigManager {
                 try { Files.writeString(followFlag.toPath(), "T-213 defaults adopted\n", StandardCharsets.UTF_8,
                         java.nio.file.StandardOpenOption.CREATE_NEW); }
                 catch (IOException error) { throw new ConfigValidationException("effects.serenity", "Cannot record follow adoption: " + error.getMessage()); }
+            }
+            if (!skyDefaultsFlag().exists()) {
+                try { Files.writeString(skyDefaultsFlag().toPath(), "T-216 defaults adopted\n", StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE_NEW); }
+                catch (IOException error) { throw new ConfigValidationException("effects.sky.mode", "Cannot record defaults adoption: " + error.getMessage()); }
             }
             snapshotRef.set(newSnapshot);
             notifySnapshotListeners(newSnapshot);
