@@ -147,7 +147,7 @@ class ConfigUpgradeMergeTest {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
             bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
-        String old = bundled.replace("psychosis:\n", "psychosis:\n  window: 48h\n")
+        String old = bundled.replace("\r\n", "\n").replace("psychosis:\n", "psychosis:\n  window: 48h\n")
                 .replace("effects:\n", "effects:\n  threshold: -99\n")
                 .replaceFirst("duration-ticks: 20(\\r?\\n\\s+distance-blocks: 8)", "duration-ticks: 37$1")
                 .replace("  fake-announcement:\n", "  fake-announcement:\n    fake-names: [OldVisitor]\n")
