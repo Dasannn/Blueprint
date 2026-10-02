@@ -76,7 +76,7 @@ class KillPenaltyTest {
 
     private final Map<UUID, Player> mockPlayers = new HashMap<>();
     private final Map<String, PlayerLookup.KnownPlayer> knownPlayers = new HashMap<>();
-    private final Instant baseTime = Instant.parse("2026-09-30T12:00:00Z");
+    private final Instant baseTime = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
 
     @BeforeEach
     void setUp() throws Exception {
