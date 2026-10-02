@@ -11,6 +11,7 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                                     Map<String, Rule> rules, int dawnTime, int dawnDuration,
                                     PresentationConfig.Sounds sounds, PresentationConfig.Particles particles,
                                     java.util.List<String> animals, double animalRange, int animalDuration) {
+    public static final java.util.List<String> DEFAULT_ANIMALS = java.util.List.of("turtle", "fox", "armadillo", "bee");
     public static final Set<String> EFFECTS = Set.of("dawn", "source-less-sounds", "particles", "apparition");
     public record Rule(boolean enabled, double minimumSerenity, long cooldownTicks, int sessionCap) {}
     public SerenityEffectsConfig { rules = Map.copyOf(rules); animals = java.util.List.copyOf(animals); }
@@ -44,7 +45,7 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
         SerenityEffectsConfig result = new SerenityEffectsConfig(integer(root, "episodes.interval-ticks", 6000, 1, Integer.MAX_VALUE),
                 integer(root, "episodes.quiet-ticks", 200, 1, Integer.MAX_VALUE),
                 number(root, "observer-range-blocks", 16, true), rules,
-                integer(root, "dawn.time-ticks", 23000, 0, 23999), integer(root, "dawn.duration-ticks", 60, 1, 100),
+                integer(root, "dawn.time-ticks", 23000, 0, 23999), integer(root, "dawn.duration-ticks", 200, 1, 200),
                 new PresentationConfig.Sounds(choice(root, "source-less-sounds.sound-slot", "serenity-clean", null),
                         number(root, "source-less-sounds.offset.forward-blocks", 0, false),
                         number(root, "source-less-sounds.offset.right-blocks", 0, false),
@@ -53,8 +54,8 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                 new PresentationConfig.Particles(PresentationConfig.choices(root, path("particles.types"), java.util.List.of("end_rod", "white_smoke"), PresentationConfig.PARTICLE_TAILS.keySet()),
                         choice(root, "particles.placement", "around", Set.of("around", "beneath")),
                         integer(root, "particles.count", 8, 1, PresentationConfig.MAX_PARTICLE_COUNT), number(root, "particles.radius-blocks", 1, true), integer(root, "particles.duration-ticks", 40, 1, 100)),
-                PresentationConfig.choices(root, path("apparition.kinds"), java.util.List.of("turtle", "fox", "armadillo", "bee"), Set.of("turtle", "fox", "armadillo", "bee", "cat", "wolf")),
-                number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 60, 1, 100));
+                PresentationConfig.choices(root, path("apparition.kinds"), DEFAULT_ANIMALS, Set.of("turtle", "fox", "armadillo", "bee", "cat", "wolf")),
+                number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 100, 1, 100));
         ConfigurationSection section = root.getConfigurationSection("effects.serenity");
         if (section != null) for (String key : section.getKeys(true)) {
             if (!section.isConfigurationSection(key) && !result.leafValues().containsKey(path(key))) fail(key, "Unknown key");

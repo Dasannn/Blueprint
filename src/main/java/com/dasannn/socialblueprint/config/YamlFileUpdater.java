@@ -141,7 +141,9 @@ public final class YamlFileUpdater {
                 break;
             }
             int nextIndent = getLineIndent(nextLine);
-            if (nextIndent > matchedIndent.length()) {
+            // A block sequence may sit at the key's own indent ("kinds:\n- cat"), as Bukkit writes it.
+            boolean sameIndentListItem = nextIndent == matchedIndent.length() && trimmedNext.startsWith("- ");
+            if (nextIndent > matchedIndent.length() || sameIndentListItem) {
                 lines.remove(nextIdx);
             } else {
                 break;
