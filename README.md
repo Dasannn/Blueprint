@@ -283,4 +283,4 @@ These are plans, not v1.0 capabilities or release commitments.
 
 ## License
 
-No `LICENSE` file is present. The repository's license is not yet specified.
+Released under the [MIT License](LICENSE).
