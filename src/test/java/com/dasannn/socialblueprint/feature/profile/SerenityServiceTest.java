@@ -21,6 +21,41 @@ class SerenityServiceTest {
         var manager=new ConfigManager(folder.resolve("config.yml").toFile(),messages,Runnable::run,null);
         manager.initialize();return manager;
     }
+    @Test void boundMindCountsOnlyActiveNonDuelIntervalsAndChecksOnJoin() {
+        var manager = manager(); var time = new AtomicLong();
+        Clock clock = new Clock() {
+            public ZoneId getZone() { return ZoneOffset.UTC; }
+            public Clock withZone(ZoneId zone) { return this; }
+            public Instant instant() { return NOW.plusMillis(time.get()); }
+        };
+        try (var storage = StorageEngine.inMemory()) {
+            storage.runMigrations(); var mind = new MindRepository(storage);
+            var service = new SerenityService(storage, new PsychosisRepository(storage), manager, clock, time::get, Logger.getAnonymousLogger());
+            PlayerId player = PlayerId.of(UUID.randomUUID());
+            new ProfileRepository(storage).save(PlayerProfile.create(player, "Player", NOW));
+            var duel = new java.util.concurrent.atomic.AtomicBoolean();
+            service.bindMind(mind, id -> duel.get()); service.join(player).join();
+            service.activity(player);
+            for (int i = 1; i <= 1800; i++) {
+                time.set(i * 1000L); service.tick(); service.activity(player);
+            }
+            // Idle and explicitly AFK time cannot complete the minimum.
+            service.setAfk(player, true); time.set(86_400_000L); service.tick();
+            assertThat(mind.value(player)).isEqualTo(1);
+            assertThat(mind.events(player)).hasSize(1);
+            service.setAfk(player, false); duel.set(true); service.activity(player);
+            for (int i = 1; i <= 1800; i++) {
+                time.set(86_400_000L + i * 1000L); service.tick(); service.activity(player);
+            }
+            duel.set(false); service.leave(player).join();
+            time.set(172_800_000L); service.join(player).join();
+            assertThat(mind.events(player)).hasSize(1);
+            // Persisted play is sufficient for a later join check; logout adds none.
+            mind.accountActiveAsync(player, 1_800_000, 30, MindInput.CLEAN_DAY.defaults(), NOW.plusMillis(time.get())).join();
+            assertThat(mind.events(player)).hasSize(2);
+            service.shutdown();
+        }
+    }
     @Test void activitySurvivesReloadButNeverCreditsMindAndOfflineTimeEarnsNothing() {
         var manager=manager();var time=new AtomicLong();
         try(var storage=StorageEngine.inMemory()) {

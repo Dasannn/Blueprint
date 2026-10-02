@@ -35,10 +35,75 @@ public final class MindRepository {
         }).thenApply(result -> { if (result.enabled()) invalidate(player); return result; });
     }
     static MindState.Result applyInternal(Connection conn, PlayerId player, MindInput kind, MindInputConfig config, String source, Instant now) throws SQLException {
-        MindState.Result result = MindState.apply(valueInternal(conn, player), kind, config);
+        double before = valueInternal(conn, player);
+        if (config.enabled() && !kind.bad() && capped(conn, player, kind, config.cap(), now))
+            return new MindState.Result(before, 0, 0, before, false);
+        MindState.Result result = MindState.apply(before, kind, config);
         if (result.enabled()) writeInternal(conn, new MindEvent(0, player, kind.id(), source,
                 result.requestedDelta(), result.appliedDelta(), result.before(), result.after(), now, null), kind.bad() || kind == MindInput.CLEAN_DAY);
         return result;
+    }
+    private static boolean capped(Connection conn, PlayerId player, MindInput kind, int cap, Instant now) throws SQLException {
+        if (cap == 0) return true;
+        String kinds = kind.peaceful() ? "kind IN ('fishing','breeding','feeding','planting','harvesting')" : "kind = ?";
+        try (PreparedStatement ps = conn.prepareStatement("SELECT count(*) FROM mind_event WHERE player_uuid = ? AND created_at > ? AND created_at <= ? AND " + kinds)) {
+            ps.setString(1, player.toString());
+            ps.setString(2, StorageTimestamps.format(now.minus(java.time.Duration.ofHours(24))));
+            ps.setString(3, StorageTimestamps.format(now));
+            if (!kind.peaceful()) ps.setString(4, kind.id());
+            try (ResultSet rs = ps.executeQuery()) { return rs.next() && rs.getLong(1) >= cap; }
+        }
+    }
+
+    /** One main-thread active interval, clipped against any intervening bad action/reset. */
+    public CompletableFuture<MindState.Result> accountActiveAsync(PlayerId player, double activeMillis,
+            double requiredMinutes, MindInputConfig config, Instant now) {
+        return accountActiveAsync(player, activeMillis, now, requiredMinutes, config, now);
+    }
+    public CompletableFuture<MindState.Result> accountActiveAsync(PlayerId player, double activeMillis,
+            Instant activeEnd, double requiredMinutes, MindInputConfig config, Instant now) {
+        if (!Double.isFinite(activeMillis) || activeMillis < 0 || !Double.isFinite(requiredMinutes) || requiredMinutes < 0)
+            throw new IllegalArgumentException("Active duration and minimum must be finite and nonnegative");
+        return engine.executeAsync(conn -> {
+            boolean auto = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                String anchor;
+                try (var ps = conn.prepareStatement("SELECT COALESCE(mind_clean_day_at, created_at) FROM player_profile WHERE uuid = ?")) {
+                    ps.setString(1, player.toString());
+                    try (var rs = ps.executeQuery()) {
+                        if (!rs.next()) {
+                            conn.commit();
+                            return new MindState.Result(0, 0, 0, 0, false);
+                        }
+                        anchor = rs.getString(1);
+                    }
+                }
+                double total = 0;
+                try (var ps = conn.prepareStatement("SELECT active_millis FROM mind_activity WHERE player_uuid = ? AND anchor = ?")) {
+                    ps.setString(1, player.toString()); ps.setString(2, anchor);
+                    try (var rs = ps.executeQuery()) { if (rs.next()) total = rs.getDouble(1); }
+                }
+                Instant since = StorageTimestamps.parse(anchor);
+                double elapsed = Math.max(0, java.time.Duration.between(since, activeEnd).toMillis());
+                total += Math.min(activeMillis, elapsed);
+                try (var ps = conn.prepareStatement("INSERT INTO mind_activity(player_uuid,anchor,active_millis) VALUES(?,?,?) ON CONFLICT(player_uuid) DO UPDATE SET anchor=excluded.anchor, active_millis=excluded.active_millis")) {
+                    ps.setString(1, player.toString()); ps.setString(2, anchor); ps.setDouble(3, total); ps.executeUpdate();
+                }
+                double before = valueInternal(conn, player);
+                MindState.Result result = new MindState.Result(before, 0, 0, before, false);
+                if (com.dasannn.socialblueprint.domain.MindTriggers.cleanDay(since, now, total, requiredMinutes)) {
+                    result = applyInternal(conn, player, MindInput.CLEAN_DAY, config, "active-play", now);
+                    if (result.enabled()) {
+                        try (var ps = conn.prepareStatement("DELETE FROM mind_activity WHERE player_uuid = ?")) {
+                            ps.setString(1, player.toString()); ps.executeUpdate();
+                        }
+                    }
+                }
+                conn.commit(); return result;
+            } catch (SQLException | RuntimeException ex) { conn.rollback(); throw ex; }
+            finally { conn.setAutoCommit(auto); }
+        }).thenApply(result -> { if (result.enabled()) invalidate(player); return result; });
     }
     static void writeInternal(Connection conn, MindEvent event, boolean restartCleanDay) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement("""

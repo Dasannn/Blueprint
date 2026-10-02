@@ -59,6 +59,9 @@ public class DuelCombatListener implements Listener {
     private final PsychosisRepository psychosisRepository;
     private final ConfigManager configManager;
     private final ReputationRepository reputationRepository;
+    private com.dasannn.socialblueprint.storage.MindRepository mindRepository;
+
+    public void bindMind(com.dasannn.socialblueprint.storage.MindRepository mind) { this.mindRepository = mind; }
 
     private final Map<PlayerId, AttackRecord> victimAttackRecords = new ConcurrentHashMap<>();
     private final Map<Projectile, ProjectileLaunchRecord> projectileLaunches = Collections.synchronizedMap(new IdentityHashMap<>());
@@ -365,22 +368,33 @@ public class DuelCombatListener implements Listener {
         // Cleared on death per rule.
         AttackRecord attackRecord = victimAttackRecords.remove(victimId);
 
+        CombatContext deathContext = context(victimId, killerId, attackRecord, now, snapshot);
+        CompletableFuture<?> death = mindRepository != null && deathContext != CombatContext.DUEL
+                ? mindRepository.applyAsync(victimId, com.dasannn.socialblueprint.domain.MindInput.DEATH,
+                    snapshot.config().psychosis().input(com.dasannn.socialblueprint.domain.MindInput.DEATH),
+                    killerId == null ? "environment" : killerId.toString(), now)
+                : CompletableFuture.completedFuture(null);
+        return handleKill(victimId, killerId, worldName, now, snapshot, deathContext)
+                .thenCombine(death, (outcome, ignored) -> outcome);
+    }
+
+    /** Shared with near-death; environmental damage uses current accepted-duel membership. */
+    public CombatContext damageContext(PlayerId victim, PlayerId attacker, Instant now, RuntimeSnapshot snapshot) {
+        return context(victim, attacker, victimAttackRecords.get(victim), now, snapshot);
+    }
+
+    private CombatContext context(PlayerId victim, PlayerId attacker, AttackRecord record, Instant now, RuntimeSnapshot snapshot) {
+        if (attacker == null || attacker.equals(victim))
+            return duelService.isInActiveDuel(victim) ? CombatContext.DUEL : CombatContext.OPEN;
+        if (record != null && record.attackerId().equals(attacker) && !record.isExpired(now, getAttackContextWindow(snapshot)))
+            return record.context();
+        return duelService.areInSameActiveDuel(attacker, victim) ? CombatContext.DUEL : CombatContext.OPEN;
+    }
+
+    private CompletableFuture<KillPenaltyResult> handleKill(PlayerId victimId, PlayerId killerId, String worldName,
+            Instant now, RuntimeSnapshot snapshot, CombatContext context) {
+
         if (killerId != null && !killerId.equals(victimId)) {
-            Duration window = getAttackContextWindow(snapshot);
-            CombatContext context = null;
-
-            if (attackRecord != null && attackRecord.attackerId().equals(killerId)) {
-                if (!attackRecord.isExpired(now, window)) {
-                    context = attackRecord.context();
-                }
-            }
-
-            if (context == null) {
-                // Fall back to membership at death (today's behaviour, right for instantaneous kill)
-                boolean inSameDuel = duelService.areInSameActiveDuel(killerId, victimId);
-                context = inSameDuel ? CombatContext.DUEL : CombatContext.OPEN;
-            }
-
             if (context == CombatContext.DUEL) {
                 // T-061 / SB-031: Kill inside active duel is free!
                 // Neither social status nor Killing Psychosis moves.

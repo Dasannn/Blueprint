@@ -46,7 +46,8 @@ public final class MigrationRunner {
                 new Migration_3_KillPenaltyClaim(),
                 new Migration_4_PendingCompensation(),
                 new Migration_5_Serenity(),
-                new Migration_6_MindState(legacy, clock)
+                new Migration_6_MindState(legacy, clock),
+                new Migration_7_MindActivity()
         ));
     }
 

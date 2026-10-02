@@ -53,6 +53,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private com.dasannn.socialblueprint.feature.duel.DuelService duelService;
     private ProfileService profileService;
     private org.bukkit.scheduler.BukkitTask serenityTask;
+    private com.dasannn.socialblueprint.platform.listener.MindInputListener mindInputListener;
     private HonorService honorService;
     private com.dasannn.socialblueprint.feature.update.UpdateService updateService;
     private LegacyImportService legacyImportService;
@@ -207,6 +208,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
         this.serenityTask = getServer().getScheduler().runTaskTimer(this, () -> {
             for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) serenityActivity.refreshAfk(player);
             profileService.serenity().tick();
+            if (mindInputListener != null) mindInputListener.tick();
         }, 20L, 20L);
         for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
             profileService.warmUp(com.dasannn.socialblueprint.domain.PlayerId.of(player.getUniqueId()), player.getName(), configManager.snapshot());
@@ -326,10 +328,17 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 configManager,
                 reputationRepository
         );
+        profileService.serenity().bindMind(profileService.mind(), duelService::isInActiveDuel);
+        this.duelCombatListener.bindMind(profileService.mind());
         getServer().getPluginManager().registerEvents(
                 this.duelCombatListener,
                 this
         );
+
+        this.mindInputListener = new com.dasannn.socialblueprint.platform.listener.MindInputListener(
+                this, configManager, profileService.mind(), profileService.serenity(), duelService, duelCombatListener);
+        getServer().getPluginManager().registerEvents(mindInputListener, this);
+        mindInputListener.tick();
 
         // Initialize Ambient Effects (SB-040 to SB-044)
         this.ambientEntityRegistry = new AmbientEntityRegistry();
@@ -420,6 +429,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (serenityTask != null) serenityTask.cancel();
+        if (mindInputListener != null) mindInputListener.clear();
         if (profileService != null) profileService.serenity().shutdown();
         if (honorService != null) {
             honorService.shutdown();

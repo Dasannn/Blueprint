@@ -702,6 +702,64 @@ class DuelCombatListenerTest {
         }
     }
 
+    @Test void mindDeathAppliesFromAnyCauseTwiceAndHonorsDisabledInput() {
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        listener.bindMind(mind);
+        PlayerId victim = PlayerId.of(UUID.randomUUID());
+        listener.handleDeath(victim, null, baseTime, configManager.snapshot()).join();
+        listener.handleDeath(victim, null, baseTime.plusSeconds(1), configManager.snapshot()).join();
+        assertThat(mind.value(victim)).isEqualTo(-12);
+        assertThat(mind.events(victim)).hasSize(2);
+        configManager.set("psychosis.inputs.death.enabled", "false");
+        listener.handleDeath(victim, null, baseTime.plusSeconds(2), configManager.snapshot()).join();
+        assertThat(mind.events(victim)).hasSize(2);
+    }
+
+    @Test void deathAndDamageReuseHistoricalDuelContextAndEnvironmentalMembership() {
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        listener.bindMind(mind);
+        Player attacker = createMockPlayer("MindAttacker"), victim = createMockPlayer("MindVictim");
+        PlayerId attackerId = PlayerId.of(attacker.getUniqueId()), victimId = PlayerId.of(victim.getUniqueId());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        duelService.challenge(attackerId, Map.of("s1", Set.of(attackerId), "s2", Set.of(victimId)), snapshot);
+        duelService.accept(victimId, null, snapshot);
+        assertThat(listener.damageContext(victimId, null, baseTime, snapshot)).isEqualTo(CombatContext.DUEL);
+        listener.handleDamage(attacker, victim, baseTime);
+        duelService.handleDeath(victimId, attackerId, baseTime.plusSeconds(1), snapshot);
+        assertThat(listener.damageContext(victimId, attackerId, baseTime.plusSeconds(2), snapshot)).isEqualTo(CombatContext.DUEL);
+        listener.handleDeath(victimId, attackerId, baseTime.plusSeconds(2), snapshot).join();
+        assertThat(mind.events(victimId)).isEmpty();
+        assertThat(mind.events(attackerId)).isEmpty();
+        listener.handleDeath(victimId, null, baseTime.plusSeconds(3), snapshot).join();
+        assertThat(mind.value(victimId)).isEqualTo(-6);
+    }
+
+    @Test void environmentalDeathInsideAcceptedDuelCreatesNoMindEvent() {
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        listener.bindMind(mind);
+        Player attacker = createMockPlayer("MindEnvAttacker"), victim = createMockPlayer("MindEnvVictim");
+        PlayerId attackerId = PlayerId.of(attacker.getUniqueId()), victimId = PlayerId.of(victim.getUniqueId());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        duelService.challenge(attackerId, Map.of("s1", Set.of(attackerId), "s2", Set.of(victimId)), snapshot);
+        duelService.accept(victimId, null, snapshot);
+        listener.handleDeath(victimId, null, baseTime, snapshot).join();
+        assertThat(mind.events(victimId)).isEmpty();
+    }
+
+    @Test void nearDeathAndSubsequentDeathBothApplyIndependently() {
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        listener.bindMind(mind);
+        PlayerId victim = PlayerId.of(UUID.randomUUID());
+        var snapshot = configManager.snapshot();
+        var near = new com.dasannn.socialblueprint.domain.MindTriggers.NearDeath();
+        assertThat(near.damage(20, 4, snapshot.config().psychosis().nearDeathHealth())).isTrue();
+        mind.applyAsync(victim, com.dasannn.socialblueprint.domain.MindInput.NEAR_DEATH,
+                snapshot.config().psychosis().input(com.dasannn.socialblueprint.domain.MindInput.NEAR_DEATH), "environment", baseTime).join();
+        listener.handleDeath(victim, null, baseTime.plusSeconds(1), snapshot).join();
+        assertThat(mind.value(victim)).isEqualTo(-8);
+        assertThat(mind.events(victim).stream().map(com.dasannn.socialblueprint.domain.MindEvent::kind)).containsExactly("near-death", "death");
+    }
+
     private static Object defaultValue(Class<?> returnType) {
         if (returnType == boolean.class) return false;
         if (returnType == int.class) return 0;
