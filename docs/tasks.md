@@ -249,7 +249,7 @@ codes renders as literal text.
 | T-106 | `/status admin` usage omits `import`, added in P8, so the only discoverable way to find the command is the source. Every subcommand appears in its usage line. | SB-065 | done — `d9386d0` |
 | T-140 | The GUI renders the tier, Confidence and Psychosis as raw enum names (`StatusGuiService.java:402-404`), so the subject head reads `MEDIUM` and `ESTABLISHED` in any language while the command translates all three. Found on the running server. | SB-016, §7 | done — `100b94f`, verified in game: dye, Confidence and Psychosis render translated |
 | T-141 | A history line reads as elapsed time in the player's language, not a machine timestamp; the exact instant stays on hover and in the audit trail. | SB-085 | done — `100b94f`, verified in game: `2026-10-01`, signed delta, reason, no actor |
-| T-142 | Giving and removing honor is reachable from a chest GUI, through the same cost, cooldown, cap, reason prompt, confirmation and audit as the command. | SB-086 | todo |
+| T-142 | Giving and removing honor is reachable from a chest GUI, through the same cost, cooldown, cap, reason prompt, confirmation and audit as the command. | SB-086 | done — GUI-started honor confirms in a chest; commands keep the chat preview; live click check pending |
 
 **Gate:** every box in §14 ticked with evidence.
 
