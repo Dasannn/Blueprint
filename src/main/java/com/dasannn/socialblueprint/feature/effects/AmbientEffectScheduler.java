@@ -24,7 +24,7 @@ import java.util.function.Supplier;
 
 /**
  * Main-thread scheduler for private Psychosis episodes (SB-096, SB-097).
- * - The lowest Psychosis level triggers nothing.
+ * - Neutral and Serenity never enter madness episodes.
  * - Enforces independent cooldown and per-session cap per effect.
  */
 public class AmbientEffectScheduler {
@@ -142,50 +142,59 @@ public class AmbientEffectScheduler {
                 continue;
             }
             if (!level.hasMadnessEffects() || !madnessCheck) continue;
-            List<AmbientEffectType> eligible = new ArrayList<>();
-            for (AmbientEffectType type : AmbientEffectType.values()) {
-                if (type == AmbientEffectType.ADVANCEMENT_TOAST) continue; // No grant-free Paper delivery API.
-                if (type == AmbientEffectType.SILVERFISH && level == PsychosisLevel.MEDIUM) {
-                    continue;
-                }
-                if (cfg.presentation().rules().containsKey(type) && !cfg.presentation().rules().get(type).allows(level)) {
-                    continue;
-                }
-                if (state.canFire(type, cfg.getEffect(type), now)) {
-                    eligible.add(type);
-                }
-            }
-
-            if (eligible.isEmpty()) {
-                continue;
-            }
-
-            // 4. Fire one eligible effect - record only on successful dispatch (Finding 7)
-            AmbientEffectType chosen = eligible.get(random.nextInt(eligible.size()));
-            if (chosen == AmbientEffectType.VICTIM_GHOST) {
-                requestVictim(player.getUniqueId(), snapshot, state, now);
-                continue;
-            }
-            boolean success = dispatcher.dispatch(player, chosen, cfg.scaled(level), snapshot);
-            if (success) {
-                recordDelivery(player.getUniqueId(), chosen, snapshot, state, level, now);
-            }
+            List<AmbientEffectType> eligible = availableEffects(cfg, state, level, now, random);
+            if (eligible.isEmpty()) continue;
+            if (mainThread != null && eligible.contains(AmbientEffectType.VICTIM_GHOST))
+                requestVictim(player.getUniqueId(), snapshot, state, now, eligible);
+            else dispatchEpisode(player, eligible, null, snapshot, state, level, now);
         }
     }
 
-    private void recordDelivery(UUID id, AmbientEffectType chosen, RuntimeSnapshot snapshot,
-                                PlayerEffectState state, PsychosisLevel level, long now) {
-        EffectsConfigSection cfg = snapshot.config().effects();
-        state.recordFired(chosen, now);
-        long quietMillis = cfg.quietInterval(level).toMillis();
-        long ticks = chosen == AmbientEffectType.CREEPER_SOUND ? cfg.maxEpisodeTicks()
-                : cfg.presentation().scaled(level).durationTicks(chosen, snapshot.config().sounds());
-        state.recordEpisode(now, ticks * 50L + quietMillis);
-        dispatcher.reserveEpisode(id, ticks + (quietMillis + 49L) / 50L);
-        dispatcher.guardDirection(id, () -> profileService.getViewQuick(PlayerId.of(id), snapshot).psychosis().hasMadnessEffects(), Math.max(1, ticks));
+    /** Plain-data selection: distinct ids; renderer skips do not consume limits. */
+    static List<AmbientEffectType> availableEffects(EffectsConfigSection cfg, PlayerEffectState state,
+                                                  PsychosisLevel level, long now, Random random) {
+        List<AmbientEffectType> eligible = new ArrayList<>();
+        if (!level.hasMadnessEffects()) return eligible;
+        for (AmbientEffectType type : AmbientEffectType.values()) {
+            if (type == AmbientEffectType.ADVANCEMENT_TOAST || level.ordinal() < type.floor().ordinal()) continue;
+            var rule = cfg.presentation().rules().get(type);
+            if (rule != null && !rule.allows(level)) continue;
+            if (state.canFire(type, cfg.getEffect(type), now)) eligible.add(type);
+        }
+        Collections.shuffle(eligible, random);
+        return eligible;
     }
 
-    private void requestVictim(UUID id, RuntimeSnapshot snapshot, PlayerEffectState state, long now) {
+    private void dispatchEpisode(Player player, List<AmbientEffectType> candidates, String victim,
+                                 RuntimeSnapshot snapshot, PlayerEffectState state, PsychosisLevel level, long now) {
+        EffectsConfigSection cfg = snapshot.config().effects();
+        EffectsConfigSection scaled = cfg.scaled(level);
+        UUID id = player.getUniqueId();
+        int delivered = 0;
+        long longestTicks = 0;
+        dispatcher.cancelPending(id);
+        for (AmbientEffectType type : candidates) {
+            if (delivered >= cfg.presentation().maxConcurrent(level)) break;
+            var rule = cfg.presentation().rules().get(type);
+            if (level.ordinal() < type.floor().ordinal() || rule != null && !rule.allows(level)
+                    || !state.canFire(type, cfg.getEffect(type), now)) continue;
+            boolean success = type == AmbientEffectType.VICTIM_GHOST
+                    ? victim != null && dispatcher.dispatchVictimGhost(player, scaled.presentation().ghost(), snapshot, victim)
+                    : dispatcher.dispatch(player, type, scaled, snapshot);
+            if (!success) continue;
+            state.recordFired(type, now);
+            delivered++;
+            longestTicks = Math.max(longestTicks, type == AmbientEffectType.CREEPER_SOUND ? cfg.maxEpisodeTicks()
+                    : scaled.presentation().durationTicks(type, snapshot.config().sounds()));
+        }
+        if (delivered == 0) return;
+        long quietMillis = cfg.quietInterval(level).toMillis();
+        state.recordEpisode(now, longestTicks * 50L + quietMillis);
+        dispatcher.reserveEpisode(id, longestTicks + (quietMillis + 49L) / 50L);
+        dispatcher.guardDirection(id, () -> profileService.getViewQuick(PlayerId.of(id), snapshot).psychosis().hasMadnessEffects(), Math.max(1, longestTicks));
+    }
+
+    private void requestVictim(UUID id, RuntimeSnapshot snapshot, PlayerEffectState state, long now, List<AmbientEffectType> candidates) {
         if (mainThread == null) return;
         Object token = new Object();
         victimReads.put(id, token);
@@ -194,19 +203,16 @@ public class AmbientEffectScheduler {
             profileService.findVictimGhostAsync(PlayerId.of(id), snapshot).whenComplete((victim, failure) -> {
                 try {
                     mainThread.execute(() -> {
-                        if (!victimReads.remove(id, token) || failure != null || victim.isEmpty()) return;
+                        if (!victimReads.remove(id, token)) return;
                         // Reacquire the viewer here; the storage continuation captured only plain identity/config values.
                         Player viewer = onlinePlayersSupplier.get().stream().filter(p -> p.getUniqueId().equals(id) && p.isOnline())
                                 .findFirst().orElse(null);
                         if (viewer == null || playerStates.get(id) != state) return;
                         long deliveredAt = now + java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
                         PsychosisLevel level = profileService.getViewQuick(PlayerId.of(id), snapshot).psychosis();
-                        EffectsConfigSection cfg = snapshot.config().effects();
-                        if (!cfg.presentation().rules().get(AmbientEffectType.VICTIM_GHOST).allows(level)
-                                || !state.canStartEpisode(deliveredAt) || dispatcher.hasPending(id)
-                                || !state.canFire(AmbientEffectType.VICTIM_GHOST, cfg.getEffect(AmbientEffectType.VICTIM_GHOST), deliveredAt)) return;
-                        if (dispatcher.dispatchVictimGhost(viewer, cfg.presentation().scaled(level).ghost(), snapshot, victim.get().name()))
-                            recordDelivery(id, AmbientEffectType.VICTIM_GHOST, snapshot, state, level, deliveredAt);
+                        if (!level.hasMadnessEffects() || !state.canStartEpisode(deliveredAt) || dispatcher.hasPending(id)) return;
+                        dispatchEpisode(viewer, candidates, failure == null && victim != null && victim.isPresent()
+                                ? victim.get().name() : null, snapshot, state, level, deliveredAt);
                     });
                 } catch (RuntimeException stopped) { victimReads.remove(id, token); }
             });

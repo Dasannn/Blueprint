@@ -38,6 +38,8 @@ import java.util.regex.Pattern;
  */
 public class ConfigManager {
 
+    private static final Set<String> EFFECT_CHOICE_LISTS = Set.of("effects.particles.types",
+            "effects.serenity.particles.types", "effects.serenity.apparition.kinds");
     private static final Set<String> SUPPORTED_CONFIG_LEAVES = createSupportedConfigLeaves();
 
     private final File configFile;
@@ -129,7 +131,7 @@ public class ConfigManager {
                 "effects.fake-announcement.cooldown", "effects.fake-announcement.session-cap"));
         for (String language : List.of("en", "es")) {
             removeObsoleteKeys(new File(configFile.getParentFile(), "messages_" + language + ".yml"),
-                    List.of("effects.opt-out-enabled", "effects.opt-out-disabled"));
+                    List.of("effects.opt-out-enabled", "effects.opt-out-disabled", "gui.reason-skip-word"));
         }
     }
 
@@ -170,13 +172,59 @@ public class ConfigManager {
             String legacy = "effects.quiet-interval." + level;
             if (!beforeMerge.contains(path) && beforeMerge.contains(legacy)) {
                 // Preserve the previous guaranteed floor, including its scheduler check interval.
-                EffectsConfigSection previous = EffectsConfigSection.load(beforeMerge);
+                YamlConfiguration previousYaml = YamlConfiguration.loadConfiguration(new java.io.StringReader(beforeMerge.saveToString()));
+                for (String key : List.of("effects.particles.type", "effects.serenity.particles.type", "effects.serenity.apparition.kind"))
+                    previousYaml.set(key, null);
+                if (!previousYaml.contains("effects.episodes.low.interval-ticks"))
+                    previousYaml.set("effects.episodes.low.interval-ticks", Math.max(4800L,
+                            previousYaml.getLong("effects.episodes.medium.interval-ticks", 2400) * 2));
+                EffectsConfigSection previous = EffectsConfigSection.load(previousYaml);
                 long millis = previous.quietInterval(com.dasannn.socialblueprint.domain.PsychosisLevel.valueOf(level.toUpperCase(java.util.Locale.ROOT))).toMillis();
                 long ticks = millis / 50L + (millis % 50L == 0 ? 0 : 1);
                 try { YamlFileUpdater.updateLeafAndSave(configFile, path, Long.toString(ticks)); }
                 catch (IOException error) { throw new ConfigValidationException(path, "Cannot adopt legacy cadence: " + error.getMessage()); }
             }
         }
+    }
+
+    private void adoptEffectLists(YamlConfiguration before, Map<String, YamlConfiguration> messages) {
+        try {
+            for (String[] keys : List.of(new String[]{"effects.particles.type", "effects.particles.types"},
+                    new String[]{"effects.serenity.particles.type", "effects.serenity.particles.types"},
+                    new String[]{"effects.serenity.apparition.kind", "effects.serenity.apparition.kinds"})) {
+                if (!before.contains(keys[0])) continue;
+                if (!before.isString(keys[0])) throw new ConfigValidationException(keys[0], "Must be text");
+                if (!before.contains(keys[1])) YamlFileUpdater.updateLeafAndSave(configFile, keys[1],
+                        quotedList(List.of(before.getString(keys[0]))));
+                YamlFileUpdater.removeLeafAndSave(configFile, keys[0]);
+            }
+            for (var entry : messages.entrySet()) {
+                String old = "effects.false-death.line", key = "effects.false-death.lines";
+                if (!entry.getValue().contains(old)) continue;
+                if (!entry.getValue().isString(old)) throw new ConfigValidationException(old, "Must be text");
+                File file = new File(configFile.getParentFile(), "messages_" + entry.getKey() + ".yml");
+                if (!entry.getValue().contains(key)) {
+                    List<String> lines = new java.util.ArrayList<>();
+                    lines.add(entry.getValue().getString(old));
+                    for (String line : YamlConfiguration.loadConfiguration(file).getStringList(key))
+                        if (!lines.contains(line)) lines.add(line);
+                    CatalogueLines.validateList(key, lines, 160);
+                    YamlFileUpdater.updateLeafAndSave(file, key, quotedList(lines));
+                }
+                YamlFileUpdater.removeLeafAndSave(file, old);
+            }
+            // A new Low default must not invalidate an owner's longer Medium cadence.
+            String low = "effects.episodes.low.interval-ticks";
+            if (!before.contains(low)) {
+                YamlConfiguration merged = YamlConfiguration.loadConfiguration(configFile);
+                long medium = merged.getLong("effects.episodes.medium.interval-ticks", 2400);
+                if (medium >= 4800) YamlFileUpdater.updateLeafAndSave(configFile, low, Long.toString(Math.multiplyExact(medium, 2)));
+            }
+        } catch (IOException error) { throw new ConfigValidationException("effects", "Cannot adopt effect lists: " + error.getMessage()); }
+    }
+
+    private static String quotedList(List<String> values) {
+        return "[" + String.join(", ", values.stream().map(value -> "'" + value.replace("'", "''") + "'").toList()) + "]";
     }
 
     private Map<String, YamlConfiguration> loadMessagesBeforeMerge() {
@@ -199,7 +247,7 @@ public class ConfigManager {
                 for (String[] alias : List.of(new String[]{"effects.fake-connection.join", "effects.fake-join"},
                         new String[]{"effects.fake-connection.leave", "effects.fake-leave"})) {
                     if (!before.contains(alias[0]) && before.isString(alias[1]))
-                        YamlFileUpdater.updateLeafAndSave(file, alias[0], "'" + before.getString(alias[1]).replace("'", "''") + "'");
+                        YamlFileUpdater.updateLeafAndSave(file, alias[0], before.getString(alias[1]));
                 }
                 if (!before.contains("effects.private-chat.lines")) {
                     List<String> lines = new ArrayList<>();
@@ -249,7 +297,7 @@ public class ConfigManager {
                 String text = merged.getString(alias.getValue());
                 if (!labelColours.isEmpty()) text = text.replace("&7", labelColours);
                 if (!valueColours.isEmpty()) text = text.replace("&f", valueColours);
-                try { YamlFileUpdater.updateLeafAndSave(file, alias.getValue(), "'" + text.replace("'", "''") + "'"); }
+                try { YamlFileUpdater.updateLeafAndSave(file, alias.getValue(), text); }
                 catch (IOException error) { throw new ConfigValidationException(alias.getValue(), error.getMessage()); }
             }
             removeObsoleteKeys(file, List.copyOf(aliases.keySet()));
@@ -278,10 +326,19 @@ public class ConfigManager {
             File dataFolder = configFile.getParentFile();
             YamlConfiguration beforeMerge = YamlConfiguration.loadConfiguration(configFile);
             Map<String, YamlConfiguration> messagesBeforeMerge = loadMessagesBeforeMerge();
+            for (String language : List.of("en", "es")) {
+                File file = new File(dataFolder, "messages_" + language + ".yml");
+                if (file.exists()) {
+                    YamlConfiguration previous = YamlConfiguration.loadConfiguration(file);
+                    if (previous.getString("gui.prompt-give-reason", "").contains("{skip}"))
+                        removeObsoleteKeys(file, List.of("gui.prompt-give-reason"));
+                }
+            }
             ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
             adoptPrivateTextMessages(messagesBeforeMerge);
             adoptMentalStateMessages(messagesBeforeMerge);
             adoptEpisodeIntervals(beforeMerge);
+            adoptEffectLists(beforeMerge, messagesBeforeMerge);
             adoptPrivateTextLimits(beforeMerge);
             adoptChatExtents(beforeMerge);
             retireEffectsKeys();
@@ -429,7 +486,8 @@ public class ConfigManager {
                 }
                 String messageValue;
                 try {
-                    int max = current.config().effects().presentation().maxVisibleLength();
+                    int max = path.startsWith("effects.private-chat.")
+                            ? current.config().effects().presentation().maxVisibleLength() : 160;
                     boolean screenList = path.equals(ScreenLines.KEY) || path.equals("effects.sign.lines");
                     messageValue = CatalogueLines.LISTS.contains(path) ? CatalogueLines.editValue(path, rawValue, max)
                             : screenList ? ScreenLines.editValue(rawValue, path) : rawValue;
@@ -552,6 +610,15 @@ public class ConfigManager {
     }
 
     private Object parseValueForPath(String path, String raw) {
+        if (path.startsWith("chat-filter.words.")) {
+            if (raw.contains("\n") || raw.contains("\r")) throw new ConfigValidationException(path, "Use an inline YAML list");
+            YamlConfiguration parsed = new YamlConfiguration();
+            try { parsed.loadFromString("value: " + raw); }
+            catch (org.bukkit.configuration.InvalidConfigurationException ex) { throw new ConfigValidationException(path, "Invalid YAML list"); }
+            if (!parsed.isList("value") || parsed.getKeys(false).size() != 1)
+                throw new ConfigValidationException(path, "Must be an inline YAML list");
+            return parsed.getList("value");
+        }
         if ("sounds.serenity-clean".equals(path)) {
             if (raw.contains("\n") || raw.contains("\r"))
                 throw new ConfigValidationException(path, "Use an inline YAML list of sound layers");
@@ -563,12 +630,27 @@ public class ConfigManager {
                 throw new ConfigValidationException(path, "Each sound layer must be a mapping");
             return layers;
         }
+        if (path.startsWith("effects.episodes.") && path.endsWith(".max-concurrent")) {
+            try { return Integer.parseInt(raw.trim()); }
+            catch (NumberFormatException error) { throw new ConfigValidationException(path, "Expected a positive integer count"); }
+        }
         if (path.startsWith("effects.episodes.") && !path.startsWith("effects.episodes.duration-scale.")) {
             try { return Long.parseLong(raw.trim()); }
             catch (NumberFormatException error) { throw new ConfigValidationException(path, "Expected integer ticks"); }
         }
         if ("honor.multipliers".equals(path)) {
             return parseDoubleList(raw);
+        }
+        if (EFFECT_CHOICE_LISTS.contains(path)) {
+            if (raw.contains("\n") || raw.contains("\r")) throw new ConfigValidationException(path, "Use an inline YAML list");
+            YamlConfiguration parsed = new YamlConfiguration();
+            try { parsed.loadFromString("value: " + raw); }
+            catch (org.bukkit.configuration.InvalidConfigurationException error) {
+                throw new ConfigValidationException(path, "Expected a YAML list");
+            }
+            if (!parsed.isList("value") || parsed.getKeys(false).size() != 1)
+                throw new ConfigValidationException(path, "Expected a YAML list");
+            return parsed.getList("value");
         }
         if ("kill-penalty.exempt-worlds".equals(path) || "effects.silverfish.mobs".equals(path)) {
             return parseStringList(raw);
@@ -581,6 +663,8 @@ public class ConfigManager {
             List<Double> list = parseDoubleList(raw);
             return list.toString();
         }
+        if (EFFECT_CHOICE_LISTS.contains(path))
+            return quotedList(((List<?>) parseValueForPath(path, raw)).stream().map(String.class::cast).toList());
         if ("kill-penalty.exempt-worlds".equals(path) || "effects.silverfish.mobs".equals(path)) {
             List<String> list = parseStringList(raw);
             return "[" + String.join(", ", list) + "]";
@@ -721,6 +805,11 @@ public class ConfigManager {
         set.add("psychosis.serenity.ceiling");
         set.add("psychosis.serenity.idle-timeout-seconds");
 
+        set.add("honor.reason.min-length");
+        set.add("chat-filter.enabled");
+        set.add("chat-filter.words.es");
+        set.add("chat-filter.words.en");
+        set.add("permissions.admin-revoke");
         set.add("honor.cost");
         set.add("honor.multipliers");
         set.add("honor.multiplier-window");
@@ -751,15 +840,18 @@ public class ConfigManager {
             for (String key : List.of("enabled", "minimum-level", "cooldown-ticks", "session-cap"))
                 set.add("effects." + id + "." + key);
         }
-        for (String key : List.of("sky.mode", "sky.duration-ticks", "particles.type", "particles.placement",
+        for (String key : List.of("sky.mode", "sky.duration-ticks", "particles.types", "particles.placement",
                 "particles.count", "particles.radius-blocks", "particles.duration-ticks", "screen-flash.channel",
                 "screen-flash.fade-in-ticks", "screen-flash.duration-ticks", "screen-flash.fade-out-ticks",
                 "source-less-sounds.sound-slot", "source-less-sounds.offset.forward-blocks",
                 "source-less-sounds.offset.right-blocks", "source-less-sounds.offset.up-blocks", "source-less-sounds.playback-ticks"))
             set.add("effects." + key);
-        for (String level : List.of("medium", "high", "extreme")) set.add("effects.episodes." + level + ".interval-ticks");
+        for (String level : List.of("low", "medium", "high", "extreme")) {
+            set.add("effects.episodes." + level + ".interval-ticks");
+            set.add("effects.episodes." + level + ".max-concurrent");
+        }
         set.add("effects.episodes.quiet-ticks");
-        for (String level : List.of("medium", "high", "extreme")) set.add("effects.episodes.duration-scale." + level);
+        for (String level : List.of("low", "medium", "high", "extreme")) set.add("effects.episodes.duration-scale." + level);
         for (String key : List.of("mobs", "duration-ticks", "distance-blocks")) set.add("effects.silverfish." + key);
         for (String id : List.of("block-change", "sign", "victim-ghost")) {
             set.add("effects." + id + ".range-blocks");
@@ -915,6 +1007,7 @@ public class ConfigManager {
             if (path.startsWith("effects.episodes.duration-scale.")) {
                 var scale = config.effects().presentation().durationScale();
                 return switch (path.substring("effects.episodes.duration-scale.".length())) {
+                    case "low" -> String.valueOf(scale.low());
                     case "medium" -> String.valueOf(scale.medium());
                     case "high" -> String.valueOf(scale.high());
                     case "extreme" -> String.valueOf(scale.extreme());

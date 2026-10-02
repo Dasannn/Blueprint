@@ -147,7 +147,7 @@ class ConfigUpgradeMergeTest {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml")) {
             bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
-        String old = bundled.replace("psychosis:\n", "psychosis:\n  window: 48h\n")
+        String old = bundled.replace("\r\n", "\n").replace("psychosis:\n", "psychosis:\n  window: 48h\n")
                 .replace("effects:\n", "effects:\n  threshold: -99\n")
                 .replaceFirst("duration-ticks: 20(\\r?\\n\\s+distance-blocks: 8)", "duration-ticks: 37$1")
                 .replace("  fake-announcement:\n", "  fake-announcement:\n    fake-names: [OldVisitor]\n")
@@ -195,6 +195,7 @@ class ConfigUpgradeMergeTest {
         old.set("effects.episodes.duration-scale", null);
         old.set("effects.silverfish.cooldown", "7m");
         old.set("effects.silverfish.session-cap", 9);
+        old.set("effects.episodes.low", null);
         old.set("effects.episodes.medium.interval-ticks", 7200);
         old.set("effects.episodes.high.interval-ticks", 3600);
         old.set("effects.episodes.extreme.interval-ticks", 800);

@@ -32,16 +32,11 @@ final class PrivateGhost {
         send = connection.getClass().getMethod("send", packet);
         Class<?> type = Class.forName("net.minecraft.world.entity.EntityType");
         Class<?> level = Class.forName("net.minecraft.world.level.Level");
-        boolean hostile = animal != null && animal.contains(":");
-        Class<?> display = hostile ? null : Class.forName(animal == null ? "net.minecraft.world.entity.Display$TextDisplay" : switch (animal) {
-            case "mannequin" -> "net.minecraft.world.entity.decoration.Mannequin";
-            case "cat" -> "net.minecraft.world.entity.animal.feline.Cat";
-            case "fox" -> "net.minecraft.world.entity.animal.fox.Fox";
-            case "wolf" -> "net.minecraft.world.entity.animal.wolf.Wolf";
-            default -> throw new IllegalArgumentException(animal);
-        });
+        boolean mob = animal != null && !animal.equals("mannequin");
+        Class<?> display = mob ? null : Class.forName(animal == null
+                ? "net.minecraft.world.entity.Display$TextDisplay" : "net.minecraft.world.entity.decoration.Mannequin");
         Object world = handle.getClass().getMethod("level").invoke(handle);
-        Object entity = hostile ? createMob(entityType, world)
+        Object entity = mob ? createMob(entityType, world)
                 : display.getConstructor(type, level).newInstance(entityType, world);
         display = entity.getClass();
         display.getMethod("setPos", double.class, double.class, double.class).invoke(entity, at.getX(), at.getY(), at.getZ());

@@ -52,7 +52,7 @@ class SerenityConfigTest {
         assertThatThrownBy(() -> manager.set("effects.serenity.source-less-sounds.playback-ticks", "100"))
                 .hasMessageContaining("effects.serenity.source-less-sounds.playback-ticks");
         for (var bad : Map.of("episodes.quiet-ticks", 0, "dawn.time-ticks", 24000, "particles.count", 0,
-                "apparition.kind", "zombie", "dawn.duration-ticks", 101).entrySet()) {
+                "apparition.kinds", List.of("zombie"), "dawn.duration-ticks", 101).entrySet()) {
             var invalid = shipped(); invalid.set("effects.serenity." + bad.getKey(), bad.getValue());
             assertThatThrownBy(() -> PluginConfig.load(invalid)).hasMessageContaining("effects.serenity." + bad.getKey());
         }
@@ -76,7 +76,7 @@ class SerenityConfigTest {
             assertThat(madLine.key()).isEqualTo("status.profile-mental-state-psychosis");
             assertThat(madLine.placeholders()).containsExactlyEntriesOf(Map.of("psychosis", registry.getRaw(snapshot, "psychosis.high")));
             assertThat(snapshot.messages().bundledActiveMessages()).containsKeys("status.profile-mental-state-serenity", "chat.hover-mental-state-serenity",
-                    "gui.prompt-give-reason", "gui.reason-skip-word");
+                    "gui.prompt-give-reason", "honor.reason-too-short");
             assertThat(registry.getRaw(snapshot, "psychosis.serenity.name")).isEqualTo(language.equals("en") ? "Serenity" : "Serenidad");
             assertThat(serene.status()).isEqualTo(-100);
             assertThat(serene.confidence()).isEqualTo(ConfidenceLevel.UNKNOWN);
@@ -135,8 +135,7 @@ class SerenityConfigTest {
         var manager = new ConfigManager(folder.resolve("config.yml").toFile(), registry, Runnable::run, null);
         manager.initialize();
         for (String language : List.of("en", "es")) {
-            var upgraded = YamlConfiguration.loadConfiguration(folder.resolve("messages_" + language + ".yml").toFile());
-            for (var alias : aliases.entrySet()) {
+            var upgraded = YamlConfiguration.loadConfiguration(folder.resolve("messages_" + language + ".yml").toFile());            for (var alias : aliases.entrySet()) {
                 assertThat(upgraded.contains(alias.getKey())).isFalse();
                 if (!alias.getValue().equals("chat.hover-mental-state-serenity")) {
                     assertThat(upgraded.getString(alias.getValue())).startsWith("&#123456&l").contains("&d&o");

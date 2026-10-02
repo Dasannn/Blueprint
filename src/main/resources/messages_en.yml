@@ -93,22 +93,32 @@ status:
   read-failed: '&cFailed to read profile.'
 
 honor:
+  revoke-usage: '&eUsage: /status admin revoke <player> <rating-id>'
+  revoke-success: '&aRevoked rating {id} for {player}.'
+  revoke-rejected: '&cRating not found, already revoked, or not revocable.'
+  rating-id: '&7Rating id: {id}'
+  revoked: '&cRevoked by {admin}'
+  revoke-title: '&cRevoke rating {id}?'
+  revoke-confirm: '&aConfirm revocation'
+  revoke-cancel: '&cCancel'
+  revoke-hint: '&7Shift-click to revoke this rating.'
   cost-preview: '&7The cost to issue this opinion is &e${cost}&7. Type &b/status confirm&7 to confirm.'
   cooldown: '&cYou must wait &e{time}&c before rating this player again.'
   cap-reached: '&cYou have reached the evaluation limit for this player.'
   given: '&aYou have granted honor to &e{target}&a.'
   removed: '&cYou have removed honor from &e{target}&c.'
-  reason-required: '&cA written reason is required to remove honor.'
+  reason-required: '&cA written reason is required to give or remove honor.'
   insufficient-funds: '&cInsufficient funds (${cost} required).'
   cannot-rate-self: '&cYou cannot rate yourself.'
   no-pending: '&cYou have no pending rating to confirm.'
   action-cancelled: '&cPending action has expired.'
   write-failed: '&cFailed to record rating. Your funds were refunded.'
   check-failed: '&cCould not check your rating history. Nothing was charged.'
-  trust-usage: '&eUsage: &f/status trust <player> [reason]'
+  trust-usage: '&eUsage: &f/status trust <player> <reason>'
   distrust-usage: '&eUsage: &f/status distrust <player> <reason>'
-  give-usage: '&eUsage: &f/status give <player> [reason]'
+  give-usage: '&eUsage: &f/status give <player> <reason>'
   take-usage: '&eUsage: &f/status take <player> <reason>'
+  reason-too-short: '&cReason must contain at least {min} visible characters.'
   reason-too-long: '&cReason cannot exceed {max} characters.'
 
 duel:
@@ -157,7 +167,10 @@ effects:
     lines:
       - '&5The silence is watching.'
   false-death:
-    line: '&e{player} died'
+    lines:
+      - '&e{player} died'
+      - '&7{player} fell out of the world.'
+      - '&7{player} vanished into the dark.'
   screen-flash:
     lines:
       - '&8Behind you.'
@@ -208,8 +221,7 @@ gui:
     already-revealed: '&7This rater''s identity is already revealed.'
     insufficient-funds: '&cYou need {cost} to reveal this rater''s identity.'
     success: '&aRevealed rater &e{player}&a for &6{cost}&a.'
-  reason-skip-word: '-'
-  prompt-give-reason: '&eType an optional reason for giving honor to &f{player}&e in chat within 60 seconds; type &f{skip}&e to skip or &ccancel&e to cancel.'
+  prompt-give-reason: '&eType the reason for giving honor to &f{player}&e in chat within 60 seconds (or type &ccancel&e).'
   prompt-reason: '&eType the reason for taking honor from &f{player}&e in chat within 60 seconds (or type &ccancel&e).'
   prompt-cancelled: '&7Rating cancelled.'
   prompt-expired: '&cRating reason prompt expired.'
@@ -225,6 +237,8 @@ gui:
     confirm: '&aConfirm'
     cancel: '&cCancel'
 
+chat-filter:
+  replacement: 'bobba'
 # Administrative mental-state resets (SB-137).
 mind-admin:
   usage: '&eUsage: /status admin mind reset <player> | reset-all [confirm]'

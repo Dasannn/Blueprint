@@ -765,7 +765,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 suggestions.add("config");
             }
 
-            if ((PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) || PermissionChecker.hasPermission(sender, "admin-import", snapshot) || PermissionChecker.hasPermission(sender, "admin-mind", snapshot)) && "admin".startsWith(current)) {
+            if ((PermissionChecker.hasPermission(sender, "admin-adjust", snapshot) || PermissionChecker.hasPermission(sender, "admin-import", snapshot) || PermissionChecker.hasPermission(sender, "admin-revoke", snapshot) || PermissionChecker.hasPermission(sender, "admin-mind", snapshot)) && "admin".startsWith(current)) {
                 suggestions.add("admin");
             }
 
@@ -781,7 +781,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 suggestions.add("import");
             }
 
-            if ((!(sender instanceof Player) || PermissionChecker.hasPermission(sender, "admin-adjust", snapshot))
+            if ((!(sender instanceof Player) || PermissionChecker.hasPermission(sender, "admin-adjust", snapshot)
+                    || PermissionChecker.hasPermission(sender, "admin-revoke", snapshot))
                     && "history".startsWith(current)) {
                 suggestions.add("history");
             }
@@ -820,7 +821,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             String[] subArgs = Arrays.copyOfRange(args, 1, args.length);
 
             if ("history".equals(sub)) {
-                if (sender instanceof Player && !PermissionChecker.hasPermission(sender, "admin-adjust", snapshot)) {
+                if (sender instanceof Player && !PermissionChecker.hasPermission(sender, "admin-adjust", snapshot)
+                        && !PermissionChecker.hasPermission(sender, "admin-revoke", snapshot)) {
                     return Collections.emptyList();
                 }
                 if (subArgs.length == 1) {

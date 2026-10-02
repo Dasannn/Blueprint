@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.config.MessageRegistry;
 import com.dasannn.socialblueprint.config.RuntimeSnapshot;
 import com.dasannn.socialblueprint.domain.ConfidenceLevel;
 import com.dasannn.socialblueprint.domain.HonorKind;
+import com.dasannn.socialblueprint.domain.CommentSanitizer;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.domain.PlayerSocialView;
 import com.dasannn.socialblueprint.domain.ReputationEvent;
@@ -205,6 +206,77 @@ public class StatusGuiServiceTest {
     // =========================================================================
     // T-120 — The Chest
     // =========================================================================
+
+    @Test
+    void historyAndConfirmationFilterReasonsWithoutChangingStoredText() {
+        String reason = "Helpful idiot, IMBÉCIL!";
+        Player actor = openGiveConfirmation(reason);
+        var preview = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        assertThat(preview.layout().get(StatusGuiService.SLOT_HONOR_DETAILS).lore())
+                .contains(GuiLoreLine.ofPlain("Helpful bobba, bobba!"));
+        awaitQueued(guiService.handleClick(actor, preview, StatusGuiService.SLOT_HONOR_CONFIRM));
+        var events = reputationRepo.findByTargetAsync(preview.honorPreview().targetId()).join();
+        assertThat(events.getFirst().reason()).isEqualTo(reason);
+        var history = StatusGuiService.buildPageLayout(null, events, 0, 1, Set.of(), null,
+                configManager.snapshot(), null, messageRegistry);
+        assertThat(history.get(36).lore()).contains(GuiLoreLine.ofPlain("Helpful bobba, bobba!"));
+    }
+
+    @Test
+    void commandBothActionsRejectMissingAndTooShortReasonsBeforeEconomy() {
+        Player actor = createMockPlayer("Actor", UUID.randomUUID(),
+                "socialblueprint.give-reputation", "socialblueprint.take-reputation");
+        for (String[] arguments : List.of(new String[]{"TargetUser"}, new String[]{"TargetUser", "ab"})) {
+            messageRegistry.clearCalls();
+            awaitQueued(new com.dasannn.socialblueprint.command.StatusGiveCommand(honorService, messageRegistry)
+                    .execute(actor, arguments, configManager.snapshot()));
+            assertThat(messageRegistry.hasCall(arguments.length == 1 ? "honor.reason-required" : "honor.reason-too-short")).isTrue();
+            messageRegistry.clearCalls();
+            awaitQueued(new com.dasannn.socialblueprint.command.StatusTakeCommand(honorService, messageRegistry)
+                    .execute(actor, arguments, configManager.snapshot()));
+            assertThat(messageRegistry.hasCall(arguments.length == 1 ? "honor.reason-required" : "honor.reason-too-short")).isTrue();
+            assertThat(honorService.getPendingConfirmation(actor.getUniqueId())).isEmpty();
+        }
+    }
+
+    @Test
+    void adminShiftClickRequiresPermissionAndConfirmationAndCanOnlyApplyOnce() {
+        Player actor = openGiveConfirmation();
+        var preview = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        awaitQueued(guiService.handleClick(actor, preview, StatusGuiService.SLOT_HONOR_CONFIRM));
+        double balanceAfterRating = economyBalances.get(actor.getUniqueId());
+        var target = preview.honorPreview().targetId();
+        var events = reputationRepo.findByTargetAsync(target).join();
+        long ratingId = events.getFirst().id();
+        Player admin = createMockPlayer("Admin", UUID.randomUUID(), "socialblueprint.admin.revoke");
+        var layout = StatusGuiService.buildPageLayout(null, events, 0, 1, Set.of(), admin,
+                configManager.snapshot(), null, messageRegistry);
+        for (int slot : List.of(27, 36, 45))
+            assertThat(layout.get(slot).lore()).contains(GuiLoreLine.ofKey("honor.rating-id", Map.of("id", String.valueOf(ratingId))));
+        var denied = new StatusGuiHolder(actor.getUniqueId(), "TargetUser", List.of(layout), new HashSet<>(), configManager.snapshot());
+        awaitQueued(guiService.handleClick(actor, denied, 36, true));
+        assertThat(messageRegistry.hasCall("commands.no-permission")).isTrue();
+        var history = new StatusGuiHolder(admin.getUniqueId(), "TargetUser", List.of(layout), new HashSet<>(), configManager.snapshot());
+        awaitQueued(guiService.handleClick(admin, history, 45, true));
+        assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(1);
+        var confirmation = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        assertThat(confirmation.layout().get(StatusGuiService.SLOT_HONOR_CONFIRM).iconKind()).isEqualTo(GuiIconKind.REVOKE_CONFIRM);
+        awaitQueued(guiService.handleClick(admin, confirmation, StatusGuiService.SLOT_HONOR_CONFIRM));
+        awaitQueued(guiService.handleClick(admin, confirmation, StatusGuiService.SLOT_HONOR_CONFIRM));
+        var revoked = reputationRepo.findByTargetAsync(target).join();
+        assertThat(revoked).hasSize(2);
+        assertThat(revoked.getFirst().revokedBy()).isEqualTo("Admin");
+        assertThat(auditRepo.findByTarget(target)).hasSize(1);
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(balanceAfterRating);
+        assertThat(deposits).isEmpty();
+        var marked = StatusGuiService.buildPageLayout(null, List.of(revoked.getFirst()), 0, 1, Set.of(), admin,
+                configManager.snapshot(), null, messageRegistry);
+        for (int slot : List.of(27, 36, 45))
+            assertThat(marked.get(slot).lore()).contains(GuiLoreLine.ofKey("honor.revoked", Map.of("admin", "Admin")));
+        awaitQueued(new com.dasannn.socialblueprint.command.StatusAdminCommand(honorService, messageRegistry)
+                .execute(admin, new String[]{"revoke", "TargetUser", String.valueOf(ratingId)}, configManager.snapshot()));
+        assertThat(messageRegistry.hasCall("honor.revoke-rejected")).isTrue();
+    }
 
     @Test
     @DisplayName("T-120: Double chest GUI has tier dye at 22, give banner at 12, subject head at 13, take banner at 14")
@@ -674,7 +746,7 @@ public class StatusGuiServiceTest {
     // =========================================================================
 
     @Test
-    @DisplayName("T-123: Clicking green banner prompts optional reason before HonorService confirmation")
+    @DisplayName("T-123: Clicking green banner prompts mandatory reason before HonorService confirmation")
     void clickGiveBannerInvokesHonorService() {
         UUID targetUuid = UUID.randomUUID();
         offlineNames.put(targetUuid, "TargetUser");
@@ -690,12 +762,12 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // Click slot 12 (Give Honor), then explicitly skip the optional reason.
+        // Click slot 12 (Give Honor), then provide its mandatory reason.
         awaitQueued(guiService.handleClick(viewer, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
         assertThat(guiService.hasPendingReason(viewerUuid)).isTrue();
         assertThat(messageRegistry.hasCall("gui.prompt-give-reason")).isTrue();
         assertThat(honorService.getPendingConfirmation(viewerUuid)).isEmpty();
-        awaitQueued(guiService.consumePendingReason(viewer, messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word")));
+        awaitQueued(guiService.consumePendingReason(viewer, "Helpful neighbor"));
 
         // Prepared pending confirmation in HonorService
         assertThat(honorService.getPendingConfirmation(viewerUuid)).isPresent();
@@ -765,35 +837,30 @@ public class StatusGuiServiceTest {
     }
 
     @Test
-    void givingHonorStoresOptionalPlainReasonOrNoneForConfiguredSkip() throws Exception {
-        configManager.set("gui.reason-skip-word", "omit");
-        for (String reason : List.of("Helpful &a <click:run_command:'/op me'>neighbor", "omit")) {
-            Player actor = openGiveConfirmation(reason);
-            var confirmation = (StatusGuiHolder) openedInventories.getLast().getHolder();
-            var pending = confirmation.honorPreview();
-            assertThat(pending.kind()).isEqualTo(HonorKind.POSITIVE);
-            if (reason.equals("omit")) assertThat(pending.reason()).isNull();
-            else {
-                assertThat(pending.reason()).isEqualTo(reason);
-                assertThat(confirmation.layout().get(StatusGuiService.SLOT_HONOR_DETAILS).lore())
-                        .contains(GuiLoreLine.ofPlain(reason));
-            }
-            awaitQueued(guiService.handleClick(actor, confirmation, StatusGuiService.SLOT_HONOR_CONFIRM));
-            var events = reputationRepo.findByTargetAsync(pending.targetId()).join();
-            assertThat(events).hasSize(1);
-            assertThat(events.getFirst().reason()).isEqualTo(reason.equals("omit") ? null : reason);
-        }
+    void givingHonorStoresOriginalReasonAndDisplaysSanitizedText() throws Exception {
+        String reason = "Helpful &a <click:run_command:'/op me'>neighbor";
+        Player actor = openGiveConfirmation(reason);
+        var confirmation = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        var pending = confirmation.honorPreview();
+        assertThat(pending.reason()).isEqualTo(reason);
+        assertThat(confirmation.layout().get(StatusGuiService.SLOT_HONOR_DETAILS).lore())
+                .contains(GuiLoreLine.ofPlain(CommentSanitizer.toPlainText(reason)));
+        awaitQueued(guiService.handleClick(actor, confirmation, StatusGuiService.SLOT_HONOR_CONFIRM));
+        assertThat(reputationRepo.findByTargetAsync(pending.targetId()).join().getFirst().reason()).isEqualTo(reason);
     }
 
     @Test
-    void takingHonorRejectsEmptyAndSkipReason() {
-        Player viewer = createMockPlayer("Viewer", UUID.randomUUID(), "socialblueprint.take-reputation");
-        for (String reason : List.of("", "  ", messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word"))) {
-            messageRegistry.clearCalls();
-            guiService.promptForTakeHonorReason(viewer, "TargetUser", configManager.snapshot());
-            awaitQueued(guiService.consumePendingReason(viewer, reason));
-            assertThat(messageRegistry.hasCall("honor.reason-required")).isTrue();
-            assertThat(honorService.getPendingConfirmation(viewer.getUniqueId())).isEmpty();
+    void bothActionsRejectMissingAndShortReasons() {
+        Player viewer = createMockPlayer("Viewer", UUID.randomUUID(),
+                "socialblueprint.give-reputation", "socialblueprint.take-reputation");
+        for (HonorKind kind : List.of(HonorKind.POSITIVE, HonorKind.NEGATIVE)) {
+            for (String reason : List.of("", "  ", "-", "&a<red>ab", "\u200B")) {
+                messageRegistry.clearCalls();
+                guiService.promptForHonorReason(viewer, "TargetUser", kind, configManager.snapshot());
+                awaitQueued(guiService.consumePendingReason(viewer, reason));
+                assertThat(messageRegistry.hasCall(reason.isBlank() ? "honor.reason-required" : "honor.reason-too-short")).isTrue();
+                assertThat(honorService.getPendingConfirmation(viewer.getUniqueId())).isEmpty();
+            }
         }
     }
 
@@ -882,9 +949,9 @@ public class StatusGuiServiceTest {
             awaitQueued(guiService.consumePendingReason(actor, reason));
             StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
             GuiSlot details = holder.layout().get(StatusGuiService.SLOT_HONOR_DETAILS);
-            assertThat(details.lore().getLast()).isEqualTo(GuiLoreLine.ofPlain(reason));
+            assertThat(details.lore().getLast()).isEqualTo(GuiLoreLine.ofPlain(CommentSanitizer.toPlainText(reason)));
             Component rendered = details.renderedLore().getLast();
-            assertThat(PlainTextComponentSerializer.plainText().serialize(rendered)).isEqualTo(reason);
+            assertThat(PlainTextComponentSerializer.plainText().serialize(rendered)).isEqualTo(CommentSanitizer.toPlainText(reason));
             assertThat(rendered.clickEvent()).isNull();
             assertThat(rendered.children()).isEmpty();
             assertThat(rendered.color()).isEqualTo(net.kyori.adventure.text.format.NamedTextColor.GRAY);
@@ -969,14 +1036,14 @@ public class StatusGuiServiceTest {
         awaitQueued(guiService.openGuiAsync(strict, "TargetUser", configManager.snapshot()));
         StatusGuiHolder profile = (StatusGuiHolder) openedInventories.getLast().getHolder();
         awaitQueued(guiService.handleClick(strict, profile, StatusGuiService.SLOT_TOP_GIVE_BANNER));
-        awaitQueued(guiService.consumePendingReason(strict, messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word")));
+        awaitQueued(guiService.consumePendingReason(strict, "Helpful neighbor"));
         StatusGuiHolder confirmation = (StatusGuiHolder) openedInventories.getLast().getHolder();
         awaitQueued(guiService.handleClick(strict, confirmation, StatusGuiService.SLOT_HONOR_CONFIRM));
         assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(1);
     }
 
     private Player openGiveConfirmation() {
-        return openGiveConfirmation(messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word"));
+        return openGiveConfirmation("Helpful neighbor");
     }
 
     private Player openGiveConfirmation(String reason) {
@@ -1290,7 +1357,7 @@ public class StatusGuiServiceTest {
         StatusGuiHolder holder = (StatusGuiHolder) openedInventories.get(0).getHolder();
 
         awaitQueued(guiService.handleClick(actorPlayer, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
-        awaitQueued(guiService.consumePendingReason(actorPlayer, messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word")));
+        awaitQueued(guiService.consumePendingReason(actorPlayer, "Helpful neighbor"));
         assertThat(honorService.getPendingConfirmation(actorUuid)).isPresent();
 
         awaitQueued(honorService.confirmPlayerHonor(actorPlayer, configManager.snapshot()));
@@ -1316,17 +1383,17 @@ public class StatusGuiServiceTest {
         StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
 
         // Hold the command preview's main-thread completion, then issue the GUI request.
-        CompletableFuture<Void> commandPreview = honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, null, configManager.snapshot());
+        CompletableFuture<Void> commandPreview = honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, "Helpful neighbor", configManager.snapshot());
         guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER);
         CompletableFuture<Void> overlappingGui = guiService.consumePendingReason(actor,
-                messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word"));
+                "Helpful neighbor");
         assertThat(overlappingGui.isDone()).isTrue();
         assertThat(commandPreview.isDone()).isFalse();
         honorService.clearPendingConfirmation(actorUuid);
         awaitQueued(commandPreview);
         assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
         awaitQueued(guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
-        awaitQueued(guiService.consumePendingReason(actor, messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word")));
+        awaitQueued(guiService.consumePendingReason(actor, "Helpful neighbor"));
         double approved = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
 
         var releaseCommit = new java.util.concurrent.CountDownLatch(1);
@@ -1345,7 +1412,7 @@ public class StatusGuiServiceTest {
             awaitGuiOutcome(() -> economyBalances.get(actorUuid) == 10000.0 - approved);
             assertThat(confirmation.isDone()).isFalse();
             assertThat(guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER).isDone()).isTrue();
-            assertThat(guiService.consumePendingReason(actor, messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word")).isDone()).isTrue();
+            assertThat(guiService.consumePendingReason(actor, "Helpful neighbor").isDone()).isTrue();
             assertThat(honorService.confirmPlayerHonor(actor, configManager.snapshot()).isDone()).isTrue();
             assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
         } finally {
@@ -1355,7 +1422,7 @@ public class StatusGuiServiceTest {
         awaitQueued(confirmation);
         assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(1);
         awaitQueued(guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
-        awaitQueued(guiService.consumePendingReason(actor, messageRegistry.getRaw(configManager.snapshot(), "gui.reason-skip-word")));
+        awaitQueued(guiService.consumePendingReason(actor, "Helpful neighbor"));
         assertThat(messageRegistry.hasCall("honor.cooldown")).isTrue();
         assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
         assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0 - approved);
@@ -1370,7 +1437,7 @@ public class StatusGuiServiceTest {
         onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
         economyBalances.put(actorUuid, 10000.0);
         RuntimeSnapshot before = configManager.snapshot();
-        awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, null, before));
+        awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, "Helpful neighbor", before));
         double original = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
         configManager.set("honor.cost", "750");
         awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
@@ -1389,7 +1456,7 @@ public class StatusGuiServiceTest {
         assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(3);
         PlayerId other = PlayerId.of(UUID.randomUUID());
         onlineLookupMap.put("other", new PlayerLookup.KnownPlayer(other, "Other", true));
-        awaitQueued(honorService.preparePlayerHonor(actor, "Other", HonorKind.POSITIVE, null, configManager.snapshot()));
+        awaitQueued(honorService.preparePlayerHonor(actor, "Other", HonorKind.POSITIVE, "Helpful neighbor", configManager.snapshot()));
         reputationRepo.saveAsync(new ReputationEvent(actorId, other, 1, HonorKind.POSITIVE, 750, null, Instant.now())).join();
         awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
         assertThat(messageRegistry.hasCall("honor.cooldown")).isTrue();
@@ -1461,7 +1528,7 @@ public class StatusGuiServiceTest {
                     }
                     return method.invoke(delegate, args);
                 });
-        awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, null, configManager.snapshot()));
+        awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, "Helpful neighbor", configManager.snapshot()));
         double approved = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
         withdrawalFactor = 1.25;
         awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));

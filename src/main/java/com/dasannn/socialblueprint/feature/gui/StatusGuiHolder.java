@@ -33,6 +33,21 @@ public final class StatusGuiHolder implements InventoryHolder {
     private final Set<Long> revealedEventIds;
     private final RuntimeSnapshot snapshot;
 
+    private Long revocationPreview;
+    private java.time.Instant revocationExpiry;
+    private boolean revocationHandled;
+
+    public void setRevocationPreview(long ratingId, java.time.Instant expiry) {
+        revocationPreview = ratingId;
+        revocationExpiry = expiry;
+    }
+
+    public Long consumeRevocationPreview(java.time.Instant now) {
+        if (revocationPreview == null || revocationHandled) return null;
+        revocationHandled = true;
+        return now.isAfter(revocationExpiry) ? null : revocationPreview;
+    }
+
     private PendingConfirmation honorPreview;
     private boolean honorPreviewHandled;
 

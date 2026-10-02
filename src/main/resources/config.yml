@@ -179,6 +179,8 @@ psychosis:
 # Honor Economy (SB-050, SB-054, Decision 0001)
 # ==============================================================================
 honor:
+  reason:
+    min-length: 3
   # Base monetary cost to give or remove honor (withdrawn via Vault economy).
   cost: 500.0
 
@@ -207,6 +209,7 @@ honor:
 # Action-to-permission node mapping resolved at check time.
 # ==============================================================================
 permissions:
+  admin-revoke: socialblueprint.admin.revoke
   admin-mind: socialblueprint.admin.mind
   show: "socialblueprint.show"
   show-others: "socialblueprint.show.others"
@@ -278,7 +281,7 @@ effects:
       minimum-serenity: 1
       cooldown-ticks: 6000
       session-cap: 12
-      type: end_rod
+      types: [end_rod, white_smoke]
       placement: around
       # Maximum 64; shared delivery skips audiences needing more than 512 particle sends.
       count: 8
@@ -289,7 +292,7 @@ effects:
       minimum-serenity: 1
       cooldown-ticks: 6000
       session-cap: 12
-      kind: cat
+      kinds: [turtle, fox, armadillo, bee]
       # Outside block reach: a packet-only animal is still pickable by the client,
       # so delivery skips any viewer whose reach could touch it (SB-124).
       range-blocks: 8
@@ -303,7 +306,7 @@ effects:
     duration-ticks: 60
   boss-bar:
     enabled: true
-    minimum-level: medium
+    minimum-level: low
     cooldown-ticks: 1200
     session-cap: 6
     colour: purple
@@ -318,12 +321,12 @@ effects:
     range-blocks: 16
   fake-connection:
     enabled: true
-    minimum-level: medium
+    minimum-level: low
     cooldown-ticks: 18000
     session-cap: 6
   private-chat:
     enabled: true
-    minimum-level: medium
+    minimum-level: low
     cooldown-ticks: 6000
     session-cap: 6
     max-visible-length: 160
@@ -358,14 +361,21 @@ effects:
     range-blocks: 8
     duration-ticks: 40
   episodes:
+    low:
+      interval-ticks: 4800
+      max-concurrent: 1
     medium:
       interval-ticks: 2400
+      max-concurrent: 2
     high:
       interval-ticks: 1200
+      max-concurrent: 3
     extreme:
       interval-ticks: 400
+      max-concurrent: 4
     quiet-ticks: 20
     duration-scale:
+      low: 1.0
       medium: 1.0
       high: 1.5
       extreme: 2.0
@@ -379,11 +389,11 @@ effects:
     duration-ticks: 100
   particles:
     enabled: true
-    minimum-level: medium
+    minimum-level: low
     cooldown-ticks: 1200
     session-cap: 6
-    # Supported native types: smoke and end_rod; episode includes their finite client tail.
-    type: smoke
+    # Supported native types: smoke, soul, white_smoke and end_rod; finite client tails are included.
+    types: [smoke, soul]
     placement: around
     # Maximum 64 particles per private episode.
     count: 8
@@ -391,7 +401,7 @@ effects:
     duration-ticks: 40
   screen-flash:
     enabled: true
-    minimum-level: medium
+    minimum-level: low
     cooldown-ticks: 1200
     session-cap: 6
     channel: title
@@ -400,7 +410,7 @@ effects:
     fade-out-ticks: 5
   source-less-sounds:
     enabled: true
-    minimum-level: medium
+    minimum-level: low
     cooldown-ticks: 1200
     session-cap: 6
     sound-slot: source-less
@@ -534,3 +544,10 @@ history:
   # Cost in currency to reveal an anonymous rater's identity in the /status GUI (T-124).
   reveal-cost: 100.0
 
+
+# All language lists apply to every reader (SB-151).
+chat-filter:
+  enabled: true
+  words:
+    es: [idiota, imbecil, estupido, mierda, puta, cabron]
+    en: [idiot, asshole, bastard, shit, fuck, bitch]
