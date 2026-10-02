@@ -1,7 +1,7 @@
 name: SocialBlueprint
 author: Dasannn
 main: com.dasannn.socialblueprint.SocialBlueprintPlugin
-version: 1.0
+version: '${project.version}'
 description: Social layer plugin for Paper
 api-version: '26.3'
 
