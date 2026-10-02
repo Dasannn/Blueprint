@@ -565,7 +565,11 @@ public class HonorService {
                             pending.reason(),
                             now
                     );
-                    return reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository);
+                    var mindInput = pending.kind() == HonorKind.NEGATIVE
+                            ? com.dasannn.socialblueprint.domain.MindInput.HONOR_REVIEW_NEGATIVE
+                            : com.dasannn.socialblueprint.domain.MindInput.HONOR_REVIEW;
+                    return reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository,
+                            snapshot.config().psychosis().input(mindInput));
                 }).handle((saved, error) -> {
                     mainThreadRunner.accept(() -> {
                         if (error == null) {

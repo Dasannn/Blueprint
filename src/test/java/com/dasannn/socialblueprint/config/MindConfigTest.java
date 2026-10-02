@@ -33,12 +33,14 @@ class MindConfigTest {
     @Test void invalidNumbersBooleansCapsAndThresholdsNameTheirPathAndDoNotPublish() {
         var manager=new ConfigManager(folder.resolve("config.yml").toFile(),new MessageRegistry(folder.toFile(),"en",null),Runnable::run,null);manager.initialize();
         for(String key:List.of("psychosis.inputs.kill.serene-drain","psychosis.inputs.sleep.cure","psychosis.inputs.fishing.gain",
-                "psychosis.inputs.near-death.health","psychosis.inputs.clean-day.active-minutes")) {
+                "psychosis.inputs.near-death.health","psychosis.inputs.clean-day.active-minutes",
+                "psychosis.inputs.honor-review.gain","psychosis.inputs.honor-review.cure",
+                "psychosis.inputs.honor-review.serene-drain","psychosis.inputs.honor-review.psychosis-weight")) {
             for(Object value:List.of(-1,Double.NaN,Double.POSITIVE_INFINITY,"invalid")) {
                 var yaml=shipped();yaml.set(key,value);assertThatThrownBy(() -> PsychosisConfigSection.load(yaml)).hasMessageContaining(key);
             }
         }
-        for(String key:List.of("psychosis.inputs.sleep.cap","psychosis.inputs.clean-day.cap","psychosis.inputs.peaceful.cap")) {
+        for(String key:List.of("psychosis.inputs.sleep.cap","psychosis.inputs.clean-day.cap","psychosis.inputs.peaceful.cap","psychosis.inputs.honor-review.cap")) {
             for(Object value:List.of(-1,0.5,Double.NaN,Double.POSITIVE_INFINITY,2147483648L)) {
                 var yaml=shipped();yaml.set(key,value);assertThatThrownBy(() -> PsychosisConfigSection.load(yaml)).hasMessageContaining(key);
             }
@@ -48,6 +50,28 @@ class MindConfigTest {
             var snapshot=manager.snapshot();assertThatThrownBy(() -> manager.set(invalid[0],invalid[1])).hasMessageContaining(invalid[0]);
             assertThat(manager.snapshot()).isSameAs(snapshot);
         }
+    }
+    @Test void honorUpgradeAndLiveEditsPreserveIndependentAmountsAndSharedSwitchAndCap() throws Exception {
+        var yaml = shipped(); yaml.set("psychosis.inputs.honor-review", null);
+        yaml.set("psychosis.inputs.honor-review.gain", 7);
+        yaml.save(folder.resolve("config.yml").toFile());
+        var manager = new ConfigManager(folder.resolve("config.yml").toFile(), new MessageRegistry(folder.toFile(), "en", null), Runnable::run, null);
+        manager.initialize();
+        var upgraded = YamlConfiguration.loadConfiguration(folder.resolve("config.yml").toFile());
+        for (String leaf : List.of("enabled", "gain", "cure", "serene-drain", "psychosis-weight", "cap"))
+            assertThat(upgraded.contains("psychosis.inputs.honor-review." + leaf)).as(leaf).isTrue();
+        assertThat(manager.config().psychosis().input(MindInput.HONOR_REVIEW).sereneAmount()).isEqualTo(7);
+        manager.set("psychosis.inputs.honor-review.gain", "3");
+        manager.set("psychosis.inputs.honor-review.cure", "4");
+        manager.set("psychosis.inputs.honor-review.serene-drain", "5");
+        manager.set("psychosis.inputs.honor-review.psychosis-weight", "6");
+        manager.set("psychosis.inputs.honor-review.cap", "9");
+        manager.set("psychosis.inputs.honor-review.enabled", "false");
+        assertThat(manager.config().psychosis().input(MindInput.HONOR_REVIEW)).isEqualTo(new MindInputConfig(false, 3, 4, 9));
+        assertThat(manager.config().psychosis().input(MindInput.HONOR_REVIEW_NEGATIVE)).isEqualTo(new MindInputConfig(false, 5, 6, 9));
+        var snapshot = manager.snapshot();
+        assertThatThrownBy(() -> manager.set("psychosis.inputs.honor-review.enabled", "sometimes")).hasMessageContaining("psychosis.inputs.honor-review.enabled");
+        assertThat(manager.snapshot()).isSameAs(snapshot);
     }
     @Test void upgradeRetiresOldKeysMergesInputsPreservesOwnerValuesAndSurvivesInterruptedMigration() throws Exception {
         var yaml=shipped();yaml.set("psychosis.inputs",null);yaml.set("psychosis.levels",null);

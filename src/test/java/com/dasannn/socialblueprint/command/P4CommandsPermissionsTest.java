@@ -1255,6 +1255,30 @@ class P4CommandsPermissionsTest {
     // =========================================================================
 
     @Test
+    void commandRatingUsesLiveHonorMindConfigForBothDirections() {
+        Player target = mockPlayer("MindTarget");
+        Player positive = mockPlayer("PositiveRater", "socialblueprint.give");
+        Player negative = mockPlayer("NegativeRater", "socialblueprint.take");
+        Player disabled = mockPlayer("DisabledRater", "socialblueprint.give");
+        for (Player actor : List.of(positive, negative, disabled)) economyBalances.put(actor.getUniqueId(), 10000.0);
+        PlayerId targetId = PlayerId.of(target.getUniqueId());
+        configManager.set("psychosis.inputs.honor-review.gain", "3");
+        configManager.set("psychosis.inputs.honor-review.serene-drain", "1");
+        runCommandSync(positive, "status", "give", "MindTarget", "Helpful neighbor");
+        runCommandSync(positive, "status", "confirm");
+        assertThat(profileService.mind().value(targetId)).isEqualTo(3);
+        runCommandSync(negative, "status", "take", "MindTarget", "Unhelpful neighbor");
+        runCommandSync(negative, "status", "confirm");
+        assertThat(profileService.mind().value(targetId)).isEqualTo(2);
+        configManager.set("psychosis.inputs.honor-review.enabled", "false");
+        runCommandSync(disabled, "status", "give", "MindTarget", "Helpful neighbor");
+        runCommandSync(disabled, "status", "confirm");
+        assertThat(profileService.mind().value(targetId)).isEqualTo(2);
+        assertThat(profileService.mind().events(targetId)).hasSize(2);
+        assertThat(reputationRepo.findByTarget(targetId)).hasSize(3);
+    }
+
+    @Test
     @DisplayName("T-055 / SB-053: Cooldown between same actor-target pair is enforced")
     void cooldownBetweenSamePairIsEnforced() {
         Player actor = mockPlayer("Rater", "socialblueprint.give");

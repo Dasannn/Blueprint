@@ -66,18 +66,6 @@ class HonorRevocationStorageTest {
     }
 
     private static void prepareSchema(StorageEngine engine) {
-        engine.runMigrations(new MigrationRunner(List.of(new Migration_1_InitialSchema(),
-                new Migration_2_RaterReveal(), new Migration_3_KillPenaltyClaim(),
-                new Migration_4_PendingCompensation(), new Migration_5_Serenity())));
-        // T-200 supplies migration 6 in parallel. Exercise 7 directly here,
-        // without inventing a migration 6 or advancing schema_version past it.
-        engine.execute(conn -> {
-            boolean present = false;
-            try (var stmt = conn.createStatement(); var columns = stmt.executeQuery("PRAGMA table_info(reputation_event)")) {
-                while (columns.next()) if ("revoked_rating_id".equals(columns.getString("name"))) present = true;
-            }
-            if (!present) new Migration_7_HonorRevocation().apply(conn);
-            return null;
-        });
+        engine.runMigrations();
     }
 }
