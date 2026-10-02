@@ -159,6 +159,19 @@ class PresentationEffectsTest {
         assertThat(screen.mayClear()).isFalse();
     }
 
+    @Test void oversizedParticleAudienceSkipsBeforePlatformAccessOrScheduling() {
+        AmbientEntityRegistry registry = new AmbientEntityRegistry();
+        List<Scheduled> scheduled = new ArrayList<>();
+        var dispatcher = dispatcher(registry, scheduled);
+        org.bukkit.entity.Player untouched = (org.bukkit.entity.Player) java.lang.reflect.Proxy.newProxyInstance(
+                org.bukkit.entity.Player.class.getClassLoader(), new Class<?>[]{org.bukkit.entity.Player.class},
+                (proxy, method, args) -> { throw new AssertionError("Oversized episode touched player: " + method.getName()); });
+        var particles = new PresentationConfig.Particles("end_rod", "around", PresentationConfig.MAX_PARTICLE_COUNT, 1, 40);
+        assertThat(dispatcher.dispatchParticles(untouched, particles, java.util.Collections.nCopies(9, untouched))).isFalse();
+        assertThat(scheduled).isEmpty();
+        assertThat(registry.getActiveCount()).isZero();
+    }
+
     @Test void particlePositionsNeverExceedConfiguredRadius() {
         assertThat(new PresentationConfig.Particles("smoke", "around", 8, 1, 1).totalTicks()).isEqualTo(41);
         assertThat(new PresentationConfig.Particles("end_rod", "around", 8, 1, 40).totalTicks()).isEqualTo(72);

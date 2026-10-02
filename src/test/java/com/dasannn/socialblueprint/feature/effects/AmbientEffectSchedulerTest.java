@@ -540,6 +540,10 @@ class AmbientEffectSchedulerTest {
                 configManager.snapshot().messages()
         ));
 
+        // A cached view belongs to the snapshot it was computed under (T-103
+        // finding 4), so publishing a new snapshot needs a fresh load first.
+        profileService.loadViewAsync(PlayerId.of(uuid), "IntervalPlayer", configManager.snapshot()).join();
+
         // After the High quiet period, the shorter check interval allows another episode.
         long t2 = t0 + 135_000L;
         scheduler.tickAt(t2);

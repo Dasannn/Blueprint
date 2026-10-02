@@ -91,7 +91,9 @@ public class ConfigManager {
 
     private void retireEffectsKeys() {
         removeObsoleteKeys(configFile, List.of("effects.threshold", "effects.silverfish.duration-ticks",
-                "effects.fake-announcement.fake-names", "permissions.effects"));
+                "effects.fake-announcement.fake-names", "permissions.effects",
+                "effects.whisper.cooldown", "effects.whisper.session-cap",
+                "effects.fake-announcement.cooldown", "effects.fake-announcement.session-cap"));
         for (String language : List.of("en", "es")) {
             removeObsoleteKeys(new File(configFile.getParentFile(), "messages_" + language + ".yml"),
                     List.of("effects.opt-out-enabled", "effects.opt-out-disabled"));
@@ -676,12 +678,8 @@ public class ConfigManager {
         set.add("effects.max-episode-ticks");
         set.add("effects.silverfish.cooldown");
         set.add("effects.silverfish.session-cap");
-        set.add("effects.whisper.cooldown");
-        set.add("effects.whisper.session-cap");
         set.add("effects.creeper.cooldown");
         set.add("effects.creeper.session-cap");
-        set.add("effects.fake-announcement.cooldown");
-        set.add("effects.fake-announcement.session-cap");
 
         set.add("legacy-import.trust-name-lookup");
 
@@ -801,12 +799,8 @@ public class ConfigManager {
             if ("effects.check-interval".equals(path)) return formatDuration(config.effects().checkInterval());
             if ("effects.silverfish.cooldown".equals(path)) return formatDuration(config.effects().silverfish().cooldown());
             if ("effects.silverfish.session-cap".equals(path)) return String.valueOf(config.effects().silverfish().sessionCap());
-            if ("effects.whisper.cooldown".equals(path)) return formatDuration(config.effects().whisper().cooldown());
-            if ("effects.whisper.session-cap".equals(path)) return String.valueOf(config.effects().whisper().sessionCap());
             if ("effects.creeper.cooldown".equals(path)) return formatDuration(config.effects().creeper().cooldown());
             if ("effects.creeper.session-cap".equals(path)) return String.valueOf(config.effects().creeper().sessionCap());
-            if ("effects.fake-announcement.cooldown".equals(path)) return formatDuration(config.effects().fakeAnnouncement().cooldown());
-            if ("effects.fake-announcement.session-cap".equals(path)) return String.valueOf(config.effects().fakeAnnouncement().sessionCap());
         }
 
         if (config.legacyImport() != null && "legacy-import.trust-name-lookup".equals(path)) {

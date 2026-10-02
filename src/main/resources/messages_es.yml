@@ -99,6 +99,7 @@ honor:
   no-pending: '&cNo tienes ninguna calificación pendiente por confirmar.'
   action-cancelled: '&cLa acción pendiente ha expirado.'
   write-failed: '&cError al registrar la calificación. Tu dinero fue reembolsado.'
+  check-failed: '&cNo se pudo comprobar tu historial de valoraciones. No se ha cobrado nada.'
   trust-usage: '&eUso: &f/status trust <jugador> [motivo]'
   distrust-usage: '&eUso: &f/status distrust <jugador> <motivo>'
   give-usage: '&eUso: &f/status give <jugador> [motivo]'

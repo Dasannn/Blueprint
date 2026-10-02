@@ -11,6 +11,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -145,32 +146,15 @@ public class FakeSilverfishService {
             Method setPosMethod = fishInstance.getClass().getMethod("setPos", double.class, double.class, double.class);
             setPosMethod.invoke(fishInstance, location.getX(), location.getY(), location.getZ());
 
-            // Match constructor parameter count strictly to 1 (Finding 1)
-            Class<?> packetClass = Class.forName("net.minecraft.network.protocol.game.ClientboundAddEntityPacket");
-            Constructor<?> packetConstructor = null;
-            for (Constructor<?> c : packetClass.getConstructors()) {
-                if (c.getParameterCount() == 1 && c.getParameterTypes()[0].isAssignableFrom(silverfishClass)) {
-                    packetConstructor = c;
-                    break;
-                }
-            }
-            if (packetConstructor == null) {
-                for (Constructor<?> c : packetClass.getConstructors()) {
-                    if (c.getParameterCount() == 1 && c.getParameterTypes()[0].getSimpleName().equals("Entity")) {
-                        packetConstructor = c;
-                        break;
-                    }
-                }
-            }
-            if (packetConstructor == null) {
-                warnOnce("ClientboundAddEntityPacket 1-parameter constructor not found", null);
-                return null;
-            }
-
-            Object spawnPacket = packetConstructor.newInstance(fishInstance);
-
             Method getIdMethod = fishInstance.getClass().getMethod("getId");
             int entityId = (int) getIdMethod.invoke(fishInstance);
+            Class<?> vector = Class.forName("net.minecraft.world.phys.Vec3");
+            Object spawnPacket = Class.forName("net.minecraft.network.protocol.game.ClientboundAddEntityPacket")
+                    .getConstructor(int.class, UUID.class, double.class, double.class, double.class, float.class,
+                            float.class, entityTypeClass, int.class, vector, double.class)
+                    .newInstance(entityId, silverfishClass.getMethod("getUUID").invoke(fishInstance),
+                            location.getX(), location.getY(), location.getZ(), location.getPitch(), location.getYaw(),
+                            silverfishType, 0, vector.getField("ZERO").get(null), (double) location.getYaw());
 
             Class<?> removeClass = Class.forName("net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket");
             Constructor<?> removeConstructor = removeClass.getConstructor(int[].class);

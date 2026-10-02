@@ -99,6 +99,7 @@ honor:
   no-pending: '&cYou have no pending rating to confirm.'
   action-cancelled: '&cPending action has expired.'
   write-failed: '&cFailed to record rating. Your funds were refunded.'
+  check-failed: '&cCould not check your rating history. Nothing was charged.'
   trust-usage: '&eUsage: &f/status trust <player> [reason]'
   distrust-usage: '&eUsage: &f/status distrust <player> <reason>'
   give-usage: '&eUsage: &f/status give <player> [reason]'

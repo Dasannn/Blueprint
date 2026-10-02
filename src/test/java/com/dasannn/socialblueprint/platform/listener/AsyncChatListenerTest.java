@@ -63,10 +63,46 @@ class AsyncChatListenerTest {
 
     private StorageEngine storage;
     private ConfigManager configManager;
-    private MessageRegistry messageRegistry;
+    private HoverRegistry messageRegistry;
     private ProfileService profileService;
     private PsychosisRepository psychosisRepo;
     private AsyncChatListener chatListener;
+
+    private record HoverCall(String key, java.util.Map<String, String> values,
+                             java.util.Map<String, Component> components, Component rendered) {}
+
+    private static class HoverRegistry extends MessageRegistry {
+        final java.util.List<HoverCall> calls = new java.util.ArrayList<>();
+        HoverRegistry(File folder, Logger logger) { super(folder, "en", logger); }
+        @Override public Component render(RuntimeSnapshot snapshot, String key, java.util.Map<String, String> values,
+                                          java.util.Map<String, Component> components) {
+            Component result = super.render(snapshot, key, values, components);
+            calls.add(new HoverCall(key, java.util.Map.copyOf(values), java.util.Map.copyOf(components), result));
+            return result;
+        }
+    }
+
+    private void assertHoverInputsAndStructure(RuntimeSnapshot snapshot, Component hover) {
+        var calls = messageRegistry.calls;
+        assertThat(calls).extracting(HoverCall::key).containsExactly("chat.hover-status", "chat.hover-tier",
+                "chat.hover-confidence", "chat.hover-psychosis", "chat.hover-contributors");
+        assertThat(calls).extracting(HoverCall::values).containsExactly(
+                java.util.Map.of("status", "25"),
+                java.util.Map.of("tier", messageRegistry.getRaw(snapshot, "tiers.tier2")),
+                java.util.Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence.established")),
+                java.util.Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis.low")),
+                java.util.Map.of("contributors", "7"));
+        assertThat(calls.get(1).components()).containsOnlyKeys("prefix").containsEntry("prefix",
+                ColorParser.parse(snapshot.config().tiers().prefix(Tier.HONORABLE)));
+        assertThat(calls.get(0).components()).isEmpty();
+        assertThat(calls.get(2).components()).isEmpty();
+        assertThat(calls.get(3).components()).isEmpty();
+        assertThat(calls.get(4).components()).isEmpty();
+        Component expected = calls.getFirst().rendered();
+        for (int i = 1; i < calls.size(); i++) expected = expected.append(Component.newline()).append(calls.get(i).rendered());
+        assertThat(hover).isEqualTo(expected);
+        assertThat(hover.clickEvent()).isNull();
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -77,7 +113,7 @@ class AsyncChatListenerTest {
         }
 
         Logger logger = Logger.getLogger("AsyncChatListenerTest-" + System.nanoTime());
-        messageRegistry = new MessageRegistry(tempDir, "en", logger);
+        messageRegistry = new HoverRegistry(tempDir, logger);
         configManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
         configManager.initialize();
 
@@ -154,14 +190,9 @@ class AsyncChatListenerTest {
                 7
         );
 
+        messageRegistry.calls.clear();
         Component hover = chatListener.buildHoverComponent(snapshot, view, Tier.HONORABLE);
-        String serialized = ColorParser.serialize(hover);
-
-        assertThat(serialized).contains("&7Status: &f25");
-        assertThat(serialized).contains("&7Tier: [&a||&7] &fHonorable");
-        assertThat(serialized).contains("&7Confidence: &fEstablished");
-        assertThat(serialized).contains("&7Psychosis: &fLow");
-        assertThat(serialized).contains("&7Contributors: &f7");
+        assertHoverInputsAndStructure(snapshot, hover);
         assertThat(hasColor(hover, net.kyori.adventure.text.format.NamedTextColor.GREEN))
                 .as("Configured tier prefix color codes (&a) must be parsed into components with GREEN color, not literal text")
                 .isTrue();
@@ -196,14 +227,9 @@ class AsyncChatListenerTest {
                 7
         );
 
+        messageRegistry.calls.clear();
         Component hover = chatListener.buildHoverComponent(snapshot, view, Tier.HONORABLE);
-        String serialized = ColorParser.serialize(hover);
-
-        assertThat(serialized).contains("&7Estatus: &f25");
-        assertThat(serialized).contains("&7Rango: [&a||&7] &fHonorable");
-        assertThat(serialized).contains("&7Confianza: &fEstablecida");
-        assertThat(serialized).contains("&7Psicosis: &fBaja");
-        assertThat(serialized).contains("&7Colaboradores: &f7");
+        assertHoverInputsAndStructure(snapshot, hover);
         assertThat(hasColor(hover, net.kyori.adventure.text.format.NamedTextColor.GREEN))
                 .as("Configured tier prefix color codes (&a) must be parsed into components with GREEN color, not literal text")
                 .isTrue();

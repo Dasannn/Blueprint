@@ -96,6 +96,9 @@ public class StatusGuiServiceTest {
     private StatusGuiService guiService;
     private Economy mockEconomy;
     private TestClock testClock;
+    private double withdrawalFactor = 1.0;
+    private Runnable beforeWithdrawal = () -> {};
+    private final List<Double> deposits = new CopyOnWriteArrayList<>();
 
     private final Queue<Runnable> mainThreadQueue = new ConcurrentLinkedQueue<>();
     private final Map<UUID, Double> economyBalances = new ConcurrentHashMap<>();
@@ -492,6 +495,24 @@ public class StatusGuiServiceTest {
         // Viewer adaptation also resolves its newly created name/lore components.
         StatusGuiHolder holder = new StatusGuiHolder(UUID.randomUUID(), "Subject", List.of(layout), Set.of(), snapshot);
         assertParsedText(guiService.computeLayout(holder, null));
+    }
+
+    @Test
+    void onlySystemKillReasonsAreMessageKeys() {
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId actor = PlayerId.of(UUID.randomUUID());
+        var view = PlayerSocialView.neutral(target, "Target", snapshot.config().tiers().ladder());
+        var events = List.of(
+                new ReputationEvent(1L, actor, target, 1, HonorKind.POSITIVE, 500, "kill-penalty.reason", Instant.now()),
+                new ReputationEvent(2L, null, target, -1, HonorKind.SYSTEM_KILL, 0, "kill-penalty.reason", Instant.now()));
+        var layout = guiService.computeAllPages(view, events, Set.of(), null, snapshot).getFirst();
+        assertThat(layout.get(36).lore().getFirst()).isEqualTo(GuiLoreLine.ofPlain("kill-penalty.reason"));
+        assertThat(layout.get(36).renderedLore()).containsExactly(Component.text("kill-penalty.reason")
+                .color(net.kyori.adventure.text.format.NamedTextColor.GRAY)
+                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
+        assertThat(layout.get(37).lore().getFirst()).isEqualTo(GuiLoreLine.ofKey("kill-penalty.reason"));
+        assertThat(layout.get(37).renderedLore()).containsExactly(messageRegistry.render(snapshot, "kill-penalty.reason"));
     }
 
     @Test
@@ -970,9 +991,9 @@ public class StatusGuiServiceTest {
         economyBalances.put(actorUuid, 1000.0);
 
         // Attempt 4th rating -> rejected by pair cap
-        honorService.preparePlayerHonor(
+        awaitQueued(honorService.preparePlayerHonor(
                 actorPlayer, "TargetUser", HonorKind.POSITIVE, "4th attempt", configManager.snapshot()
-        ).join();
+        ));
         drainMainThreadQueue();
 
         assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
@@ -1008,6 +1029,171 @@ public class StatusGuiServiceTest {
         assertThat(events).hasSize(1);
         assertThat(events.getFirst().actor()).isEqualTo(actorId);
         assertThat(events.getFirst().target()).isEqualTo(targetId);
+    }
+
+    @Test
+    void honorSerializesCommandAndGuiThroughCommitAndRejectsStalePreviews() throws Exception {
+        UUID targetUuid = UUID.randomUUID();
+        PlayerId target = PlayerId.of(targetUuid);
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        UUID actorUuid = UUID.randomUUID();
+        Player actor = createMockPlayer("Actor", actorUuid, "socialblueprint.show", "socialblueprint.show-others",
+                "socialblueprint.give-reputation");
+        economyBalances.put(actorUuid, 10000.0);
+        guiService.openGuiAsync(actor, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+        StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+
+        // Hold the command preview's main-thread completion, then issue the GUI request.
+        CompletableFuture<Void> commandPreview = honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, null, configManager.snapshot());
+        CompletableFuture<Void> overlappingGui = guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER);
+        assertThat(overlappingGui.isDone()).isTrue();
+        assertThat(commandPreview.isDone()).isFalse();
+        honorService.clearPendingConfirmation(actorUuid);
+        awaitQueued(commandPreview);
+        assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
+        awaitQueued(guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
+        double approved = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
+
+        var releaseCommit = new java.util.concurrent.CountDownLatch(1);
+        var storageBlocked = new java.util.concurrent.CountDownLatch(1);
+        beforeWithdrawal = () -> {
+            storage.submitAsync(() -> {
+                storageBlocked.countDown();
+                try { releaseCommit.await(); }
+                catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+            });
+            try { assertThat(storageBlocked.await(5, TimeUnit.SECONDS)).isTrue(); }
+            catch (InterruptedException ex) { throw new AssertionError(ex); }
+        };
+        CompletableFuture<Void> confirmation = honorService.confirmPlayerHonor(actor, configManager.snapshot());
+        try {
+            awaitGuiOutcome(() -> economyBalances.get(actorUuid) == 10000.0 - approved);
+            assertThat(confirmation.isDone()).isFalse();
+            assertThat(guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER).isDone()).isTrue();
+            assertThat(honorService.confirmPlayerHonor(actor, configManager.snapshot()).isDone()).isTrue();
+            assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
+        } finally {
+            releaseCommit.countDown();
+            beforeWithdrawal = () -> {};
+        }
+        awaitQueued(confirmation);
+        assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(1);
+        awaitQueued(guiService.handleClick(actor, holder, StatusGuiService.SLOT_TOP_GIVE_BANNER));
+        assertThat(messageRegistry.hasCall("honor.cooldown")).isTrue();
+        assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0 - approved);
+    }
+
+    @Test
+    void honorRechecksAllowanceAndPriceBeforeCharging() {
+        UUID actorUuid = UUID.randomUUID();
+        PlayerId actorId = PlayerId.of(actorUuid);
+        Player actor = createMockPlayer("Actor", actorUuid, "socialblueprint.give-reputation");
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        economyBalances.put(actorUuid, 10000.0);
+        RuntimeSnapshot before = configManager.snapshot();
+        awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, null, before));
+        double original = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
+        configManager.set("honor.cost", "750");
+        awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+        double changed = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
+        assertThat(changed).isNotEqualTo(original);
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
+        assertThat(reputationRepo.findByTargetAsync(target).join()).isEmpty();
+        // Fill the allowance after the new preview, outside pair cooldown but inside cap window.
+        Instant now = Instant.now();
+        for (int days : List.of(2, 4, 6)) reputationRepo.saveAsync(new ReputationEvent(actorId, target, 1,
+                HonorKind.POSITIVE, 500, null, now.minus(Duration.ofDays(days)))).join();
+        awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+        assertThat(messageRegistry.hasCall("honor.cap-reached")).isTrue();
+        assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
+        assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(3);
+        PlayerId other = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("other", new PlayerLookup.KnownPlayer(other, "Other", true));
+        awaitQueued(honorService.preparePlayerHonor(actor, "Other", HonorKind.POSITIVE, null, configManager.snapshot()));
+        reputationRepo.saveAsync(new ReputationEvent(actorId, other, 1, HonorKind.POSITIVE, 750, null, Instant.now())).join();
+        awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+        assertThat(messageRegistry.hasCall("honor.cooldown")).isTrue();
+        assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
+        assertThat(reputationRepo.findByTargetAsync(other).join()).hasSize(1);
+    }
+
+    @Test
+    void revealMismatchRecordsAndRefundsActualDebitOnMainThread() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        ReputationEvent event = reputationRepo.saveAsync(new ReputationEvent(PlayerId.of(UUID.randomUUID()), target,
+                1, HonorKind.POSITIVE, 500, null, Instant.now())).join();
+        UUID viewerUuid = UUID.randomUUID();
+        economyBalances.put(viewerUuid, 500.0);
+        Player delegate = createMockPlayer("Viewer", viewerUuid, "socialblueprint.show", "socialblueprint.show-others");
+        Thread main = Thread.currentThread();
+        var wrongThread = new java.util.concurrent.atomic.AtomicBoolean();
+        Player viewer = (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+                (proxy, method, args) -> {
+                    if (Thread.currentThread() != main) {
+                        wrongThread.set(true);
+                        throw new AssertionError("Player access off main: " + method.getName());
+                    }
+                    return method.invoke(delegate, args);
+                });
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+        StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        withdrawalFactor = 1.25;
+        guiService.handleClick(viewer, holder, 27);
+        // Run only the charge callback; leave the main-thread refund queued for inspection.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (economyBalances.get(viewerUuid) == 500.0 && System.nanoTime() < deadline) {
+            Runnable next = mainThreadQueue.poll();
+            if (next != null) next.run();
+            else Thread.onSpinWait();
+        }
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(375.0);
+        var records = compensationRepo.findByPlayerAsync(viewerUuid).join();
+        assertThat(records).hasSize(1);
+        assertThat(records.getFirst().amount()).isEqualTo(125.0);
+        assertThat(records.getFirst().state()).isIn(com.dasannn.socialblueprint.domain.CompensationState.CHARGED,
+                com.dasannn.socialblueprint.domain.CompensationState.REFUNDING);
+        assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join()).isEmpty();
+        awaitGuiOutcome(() -> economyBalances.get(viewerUuid) == 500.0);
+        awaitGuiOutcome(() -> compensationRepo.findByPlayerAsync(viewerUuid).join().isEmpty());
+        assertThat(deposits).containsExactly(125.0);
+        assertThat(holder.revealedEventIds()).doesNotContain(event.id());
+        assertThat(messageRegistry.hasCall("honor.write-failed")).isTrue();
+        assertThat(wrongThread.get()).isFalse();
+    }
+
+    @Test
+    void honorMismatchRefundNeverReadsPlayerOnStorageThread() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        UUID actorUuid = UUID.randomUUID();
+        economyBalances.put(actorUuid, 10000.0);
+        Player delegate = createMockPlayer("Actor", actorUuid, "socialblueprint.give-reputation");
+        Thread main = Thread.currentThread();
+        var wrongThread = new java.util.concurrent.atomic.AtomicBoolean();
+        Player actor = (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+                (proxy, method, args) -> {
+                    if (Thread.currentThread() != main) {
+                        wrongThread.set(true);
+                        throw new AssertionError("Player access off main: " + method.getName());
+                    }
+                    return method.invoke(delegate, args);
+                });
+        awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", HonorKind.POSITIVE, null, configManager.snapshot()));
+        double approved = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
+        withdrawalFactor = 1.25;
+        awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
+        assertThat(deposits).containsExactly(approved * 1.25);
+        assertThat(reputationRepo.findByTargetAsync(target).join()).isEmpty();
+        assertThat(compensationRepo.findByPlayerAsync(actorUuid).join()).isEmpty();
+        assertThat(wrongThread.get()).isFalse();
     }
 
     private static long countRaterHeads(GuiLayout layout) {
@@ -1500,8 +1686,9 @@ public class StatusGuiServiceTest {
                 return economyBalances.getOrDefault(p.getUniqueId(), 0.0) >= amt;
             }
             if ("withdrawPlayer".equals(mName) && args.length >= 2) {
+                beforeWithdrawal.run();
                 OfflinePlayer p = (OfflinePlayer) args[0];
-                double amt = ((Number) args[1]).doubleValue();
+                double amt = ((Number) args[1]).doubleValue() * withdrawalFactor;
                 double current = economyBalances.getOrDefault(p.getUniqueId(), 0.0);
                 if (current < amt) {
                     return new EconomyResponse(0, current, EconomyResponse.ResponseType.FAILURE, "Insufficient funds");
@@ -1513,6 +1700,7 @@ public class StatusGuiServiceTest {
             if ("depositPlayer".equals(mName) && args.length >= 2) {
                 OfflinePlayer p = (OfflinePlayer) args[0];
                 double amt = ((Number) args[1]).doubleValue();
+                deposits.add(amt);
                 double current = economyBalances.getOrDefault(p.getUniqueId(), 0.0);
                 double total = current + amt;
                 economyBalances.put(p.getUniqueId(), total);

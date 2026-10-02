@@ -563,7 +563,7 @@ public class StatusGuiService {
                 String rawReason = event.reason();
                 if (rawReason == null || rawReason.isBlank()) {
                     paperLore = List.of(GuiLoreLine.ofKey("gui.history.no-reason"));
-                } else if (snapshot != null && snapshot.messages() != null && snapshot.messages().isKnownKey(rawReason)) {
+                } else if (event.kind() == HonorKind.SYSTEM_KILL && snapshot != null && snapshot.messages() != null && snapshot.messages().isKnownKey(rawReason)) {
                     paperLore = List.of(GuiLoreLine.ofKey(rawReason));
                 } else {
                     // Blankness is decided after sanitizing, not before: a reason
@@ -971,6 +971,27 @@ public class StatusGuiService {
                 return;
             }
 
+            double actualCharged = resp.amount;
+            if (!Double.isFinite(actualCharged) || actualCharged <= 0
+                    || Math.abs(actualCharged - exactCost) >= 0.0001) {
+                pendingReveals.remove(pendingKey);
+                if (Double.isFinite(actualCharged) && actualCharged > 0) {
+                    CompletableFuture<Boolean> recorded = compId != null && compensationRepository != null
+                            ? compensationRepository.markChargedWithAmountAsync(compId, actualCharged)
+                            : CompletableFuture.completedFuture(true);
+                    recorded.thenAccept(ok -> {
+                        if (ok) refundCompensation(viewer, viewerUuid, actualCharged, compId);
+                    }).exceptionally(ex -> {
+                        if (logger != null) logger.log(Level.WARNING, "Failed to record reveal debit " + compId, ex);
+                        return null;
+                    });
+                } else {
+                    deleteCompensationWithLogging(compId, "invalid charge mismatch");
+                }
+                viewer.sendMessage(messageRegistry.renderWithPrefix(holder.snapshot(), "honor.write-failed"));
+                return;
+            }
+
             // Successfully charged: mark charged in compensation repository
             CompletableFuture<Boolean> markChargedFuture = (compId != null && compensationRepository != null)
                     ? compensationRepository.markChargedAsync(compId)
@@ -996,7 +1017,7 @@ public class StatusGuiService {
                             });
                         } else {
                             // Duplicate! Refund and inform player (Finding 2)
-                            refundCompensation(viewer, exactCost, compId);
+                            refundCompensation(viewer, viewerUuid, exactCost, compId);
                             mainThreadRunner.accept(() -> {
                                 pendingReveals.remove(pendingKey);
                                 if (viewer.isOnline()) {
@@ -1007,7 +1028,7 @@ public class StatusGuiService {
                     })
                     .exceptionally(ex -> {
                         // SQLite failure: Refund player (Finding 2)
-                        refundCompensation(viewer, exactCost, compId);
+                        refundCompensation(viewer, viewerUuid, exactCost, compId);
                         mainThreadRunner.accept(() -> {
                             pendingReveals.remove(pendingKey);
                             if (viewer.isOnline()) {
@@ -1039,7 +1060,7 @@ public class StatusGuiService {
         }
     }
 
-    private void refundCompensation(Player player, double amount, Long compId) {
+    private void refundCompensation(Player player, UUID playerUuid, double amount, Long compId) {
         if (amount <= 0.0 || economy == null) {
             return;
         }
@@ -1048,7 +1069,6 @@ public class StatusGuiService {
             return;
         }
 
-        UUID playerUuid = player.getUniqueId();
         compensationRepository.claimForRefundAsync(compId)
                 .exceptionally(ex -> {
                     if (logger != null) {

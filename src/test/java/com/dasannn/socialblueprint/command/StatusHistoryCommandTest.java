@@ -292,7 +292,7 @@ class StatusHistoryCommandTest {
         reputationRepo.save(new ReputationEvent(
                 0L, null, targetId, -1, HonorKind.SYSTEM_KILL, 0.0, "kill-penalty.reason", baseTime));
         ReputationEvent rating = reputationRepo.save(new ReputationEvent(
-                0L, raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "Full written reason", baseTime));
+                0L, raterId, targetId, 1, HonorKind.POSITIVE, 500.0, "kill-penalty.reason", baseTime));
         for (String language : List.of("en", "es")) {
             MockPlayerRecord viewer = new MockPlayerRecord("Viewer-" + language, false, "socialblueprint.admin.adjust");
             configManager.set("language", language);
@@ -313,7 +313,7 @@ class StatusHistoryCommandTest {
                     boolean system = call.stringPlaceholders().get("reason")
                             .equals(recordingRegistry.getRaw(snapshot, "kill-penalty.reason"));
                     assertThat(call.stringPlaceholders()).containsEntry("reason", system
-                            ? recordingRegistry.getRaw(snapshot, "kill-penalty.reason") : "Full written reason");
+                            ? recordingRegistry.getRaw(snapshot, "kill-penalty.reason") : "kill-penalty.reason");
                     assertThat(call.componentPlaceholders().get("delta"))
                             .isEqualTo(Component.text(system ? "-1" : "+1", system
                                     ? net.kyori.adventure.text.format.NamedTextColor.RED

@@ -29,7 +29,13 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
         }
     }
     public record Sky(String mode, int durationTicks) {}
+    public static final int MAX_PARTICLE_COUNT = 64;
+    public static final int MAX_PARTICLE_SENDS = 512;
+
     public record Particles(String type, String placement, int count, double radius, int durationTicks) {
+        public boolean fitsAudience(int viewers) {
+            return viewers > 0 && (long) count * viewers <= MAX_PARTICLE_SENDS;
+        }
         public int totalTicks() {
             // Vanilla 26.3: Smoke lifetime <= 40, EndRod <= 71; removal is on the following tick.
             return Math.max(durationTicks, type.equals("smoke") ? 41 : 72);
@@ -160,7 +166,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
         return new PresentationConfig(rules,
                 new Sky(choice(root, "sky.mode", "night", Set.of("night", "storm")), integer(root, "sky.duration-ticks", 60, 1, 100)),
                 new Particles(particle, choice(root, "particles.placement", "around", Set.of("around", "beneath")),
-                        integer(root, "particles.count", 8, 1, Integer.MAX_VALUE), number(root, "particles.radius-blocks", 1, true),
+                        integer(root, "particles.count", 8, 1, MAX_PARTICLE_COUNT), number(root, "particles.radius-blocks", 1, true),
                         integer(root, "particles.duration-ticks", 40, 1, 100)), flash,
                 new Sounds(choice(root, "source-less-sounds.sound-slot", "source-less", null),
                         number(root, "source-less-sounds.offset.forward-blocks", -2, false),

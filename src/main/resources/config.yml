@@ -229,6 +229,7 @@ effects:
       session-cap: 12
       type: end_rod
       placement: around
+      # Maximum 64; shared delivery skips audiences needing more than 512 particle sends.
       count: 8
       radius-blocks: 1
       duration-ticks: 40
@@ -328,6 +329,7 @@ effects:
     # Supported native types: smoke and end_rod; episode includes their finite client tail.
     type: smoke
     placement: around
+    # Maximum 64 particles per private episode.
     count: 8
     radius-blocks: 1
     duration-ticks: 40
@@ -370,20 +372,10 @@ effects:
     cooldown: 10m
     session-cap: 3
 
-  # Near-black whispered chat lines (SB-040)
-  whisper:
-    cooldown: 5m
-    session-cap: 5
-
   # Creeper fuse sound effect (SB-040)
   creeper:
     cooldown: 8m
     session-cap: 3
-
-  # Fake join and leave announcements (SB-040)
-  fake-announcement:
-    cooldown: 15m
-    session-cap: 2
 
 # ==============================================================================
 # Updates from GitHub (SB-070 to SB-076, T-080 to T-085)

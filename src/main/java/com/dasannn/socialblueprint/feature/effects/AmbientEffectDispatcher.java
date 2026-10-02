@@ -448,7 +448,8 @@ public class AmbientEffectDispatcher {
         return dispatchParticles(player, config, List.of(player));
     }
 
-    private boolean dispatchParticles(Player player, PresentationConfig.Particles config, List<Player> audience) {
+    boolean dispatchParticles(Player player, PresentationConfig.Particles config, List<Player> audience) {
+        if (!config.fitsAudience(audience.size())) return false;
         org.bukkit.Particle particle = org.bukkit.Particle.valueOf(config.type().toUpperCase(java.util.Locale.ROOT));
         ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.PARTICLES, config.totalTicks(), () -> {});
         if (entry == null) return false;
