@@ -135,6 +135,17 @@ class MessageDefaultsMergeTest {
     }
 
     @Test
+    void freshInstallIsSilent() throws Exception {
+        String shipped = "entry: 'default'\n";
+        Files.writeString(messages.toPath(), shipped);
+
+        assertThat(merge(shipped)).isZero();
+
+        assertThat(summaries).isEmpty();
+        assertThat(values(baseline)).containsEntry("entry", "default");
+    }
+
+    @Test
     void comparesParsedValuesAndPreservesUnrelatedFormattingAndStringTypes() throws Exception {
         writeBaseline("entry: 'old'\nblock: |-\n  old block\n");
         Files.writeString(messages.toPath(), "# operator banner\r\nentry: \"old\"\r\nblock: |-\r\n  old block\r\ncustom: \"preserve quotes\"\r\n");

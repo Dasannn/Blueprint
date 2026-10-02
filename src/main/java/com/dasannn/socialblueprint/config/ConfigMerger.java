@@ -344,7 +344,10 @@ public final class ConfigMerger {
             }
             Files.createDirectories(baselinePath.getParent());
             writeMessageFile(baselinePath, "# Plugin-managed shipped defaults. DO NOT EDIT.\n" + bundledContent);
-            if (logger != null) {
+            // A fresh install has just written the shipped file: nothing to report,
+            // and "no baseline" would wrongly suggest an upgrade lost track of edits.
+            boolean freshInstall = firstRun && diskContent.equals(bundledContent);
+            if (logger != null && !freshInstall) {
                 logger.info("[SocialBlueprint] Added " + added + " missing entries to " + diskFile.getName()
                         + "; updated " + updated + " untouched entries; conflicting keys: "
                         + (conflicts.isEmpty() ? "none" : String.join(", ", conflicts))
