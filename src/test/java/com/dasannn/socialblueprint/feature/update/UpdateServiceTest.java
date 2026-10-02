@@ -56,6 +56,98 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
 class UpdateServiceTest {
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "v1.0, updater.no-update",
+            "v0.9, updater.running-ahead",
+            "unknown, updater.version-unknown",
+            "broken, updater.version-unknown"
+    })
+    void refusesNonNewerReleasesBeforeAnyAssetRequest(String tag, String messageKey) {
+        java.util.concurrent.atomic.AtomicInteger downloads = new java.util.concurrent.atomic.AtomicInteger();
+        String json = "{\"tag_name\":\"" + tag + "\",\"assets\":[{\"name\":\"SocialBlueprint.jar\","
+                + "\"browser_download_url\":\"" + serverBaseUrl + "/asset\"}]}";
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
+            byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
+        });
+        mockServer.createContext("/asset", exchange -> {
+            downloads.incrementAndGet();
+            exchange.sendResponseHeaders(500, -1);
+            exchange.close();
+        });
+        UpdateService service = new UpdateService(configManager, messageRegistry, asyncExecutor,
+                mainThreadQueue::add, updateFolder, "1.0", currentJarFile, httpClient, testLogger);
+        CommandSender sender = mockSender(new ArrayList<>());
+        for (int i = 0; i < 3; i++) {
+            assertThat(service.downloadUpdateAsync(sender, configManager.snapshot()).join()).isFalse();
+            drainMainThread();
+            assertThat(messageRegistry.lastCall().key()).isEqualTo(messageKey);
+        }
+        assertThat(downloads.get()).isZero();
+        assertThat(updateFolder).doesNotExist();
+        assertThat(messageRegistry.hasKey("updater.downloading")).isFalse();
+    }
+
+    @Test
+    void startupRemovesOnlyOwnUnprovenUpdatesEvenWhenChecksAreDisabled() throws Exception {
+        configManager.set("update.check-on-startup", "false");
+        updateFolder.mkdirs();
+        File equal = new File(updateFolder, currentJarFile.getName());
+        File older = new File(updateFolder, "old-release-name.jar");
+        File unknown = new File(updateFolder, "unknown.jar");
+        File newer = new File(updateFolder, "newer.jar");
+        File other = new File(updateFolder, "OtherPlugin.jar");
+        File corrupt = new File(updateFolder, "corrupt.jar");
+        Files.write(equal.toPath(), createValidPluginJarBytes("SocialBlueprint", "1.0"));
+        Files.write(older.toPath(), createValidPluginJarBytes("SocialBlueprint", "0.9"));
+        Files.write(unknown.toPath(), createValidPluginJarBytes("SocialBlueprint", "unknown"));
+        byte[] newerBytes = createValidPluginJarBytes("SocialBlueprint", "1.1");
+        byte[] otherBytes = createValidPluginJarBytes("OtherPlugin", "0.1");
+        Files.write(newer.toPath(), newerBytes);
+        Files.write(other.toPath(), otherBytes);
+        Files.writeString(corrupt.toPath(), "not a jar");
+        byte[] runningBytes = Files.readAllBytes(currentJarFile.toPath());
+        UpdateService service = new UpdateService(configManager, messageRegistry, asyncExecutor,
+                mainThreadQueue::add, updateFolder, "1.0", currentJarFile, httpClient, testLogger);
+        for (int i = 0; i < 2; i++) {
+            service.onStartup(configManager.snapshot());
+            asyncExecutor.submit(() -> {}).get();
+        }
+        assertThat(equal).doesNotExist();
+        assertThat(older).doesNotExist();
+        assertThat(unknown).doesNotExist();
+        assertThat(Files.readAllBytes(newer.toPath())).isEqualTo(newerBytes);
+        assertThat(Files.readAllBytes(other.toPath())).isEqualTo(otherBytes);
+        assertThat(corrupt).exists();
+        assertThat(Files.readAllBytes(currentJarFile.toPath())).isEqualTo(runningBytes);
+        assertThat(service.getLastCheckResult()).isNull();
+        assertThat(logRecords.stream().filter(r -> r.getMessage().startsWith("Removed staged SocialBlueprint JAR")))
+                .hasSize(3);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"v1.0", "v0.9", "unknown", "broken"})
+    void autoDownloadNeverStagesNonNewerRelease(String tag) throws Exception {
+        configManager.set("update.check-on-startup", "true");
+        configManager.set("update.auto-download", "true");
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
+            byte[] bytes = ("{\"tag_name\":\"" + tag + "\",\"assets\":[]}").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
+        });
+        UpdateService service = new UpdateService(configManager, messageRegistry, asyncExecutor,
+                mainThreadQueue::add, updateFolder, "1.0", currentJarFile, httpClient, testLogger);
+        service.onStartup(configManager.snapshot());
+        // Cleanup queues the check; two executor barriers cover both operations.
+        asyncExecutor.submit(() -> {}).get();
+        asyncExecutor.submit(() -> {}).get();
+        assertThat(service.getLastCheckResult()).isNotNull();
+        assertThat(updateFolder).doesNotExist();
+        assertThat(logRecords).noneMatch(r -> r.getMessage().contains("Downloading update in background"));
+    }
+
     @TempDir
     File tempDir;
 

@@ -32,8 +32,12 @@ public class StatusUpdateCommand {
             return CompletableFuture.completedFuture(false);
         }
 
-        // Report that download has started
-        sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "updater.downloading"));
+        if (args != null && args.length == 1 && "check".equalsIgnoreCase(args[0])) {
+            return updateService.checkForUpdateAsync(snapshot).thenApply(result -> {
+                updateService.reportVersion(sender, snapshot, result);
+                return false;
+            });
+        }
 
         // Dispatch download, checksum verification, and write on async executor
         return updateService.downloadUpdateAsync(sender, snapshot);

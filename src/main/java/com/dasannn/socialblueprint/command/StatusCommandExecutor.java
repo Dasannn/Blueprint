@@ -856,6 +856,11 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 return configCommand.tabComplete(sender, subArgs, snapshot);
             }
 
+            if ("update".equals(sub)) {
+                return subArgs.length == 1 && PermissionChecker.hasPermission(sender, "admin-update", snapshot)
+                        && "check".startsWith(subArgs[0].toLowerCase(Locale.ROOT)) ? List.of("check") : Collections.emptyList();
+            }
+
             if ("admin".equals(sub)) {
                 if (subArgs.length > 1 && "features".equalsIgnoreCase(subArgs[0])) return Collections.emptyList();
                 if (subArgs.length == 1) {

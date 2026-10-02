@@ -8,6 +8,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonParser;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.YamlConfiguration;
 
 import com.dasannn.socialblueprint.domain.AuditEvent;
 import com.dasannn.socialblueprint.domain.NonPlayerTarget;
@@ -289,15 +290,18 @@ public class UpdateService {
      * Executes the GitHub version check asynchronously on the storage executor (T-080).
      */
     public CompletableFuture<VersionCheckResult> checkForUpdateAsync() {
+        return checkForUpdateAsync(configManager.snapshot());
+    }
+
+    public CompletableFuture<VersionCheckResult> checkForUpdateAsync(RuntimeSnapshot snapshot) {
         checkInProgress.set(true);
-        return CompletableFuture.supplyAsync(this::performCheckInternal, asyncExecutor)
+        return CompletableFuture.supplyAsync(() -> performCheckInternal(snapshot), asyncExecutor)
                 .whenComplete((res, ex) -> checkInProgress.set(false));
     }
 
-    private VersionCheckResult performCheckInternal() {
+    private VersionCheckResult performCheckInternal(RuntimeSnapshot snapshot) {
         String runningVersion = getCurrentVersion();
         try {
-            RuntimeSnapshot snapshot = configManager.snapshot();
             UpdateConfig config = snapshot.config().update();
 
             String repo = config.repository();
@@ -402,8 +406,20 @@ public class UpdateService {
                 // 1. Ensure latest release metadata is available
                 // Always fresh: the cached result can predate a release published
                 // after startup, and this runs off the main thread anyway.
-                VersionCheckResult check = performCheckInternal();
+                VersionCheckResult check = performCheckInternal(currentSnapshot);
 
+                if (!VersionComparator.shouldStage(check.runningVersion(), check.latestVersion())) {
+                    String key = switch (check.comparison()) {
+                        case UP_TO_DATE -> "updater.no-update";
+                        case AHEAD -> "updater.running-ahead";
+                        default -> "updater.version-unknown";
+                    };
+                    sendToSender(sender, currentSnapshot, key,
+                            Map.of("current", check.runningVersion(), "latest", check.latestVersion()));
+                    return null;
+                }
+
+                sendToSender(sender, currentSnapshot, "updater.downloading", Map.of());
                 if (check.releaseInfo() == null) {
                     sendToSender(sender, currentSnapshot, "updater.failed", Map.of("error", "No release information available"));
                     return null;
@@ -653,6 +669,49 @@ public class UpdateService {
         return ChecksumVerifier.extractHashFromText(release.body(), jarAsset.name());
     }
 
+    public void reportVersion(CommandSender sender, RuntimeSnapshot snapshot, VersionCheckResult check) {
+        String key = switch (check.comparison()) {
+            case UP_TO_DATE -> "updater.version-current";
+            case OUTDATED -> "updater.version-outdated";
+            case AHEAD -> "updater.version-ahead";
+            case UNKNOWN -> "updater.version-unknown";
+        };
+        sendToSender(sender, snapshot, key,
+                Map.of("current", check.runningVersion(), "latest", check.latestVersion()));
+    }
+
+    private void removeStaleStagedJars() {
+        File folder = updateFolderSupplier.get();
+        if (folder == null) return;
+        File[] staged = folder.listFiles(file -> file.getName().endsWith(".jar"));
+        if (staged == null) return;
+        String running = getCurrentVersion();
+        for (File file : staged) {
+            try {
+                String version;
+                try (JarFile jar = new JarFile(file)) {
+                    JarEntry entry = jar.getJarEntry("plugin.yml");
+                    if (entry == null) entry = jar.getJarEntry("paper-plugin.yml");
+                    if (entry == null) continue;
+                    YamlConfiguration metadata = new YamlConfiguration();
+                    try (InputStream in = jar.getInputStream(entry)) {
+                        metadata.loadFromString(readBoundedString(in, MAX_METADATA_BYTES));
+                    }
+                    if (!"SocialBlueprint".equals(metadata.getString("name"))) continue;
+                    version = metadata.getString("version");
+                }
+                if (!VersionComparator.shouldStage(running, version)) {
+                    Files.delete(file.toPath());
+                    logger.info("Removed staged SocialBlueprint JAR " + file.getName()
+                            + ": version " + version + " is not provably newer than running " + running
+                            + " (" + VersionComparator.compare(running, version) + ").");
+                }
+            } catch (Exception e) {
+                logger.warning("Could not inspect or remove staged JAR " + file.getName() + ": " + e.getMessage());
+            }
+        }
+    }
+
     private void sendToSender(CommandSender sender, RuntimeSnapshot snapshot, String messageKey, Map<String, String> placeholders) {
         if (sender == null) return;
         mainThreadRunner.accept(() -> {
@@ -666,12 +725,13 @@ public class UpdateService {
      */
     public void onStartup(RuntimeSnapshot snapshot) {
         UpdateConfig config = snapshot.config().update();
+        CompletableFuture<Void> cleanup = CompletableFuture.runAsync(this::removeStaleStagedJars, asyncExecutor);
         if (!config.checkOnStartup()) {
             return;
         }
 
-        checkForUpdateAsync().thenAccept(result -> {
-            if (result.comparison() == VersionComparison.OUTDATED) {
+        cleanup.thenCompose(ignored -> checkForUpdateAsync(snapshot)).thenAccept(result -> {
+            if (VersionComparator.shouldStage(result.runningVersion(), result.latestVersion())) {
                 logger.info("A new version of SocialBlueprint is available: " + result.latestVersion()
                         + " (running: " + result.runningVersion() + "). Run '/status update' to download.");
 

@@ -10,6 +10,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 class VersionComparatorTest {
 
     @ParameterizedTest
+    @CsvSource(value = {
+            "1.0, v1.1, true",
+            "1.0, v1.0, false",
+            "1.0.0, v1.0, false",
+            "1.1, v1.0, false",
+            "1.0, unknown, false",
+            "1.0, broken, false",
+            "broken, 2.0, false",
+            "1.0, NULL, false",
+            "NULL, 2.0, false",
+            "1.0, '', false"
+    }, nullValues = "NULL")
+    void stageOnlyProvenNewerVersions(String running, String remote, boolean allowed) {
+        assertThat(VersionComparator.shouldStage(running, remote)).isEqualTo(allowed);
+    }
+
+    @ParameterizedTest
     @CsvSource({
             "1.0, 1.0, UP_TO_DATE",
             "1.0, v1.0, UP_TO_DATE",

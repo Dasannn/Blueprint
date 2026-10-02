@@ -11,6 +11,11 @@ public final class VersionComparator {
 
     private VersionComparator() {}
 
+    /** Only a proven newer release may be staged; unknown versions fail closed. */
+    public static boolean shouldStage(String running, String remote) {
+        return compare(running, remote) == VersionComparison.OUTDATED;
+    }
+
     /**
      * Compares the running version against the latest release version per SB-070 and T-081.
      * Returns {@link VersionComparison#UNKNOWN} if either version is null, blank, or unparseable.
