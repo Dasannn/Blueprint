@@ -89,7 +89,7 @@ Both giving and taking honor require a written reason, with at least **3 visible
 
 The word filter replaces listed whole words with **`bobba`** in public chat and displayed reasons. Matching ignores case and accents, and both language lists apply regardless of the active language. Original reasons remain stored.
 
-The profile chest includes paginated rating history, signed changes, dates, and reasons. Rater names are hidden until revealed for **100** economy units by default; the reveal is remembered for that viewer. Administrative `/status history` provides text history. Administrators can revoke a rating with `/status admin revoke <player> <id>`, use `/status admin revoke <player> last` for the latest revocable rating, or shift-click its history column and confirm. Admin history shows the exact revoke command. Revocation preserves the event and audit trail, removes its status contribution, and reverses any mental-state delta it applied within the scale bounds. It refunds no money and restores no rating allowance. Revoked entries are hidden from ordinary viewers and marked for administrators with revoke permission.
+The profile chest includes paginated rating history, signed changes, dates, and reasons. Rater names are hidden until revealed for **100** economy units by default; the reveal is remembered for that viewer. Administrative `/status history` provides text history. Administrators can revoke a rating with `/status admin revoke <id>`, use `/status admin revoke <player> last` for the latest rating that player received, or shift-click its history column and confirm. Admin history shows the exact revoke command. Revocation preserves the event and audit trail, removes its status contribution, and reverses any mental-state delta it applied within the scale bounds. It refunds no money and restores no rating allowance. Revoked entries are hidden from ordinary viewers and marked for administrators with revoke permission.
 
 ### Kills and sanctioned duels
 
@@ -161,7 +161,7 @@ English and Spanish message files are bundled. Colors use Essentials-style `&` c
 | `/status admin give <player> [amount]` | Add status; amount defaults to 1 | `socialblueprint.admin.adjust` |
 | `/status admin take <player> [amount]` | Subtract status; amount defaults to 1 | `socialblueprint.admin.adjust` |
 | `/status admin reset <player>` | Reset status through a compensating event | `socialblueprint.admin.adjust` |
-| `/status admin revoke <player> <id\|last>` | Revoke a rating by id or the latest revocable rating | `socialblueprint.admin.revoke` |
+| `/status admin revoke <id>` or `/status admin revoke <player> last` | Revoke a rating by its id, or the latest rating the player received | `socialblueprint.admin.revoke` |
 | `/status admin mind set <player> <value>` | Set a finite value from -100 (Psychosis) to +100 (Serenity) | `socialblueprint.admin.mind` |
 | `/status admin mind reset <player>` | Reset one online or offline player to Neutral | `socialblueprint.admin.mind` |
 | `/status admin mind reset-all [confirm]` | Reset all stored players; repeat with `confirm` within 30 seconds | `socialblueprint.admin.mind` |
