@@ -30,7 +30,7 @@ second place where progress is recorded.
 | P11 Hardening | `integration/r1` | **done** — released as v1.0 (`477107a`); the live boxes never walked (name change, two-client catalogue, `language: en`, reload mid-effect) move to T-207 |
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
 | P13 Psychosis effects and chat | `feat/p13-tuning` | **done** — released in v1.0; T-169/T-174 two-client walks move to T-207 |
-| P14 Release 2 | `integration/r2` | in progress — spec §15 and decision 0007 approved 2026-10-02; T-200 to T-204 dispatched in parallel |
+| P14 Release 2 | `integration/r2` | **done** — 882 tests green, Codex review closed, owner and bot acceptance passed; ready to release as v2.0 |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -346,5 +346,13 @@ T-201 and T-205 follow T-200; T-206 follows everything else.
 | T-205 | After T-200, one mental-state line in hover, profiles, chest and `/status psychosis`, both languages. | SB-138 | done — merged, 793 tests green |
 | T-206 | After T-201 to T-205, the `/status admin features` switch GUI over every input and effect. | SB-145 | done — 813 tests green |
 | T-208 | Honor ratings as a mental-state input with a 3-per-24-hours cap, revocation reversal. | SB-146 | done — 804 tests green |
-| T-207 | Live acceptance walk for §16, including the release-1 boxes carried over. | §16 | in progress — review closed (7 findings fixed, `55252d1`, 818 tests); bot walk 10/10 on sb-testserver incl. live R1→R2 upgrade; owner manual checks pending |
+| T-207 | Live acceptance walk for §16, including the release-1 boxes carried over. | §16 | done — owner walk on sb-testserver plus bot suite 10/10 on the 2.0 build (`254381a`); real account name change still unwalked |
+| T-209 | Owner round 1: time left to rate, revoked ratings hidden from players, short config keys, `mind set`. | SB-156 to SB-159 | done |
+| T-210 | Owner round 2: stale views after mind writes, quoted fake-connection templates repaired, `effects.debug`. | SB-138, SB-114 | done |
+| T-211 | Apparition in view, ten-second dawn, untouched legacy kinds adopt the new defaults. | SB-124, SB-125 | done |
+| T-212 | Updater stages only strictly newer releases; stale staged jars removed. | SB-071 | done |
+| T-213 | Apparition lasts 15 s and follows at a distance. | SB-124 | done |
+| T-214 | Revoke by rating id alone. | SB-152, SB-159 | done |
+| T-215 | Test fixtures no longer decay against the wall clock. | — | done |
+| T-216 | Private sky storms at High, night and storm together at Extreme. | SB-102 | done — 882 tests green |
 | T-209 | Owner live-test round 1: rating wait, hidden revoked history, config suffixes, mind set and revoke last. | SB-152, SB-156 to SB-159 | in progress - code, regression tests and spec ready; Claude build pending |
