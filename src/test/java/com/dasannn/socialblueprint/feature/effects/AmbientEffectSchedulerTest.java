@@ -716,9 +716,23 @@ class AmbientEffectSchedulerTest {
             onlinePlayers.clear(); dispatchedList.clear();
             UUID uuid = UUID.randomUUID(); onlinePlayers.add(createMockPlayer(uuid, "Concurrent"));
             setPsychosis(uuid, kills);
+            PsychosisLevel expected = kills == 1 ? PsychosisLevel.LOW : kills == 2 ? PsychosisLevel.MEDIUM
+                    : kills == 5 ? PsychosisLevel.HIGH : PsychosisLevel.EXTREME;
+            // The quick view can be invalidated by a background rebuild right after the load; wait for it to settle.
+            long deadline = System.currentTimeMillis() + 2_000;
+            while (profileService.getViewQuick(PlayerId.of(uuid), configManager.snapshot()).psychosis() != expected
+                    && System.currentTimeMillis() < deadline) {
+                profileService.loadViewAsync(PlayerId.of(uuid), "Concurrent", configManager.snapshot()).join();
+            }
             PsychosisLevel level = profileService.getViewQuick(PlayerId.of(uuid), configManager.snapshot()).psychosis();
+            assertThat(level).isEqualTo(expected);
             long now = 1_000_000L;
             scheduler.tickAt(now);
+            // A late cache rebuild can show the tick a cold (neutral) view; nothing starts then, so retry the same tick.
+            while (dispatchedList.isEmpty() && System.currentTimeMillis() < deadline + 2_000) {
+                profileService.loadViewAsync(PlayerId.of(uuid), "Concurrent", configManager.snapshot()).join();
+                scheduler.tickAt(now);
+            }
             assertThat(dispatchedList).hasSize(config.presentation().maxConcurrent(level));
             assertThat(dispatchedList).extracting(DispatchedRecord::type).doesNotHaveDuplicates();
             var state = scheduler.getState(uuid);

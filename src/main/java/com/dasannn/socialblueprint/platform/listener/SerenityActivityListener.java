@@ -48,6 +48,8 @@ public final class SerenityActivityListener implements Listener {
     public void build(BlockPlaceEvent event) { activity(event.getPlayer()); }
     @EventHandler(priority = EventPriority.MONITOR)
     public void use(PlayerInteractEvent event) {
+        // Casting/reeling is not the independent activity required for fishing credit.
+        if (event.getItem() != null && event.getItem().getType() == org.bukkit.Material.FISHING_ROD) return;
         // Air interactions are often pre-cancelled; only accepted block/item use qualifies.
         if ((event.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
                 && event.useInteractedBlock() != org.bukkit.event.Event.Result.DENY)

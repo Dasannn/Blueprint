@@ -11,6 +11,7 @@ public final class SerenitySession {
     private Instant lastKill;
     private long killId;
     private boolean afk;
+    private double creditLagMillis;
 
     public SerenitySession(double credit, Instant lastKill, long killId, long now) {
         this.creditedMillis = credit;
@@ -23,14 +24,19 @@ public final class SerenitySession {
         long elapsed = Math.max(0, now - checkedAt);
         // ponytail: cap heartbeat gaps at one second; add finer sampling if lag under-credit matters.
         long start = now - Math.min(elapsed, 1000);
+        creditLagMillis = 0;
         if (!afk && lastAction != null) {
             double end = Math.min(now, lastAction + config.idleTimeoutSeconds() * 1000);
+            creditLagMillis = Math.max(0, now - end);
             creditedMillis += Math.max(0, end - start);
         }
         checkedAt = now;
     }
 
     public void activity(long now) { if (!afk) lastAction = now; }
+    public boolean active(long now, double idleSeconds) {
+        return !afk && lastAction != null && now >= lastAction && now - lastAction < idleSeconds * 1000;
+    }
     public void afk(boolean value) { afk = value; if (value) lastAction = null; }
     public void kill(Instant when, long id) {
         creditedMillis = 0;
@@ -38,5 +44,6 @@ public final class SerenitySession {
         killId = Math.max(killId, id);
     }
     public double creditedMillis() { return creditedMillis; }
+    public double creditLagMillis() { return creditLagMillis; }
     public long killId() { return killId; }
 }
