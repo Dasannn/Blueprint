@@ -838,6 +838,7 @@ against the latest release published on the plugin's GitHub repository.
 server's `plugins/update/` directory, so the server applies it on the next
 restart. The running jar is never replaced in place — swapping a loaded jar
 breaks the class loader.
+Staging (manual or automatic) is allowed only when the release version is provably strictly newer than the running version; equal, older or unknown/unparseable versions never download or stage, and startup removes this plugin's staged jars that are not provably newer.
 
 **SB-072.** The update command reports clearly that a restart is required, and
 does not restart the server itself.

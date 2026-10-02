@@ -44,20 +44,11 @@ public class StatusVersionCommand {
             // Retry on every unknown, not only before the first check: a failed
             // startup check (no release yet, network down) otherwise stuck the
             // answer at unknown until a restart.
-            updateService.checkForUpdateAsync();
+            updateService.checkForUpdateAsync(snapshot);
             return CompletableFuture.completedFuture(null);
         }
 
-        switch (check.comparison()) {
-            case UP_TO_DATE -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "updater.version-current",
-                    Map.of("current", runningVersion, "latest", check.latestVersion())));
-            case OUTDATED -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "updater.version-outdated",
-                    Map.of("current", runningVersion, "latest", check.latestVersion())));
-            case AHEAD -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "updater.version-ahead",
-                    Map.of("current", runningVersion, "latest", check.latestVersion())));
-            default -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "updater.version-unknown",
-                    Map.of("current", runningVersion)));
-        }
+        updateService.reportVersion(sender, snapshot, check);
 
         return CompletableFuture.completedFuture(null);
     }

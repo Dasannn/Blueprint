@@ -183,6 +183,7 @@ effects:
   whisper-3: '&#202020Mira detrás de ti.'
 
 updater:
+  running-ahead: '&7La compilación en ejecución &b{current}&7 es más reciente que &b{latest}&7; no se preparó ninguna actualización.'
   repository-not-found: 'GitHub devolvió HTTP 404 para el repositorio de actualizaciones {repository}. Revisa update.repository: un repositorio privado devuelve la misma respuesta que uno inexistente; un repositorio sin un lanzamiento también devuelve 404.'
   update-available: '&aNueva versión disponible: &f{version}'
   downloading: '&7Descargando actualización...'

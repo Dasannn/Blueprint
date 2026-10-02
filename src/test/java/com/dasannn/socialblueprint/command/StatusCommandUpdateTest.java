@@ -55,6 +55,40 @@ import com.dasannn.socialblueprint.config.UpdateConfig;
 @Timeout(value = 10, unit = TimeUnit.SECONDS)
 class StatusCommandUpdateTest {
 
+    @Test
+    void updateCheckReportsNewerReleaseWithoutDownloading() {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
+            byte[] bytes = "{\"tag_name\":\"v1.1\",\"assets\":[]}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
+        });
+        Player admin = mockPlayer("AdminOp", "socialblueprint.admin.update");
+        assertThat(commandExecutor.onCommand(admin, null, "status", new String[]{"update", "check"})).isTrue();
+        commandExecutor.lastExecution().join();
+        drainMainThread();
+        assertThat(messageRegistry.hasKey("updater.version-outdated")).isTrue();
+        assertThat(messageRegistry.hasKey("updater.downloading")).isFalse();
+        assertThat(messageRegistry.hasKey("updater.failed")).isFalse();
+        assertThat(updateFolder).doesNotExist();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"v1.0, updater.no-update", "v0.9, updater.running-ahead"})
+    void updateCommandReportsRefusalWithoutDownloadFeedback(String tag, String key) {
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
+            byte[] bytes = ("{\"tag_name\":\"" + tag + "\",\"assets\":[]}").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(bytes); }
+        });
+        Player admin = mockPlayer("AdminOp", "socialblueprint.admin.update");
+        commandExecutor.onCommand(admin, null, "status", new String[]{"update"});
+        commandExecutor.lastExecution().join();
+        drainMainThread();
+        assertThat(messageRegistry.hasKey(key)).isTrue();
+        assertThat(messageRegistry.hasKey("updater.downloading")).isFalse();
+        assertThat(updateFolder).doesNotExist();
+    }
+
     @TempDir
     File tempDir;
 
