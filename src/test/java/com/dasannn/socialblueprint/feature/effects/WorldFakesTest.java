@@ -76,6 +76,23 @@ class WorldFakesTest {
                 .contains(new VictimGhost(victim, "Victim"));
     }
 
+    @Test void everyEligibleVictimCanBeTheGhost() {
+        PlayerId killer = PlayerId.of(java.util.UUID.randomUUID());
+        PlayerId first = PlayerId.of(java.util.UUID.randomUUID());
+        PlayerId second = PlayerId.of(java.util.UUID.randomUUID());
+        Instant now = Instant.parse("2026-10-01T00:00:00Z"), since = now.minusSeconds(60);
+        List<PsychosisEvent> rows = List.of(new PsychosisEvent(1, killer, first, CombatContext.OPEN, now),
+                new PsychosisEvent(2, killer, second, CombatContext.OPEN, now));
+        java.util.Set<PlayerId> seen = new java.util.HashSet<>();
+        // One generator across draws: java.util.Random's first nextInt(2) is
+        // the same for every small consecutive seed.
+        java.util.Random random = new java.util.Random(42);
+        for (int draw = 0; draw < 20; draw++)
+            VictimGhost.select(killer, rows, since, now, id -> Optional.of("Victim"), random)
+                    .ifPresent(ghost -> seen.add(ghost.victim()));
+        assertThat(seen).containsExactlyInAnyOrder(first, second);
+    }
+
     @Test void hurtIsOnlyAnAnimationAndSlotWithAFinalAudibleTail() {
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.set("effects.hurt-flash.enabled", true);
