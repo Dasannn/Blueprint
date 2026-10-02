@@ -166,7 +166,7 @@ public class AmbientEffectScheduler {
                 requestVictim(player.getUniqueId(), snapshot, state, now);
                 continue;
             }
-            boolean success = dispatcher.dispatch(player, chosen, cfg, snapshot);
+            boolean success = dispatcher.dispatch(player, chosen, cfg.scaled(level), snapshot);
             if (success) {
                 recordDelivery(player.getUniqueId(), chosen, snapshot, state, level, now);
             }
@@ -179,7 +179,7 @@ public class AmbientEffectScheduler {
         state.recordFired(chosen, now);
         long quietMillis = cfg.quietInterval(level).toMillis();
         long ticks = chosen == AmbientEffectType.CREEPER_SOUND ? cfg.maxEpisodeTicks()
-                : cfg.presentation().durationTicks(chosen, snapshot.config().sounds());
+                : cfg.presentation().scaled(level).durationTicks(chosen, snapshot.config().sounds());
         state.recordEpisode(now, ticks * 50L + quietMillis);
         dispatcher.reserveEpisode(id, ticks + (quietMillis + 49L) / 50L);
         dispatcher.guardDirection(id, () -> profileService.getViewQuick(PlayerId.of(id), snapshot).psychosis().hasMadnessEffects(), Math.max(1, ticks));
@@ -205,7 +205,7 @@ public class AmbientEffectScheduler {
                         if (!cfg.presentation().rules().get(AmbientEffectType.VICTIM_GHOST).allows(level)
                                 || !state.canStartEpisode(deliveredAt) || dispatcher.hasPending(id)
                                 || !state.canFire(AmbientEffectType.VICTIM_GHOST, cfg.getEffect(AmbientEffectType.VICTIM_GHOST), deliveredAt)) return;
-                        if (dispatcher.dispatchVictimGhost(viewer, cfg.presentation().ghost(), snapshot, victim.get().name()))
+                        if (dispatcher.dispatchVictimGhost(viewer, cfg.presentation().scaled(level).ghost(), snapshot, victim.get().name()))
                             recordDelivery(id, AmbientEffectType.VICTIM_GHOST, snapshot, state, level, deliveredAt);
                     });
                 } catch (RuntimeException stopped) { victimReads.remove(id, token); }

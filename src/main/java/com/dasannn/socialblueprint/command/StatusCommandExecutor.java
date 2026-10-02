@@ -733,6 +733,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 Map.of("confidence", localizedConfidence)));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-psychosis",
                 Map.of("psychosis", localizedPsychosis)));
+        sender.sendMessage(messageRegistry.render(snapshot, "status.profile-serenity",
+                Map.of("serenity", messageRegistry.serenityValue(view))));
         sender.sendMessage(messageRegistry.render(snapshot, "status.profile-contributors",
                 Map.of("contributors", String.valueOf(view.contributors()))));
     }
@@ -742,8 +744,12 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 .thenCompose(ignored -> profileService.resolvePlayerAsync(target, snapshot))
                 .thenAccept(view -> mainThreadRunner.accept(() -> {
                     if (view.isEmpty()) sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.not-found", Map.of("player", target)));
-                    else sender.sendMessage(messageRegistry.render(snapshot, "status.profile-psychosis",
-                            Map.of("psychosis", messageRegistry.psychosisLabel(snapshot, view.get()))));
+                    else {
+                        sender.sendMessage(messageRegistry.render(snapshot, "status.profile-psychosis",
+                                Map.of("psychosis", messageRegistry.psychosisLabel(snapshot, view.get()))));
+                        sender.sendMessage(messageRegistry.render(snapshot, "status.profile-serenity",
+                                Map.of("serenity", messageRegistry.serenityValue(view.get()))));
+                    }
                 })).exceptionally(error -> {
                     Logger.getLogger(StatusCommandExecutor.class.getName()).log(java.util.logging.Level.WARNING, "Could not read Psychosis", error);
                     mainThreadRunner.accept(() -> sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "status.read-failed")));

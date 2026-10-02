@@ -115,7 +115,17 @@ Governed by `docs/decisions/0006-psychosis-corrupts-the-speakers-chat.md`.
 Corruption affects only part of a message and leaves it readable enough to
 communicate. It never renders the whole line illegible, hides, blocks, delays or
 truncates it: a fully unreadable line would mute the player, turning a cosmetic
-effect into exclusion. If a short message cannot be partially corrupted while
+effect into exclusion.
+The configurable `psychosis.chat.min-letters` defaults to 6; there is no word
+minimum. First and last words are protected only for messages of three or more
+words. Every other message stays intact; substitutions affect at most the
+level's `medium-extent` / `high-extent` / `extreme-extent` percent of letters
+and matching share of words (at least one eligible word for short phrases),
+defaulting to 20/35/50. Changes are spread across eligible words through swaps
+and substitutions. Extents are 1..50 and non-decreasing; at least 50% of letters
+remain untouched even at Extreme, and at least one letter changes in a
+corrupted result. A zero-letter budget leaves the message intact. If a short
+message cannot be partially corrupted while
 remaining readable, it stays intact. Prefixes and the name hover are untouched.
 The frequency and extent are configurable, but no setting may remove these
 guards. Rater-supplied text is still stored as written and rendered as plain
@@ -123,7 +133,12 @@ text under SB-083, never parsed for colour, formatting or click actions; chat
 corruption gives no permission to reinterpret a rating or its reason.
 
 **SB-022.** Hovering a player's name in chat shows a compact summary: status,
-tier, Confidence, Psychosis, and the number of distinct players who contributed.
+tier, Confidence, separate Psychosis and Serenity lines, and the number of
+distinct raters labelled `Rated by: {count} players` / `Valorado por: {count}
+jugadores`. The same labels apply to chat/console profiles and the chest.
+Psychosis shows the madness level (Neutral during serenity); Serenity shows
+one decimal `x/100` (zero during madness). This is display of the same metric,
+not a new metric or storage change (SB-117); `/status psychosis` uses both lines.
 
 ## 5. Duels
 
@@ -168,7 +183,7 @@ which supersedes decision 0002. These hallucinations are private; the speaker's
 chat corruption is separately governed by SB-095.
 
 **SB-040.** Superseded by SB-096 through SB-099. The status threshold is
-removed, and the former timed Speed III silverfish become momentary phantoms.
+removed, and the former timed Speed III silverfish become brief stationary packet-only phantoms.
 
 **SB-096.** Killing Psychosis alone triggers ambient effects: phantom mobs,
 short private chat lines, configurable layered sounds (including the creeper
@@ -186,17 +201,31 @@ episodes, including any delayed sound layers. Cooldowns and session caps
 (SB-043) still bound delivery. Chat corruption follows the same gradation and
 must leave intact messages between episodes (SB-095); raising Psychosis cannot
 make either presentation constant. Unease must leave room to play and speak.
+Shipped episode intervals are
+2400/1200/400 ticks (Medium/High/Extreme), with quiet intervals of 2m/1m/20s
+after the scaled visual end and final audible tail. Madness session caps
+default to 6 per effect; strict cadence ordering and quiet floors remain.
+The shipped scheduler check is 1s so it can honour the Extreme interval;
+owner-configured check intervals still impose their existing 3/2/1-check floors.
 
 **SB-098.** Fake join and leave messages name the affected player themselves:
 "X joined the game" while X is already standing there. Only X receives them;
 they are not real connection events and are never broadcast or logged as such.
 The contradiction is about the player's own presence, not an invented visitor.
 
-**SB-099.** From **High**, phantom mobs appear and vanish at once, as a momentary glimpse,
-not a moving mob that remains for a timed encounter. They are private,
+**SB-099.** From **High**, a stationary phantom mob appears briefly, for
+`effects.silverfish.duration-ticks` (default 20) scaled by level under SB-116.
+The legacy `silverfish` section is retained for upgrade safety. Its `mobs` list
+defaults to `[silverfish, zombie, skeleton, spider, creeper, enderman]`; one
+hostile living type is chosen randomly per episode and resolved by registry key.
+Unknown, non-living and non-hostile types fail load and live-edit validation.
+Place the fake at `distance-blocks` (default 8), outside the viewer's interaction
+reach with the serene apparition's separation and movement margin. Skip a
+viewer whose reach could touch the fake: packet-only living mobs remain
+pickable on the client. No sound, AI or real entity is created. They are private,
 packet-only fakes: no server-side mob exists to cause collision or leak to
 bystanders. They never deal or take damage, push, target, drop loot or XP, or
-persist. Their managed lifecycle removes every fake on disappearance, quit,
+persist. Their managed lifecycle removes every fake on disappearance, move, teleport, quit,
 world change and server stop, so an interrupted episode leaves nothing behind
 after relog or restart. Their independent cooldown and session cap obey
 SB-043/SB-097, with silence after disappearance; they change no status,
@@ -297,14 +326,19 @@ for a moment, then vanishes. Its displayed victim name comes from a real victim
 in **that killer's own** eligible non-duel `psychosis_event` rows, resolved by
 UUID to a known name. Read the existing history; do not invent a victim or
 write a new event. If no such victim has a resolvable name, skip the effect.
-It is a packet-only, non-pickable text display (not a fake player, which the
-client could target) with a distinct ghost appearance and a
-message-file label identifying it as a ghost. It never copies a real player's
+It is a packet-only stationary `minecraft:mannequin` with its default skin
+and a translucent text display above it using `effects.victim-ghost.label`.
+The mannequin uses a random entity UUID, no profile lookup or player-info/tab
+entry, and hides its native description/nameplate. Living mannequins remain
+pickable on the client: place it outside interaction reach (range default 8
+blocks), reuse phantom/serene separation and movement guards, and skip viewers
+whose reach could touch it. If the running server cannot resolve the mannequin,
+deliver only the existing ghost label as one effect, consuming the cap once. It never copies a real player's
 skin, account UUID, tab-list identity or ordinary nameplate in a way that could
 be mistaken for that player actually being there. It appears and vanishes,
 never moves, acts, speaks, collides, damages or responds to interaction, and
 never appears to another player. Reuse managed-fake cleanup on disappearance,
-quit, world change and stop; relog or restart leaves no entity or identity
+move, teleport, quit, world change and stop; relog or restart leaves no entity or identity
 behind. Its short duration, independent cooldown and session cap obey
 SB-043/SB-097, leaving silence after removal. It changes no status, Confidence
 or money.
@@ -511,7 +545,12 @@ target's status directly; it is not the withdrawal of something the actor gave
 earlier. A player cannot undo an honor they have issued — only an administrator
 can, under SB-058.
 
-**SB-056.** Negative honor requires a written reason. Positive honor may carry
+**SB-056.** The give/take banners collect reasons through the same timed chat
+prompt before the existing confirmation chest. Giving honor accepts an optional
+plain-text reason or a message-configured skip word (default `-`, shown in the
+prompt); taking honor rejects empty and skip reasons. Both use the same timeout
+and cancellation behaviour and SB-083 plain-text handling.
+Negative honor requires a written reason. Positive honor may carry
 one.
 
 **SB-057.** The charge and the reputation event commit together. A failed charge
@@ -597,13 +636,14 @@ effects engine. In `config.yml`, every effect under `effects.<id>` has
 `enabled`, `minimum-level`, `cooldown-ticks` and `session-cap`. The ids are
 `sky`, `particles`, `screen-flash`, `source-less-sounds`, `block-change`,
 `sign`, `hurt-flash`, `victim-ghost`, `advancement-toast`, `boss-bar`,
-`false-death`, `fake-connection`, `private-chat` and `phantom-mob`.
+`false-death`, `fake-connection` and `private-chat`. Phantom mobs retain the
+legacy `silverfish` section with `cooldown` and `session-cap`.
 Reuse existing cooldown and cap settings when adopting these names on upgrade;
 preserve owner overrides. Caps count deliveries per login session and are not
 reset by reload or changing level. A skipped effect consumes no delivery.
 Minimum levels may be raised, never lowered below their catalogue floor:
 Medium for the mild effects, High for sky, block/sign, hurt flash, victim ghost,
-false death and the instant phantom of SB-099. Nausea has no keys (SB-112);
+false death and the timed phantom of SB-099. Nausea has no keys (SB-112);
 retire any legacy nausea settings on upgrade without enabling an effect.
 
 `effects.episodes.<medium|high|extreme>.interval-ticks` and
@@ -618,6 +658,25 @@ Episode intervals are positive and strictly decrease from Medium to High to
 Extreme; the quiet interval remains positive at all three levels. Delivery
 still depends on available effects whose own cooldowns and caps permit it.
 
+`effects.episodes.duration-scale.<medium|high|extreme>` defaults to
+1.0/1.5/2.0. Multipliers must be finite, at least 1.0 and non-decreasing.
+Every timed madness visual uses its level multiplier, rounded up to integer
+ticks and capped at the existing 100-tick ceiling: sky, particles,
+screen flash including fades, block/sign, victim
+ghost, toast, boss bar and phantom mobs. Particle emissions span the scaled
+duration without increasing the configured count or audience budget. Their
+fixed native client tail remains a duration floor and ends before quiet time.
+The native momentary hurt animation and sound playback remain unscaled.
+Restoration and quiet-time reservation use the same scaled duration.
+
+Chat corruption retains unchanged `psychosis.chat.<medium|high|extreme>-rate`
+and `min-letters`; per-level `medium-extent` / `high-extent` / `extreme-extent`
+default to 20/35/50 percent of letters and the matching share of words, bounded
+to 1..50 and non-decreasing. On upgrade, adopt a customised legacy
+`psychosis.chat.extent` into all three missing extent keys, then retire it;
+an untouched legacy default adopts the new graded defaults. Alternating intact
+messages, shared output and at least 50% untouched letters remain mandatory.
+
 Additional behaviour keys, relative to `effects.<id>`, are:
 
 | Effect / clause | Keys and bounds |
@@ -628,10 +687,11 @@ Additional behaviour keys, relative to `effects.<id>`, are:
 | Source-less sounds / SB-105 | `sound-slot`, `offset.forward-blocks`, `offset.right-blocks`, `offset.up-blocks`, `playback-ticks`; finite recipient-relative offsets allow footsteps behind; playback ticks bound the audible tail after the last delayed layer |
 | Block change and sign / SB-106 | Each has `block-data`, `range-blocks`, `duration-ticks`; range is positive and finite, block data must support the selected presentation, and sign text is at most four lines of 80 visible code points each |
 | Hurt flash / SB-107 | `sound-slot`, `playback-ticks`; flash is momentary, playback includes the final sound tail |
-| Victim ghost / SB-108 | `range-blocks`, `duration-ticks`; positive finite range, distinct ghost appearance, no real-skin option |
+| Victim ghost / SB-108 | `range-blocks` (default 8), `duration-ticks`; positive finite range, outside interaction reach, default-skin mannequin and translucent ghost label; label-only fallback, no real-skin option |
 | Advancement toast / SB-109 | `icon`, `duration-ticks`; icon is visual only, not an item grant |
 | Boss bar / SB-110 | `colour`, `style`, `progress`, `duration-ticks`; progress lies in `[0, 1]` |
 | False death / SB-111 | `range-blocks`; positive finite range and a living, visible nearby subject required |
+| Phantom mob / SB-099 (`silverfish`) | `mobs` (nonempty hostile living registry-key list), `distance-blocks` (positive finite, default 8), `duration-ticks` (default 20); skip viewers within interaction reach |
 | Custom/private chat / SB-115 | `max-visible-length` from 1 to 160; no custom-line list here |
 
 Cosmetic `duration-ticks` values are positive and at most 100 ticks (five
@@ -856,7 +916,7 @@ Deliberate deletions, so no agent restores them as "missing functionality".
 - [ ] Madness ambient effects reach only the affected player, respect their cooldowns,
       and leave no entity behind after quit or restart.
 - [ ] Fake connection messages name only the affected player and reach only
-      that player; phantom mobs vanish immediately and have no damage,
+      that player; phantom mobs vanish after a brief scaled duration and have no damage,
       collision, drops or server-side presence (SB-098, SB-099).
 - [ ] Neither ambient episodes nor chat corruption change any metric or money
       (SB-100).

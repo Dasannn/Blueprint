@@ -61,7 +61,11 @@ class StatusCommandTest {
             assertThat(call.key()).isEqualTo("status.profile-psychosis");
             assertThat(call.placeholders()).containsKey("psychosis");
         });
-        assertThat(getMessages(player)).hasSize(1);
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-serenity");
+            assertThat(call.placeholders()).containsEntry("serenity", "0.0");
+        });
+        assertThat(getMessages(player)).hasSize(2);
         messageRegistry.clearCalls();
         Player denied = mockPlayer("Denied");
         commandExecutor.onCommand(denied, null, "status", new String[]{"psychosis"});
@@ -293,7 +297,7 @@ class StatusCommandTest {
         commandExecutor.lastExecution().join();
 
         List<String> messages = getMessages(player);
-        assertThat(messages).hasSize(6);
+        assertThat(messages).hasSize(7);
 
         // Line 1: Header
         assertThat(messages.get(0)).contains("&8--- &bSocial Status: &eSteve &8---");
@@ -305,8 +309,8 @@ class StatusCommandTest {
         assertThat(messages.get(3)).contains("&7Confidence: &fUnknown");
         // Line 5: Psychosis
         assertThat(messages.get(4)).contains("&7Psychosis: &fNeutral");
-        // Line 6: Contributors
-        assertThat(messages.get(5)).contains("&7Contributors: &f0");
+        // Line 7: Distinct raters
+        assertThat(messages.get(6)).contains("&7Rated by: &f0 players");
     }
 
     @Test
@@ -320,7 +324,7 @@ class StatusCommandTest {
         commandExecutor.lastExecution().join();
 
         List<String> messages = getMessages(player);
-        assertThat(messages).hasSize(6);
+        assertThat(messages).hasSize(7);
 
         // Line 1: Header
         assertThat(messages.get(0)).contains("&8--- &bEstatus Social: &eSteve &8---");
@@ -332,8 +336,8 @@ class StatusCommandTest {
         assertThat(messages.get(3)).contains("&7Confianza: &fDesconocida");
         // Line 5: Psychosis
         assertThat(messages.get(4)).contains("&7Psicosis: &fNeutral");
-        // Line 6: Contributors
-        assertThat(messages.get(5)).contains("&7Colaboradores: &f0");
+        // Line 7: Distinct raters
+        assertThat(messages.get(6)).contains("&7Valorado por: &f0 jugadores");
     }
 
     @Test
@@ -386,11 +390,14 @@ class StatusCommandTest {
                 .as("Bukkit player lookup must be executed on the command thread, never on the storage thread")
                 .isSameAs(commandThread);
 
-        assertThat(consoleMessages).hasSize(6);
+        assertThat(consoleMessages).hasSize(7);
         assertThat(consoleMessages.get(0)).contains("&8--- &bSocial Status: &eAlex &8---");
         assertThat(consoleMessages.get(1)).contains("&7Tier: [&a||&7] &fHonorable");
         assertThat(consoleMessages.get(2)).contains("&7Status Score: &f15");
-        assertThat(consoleMessages.get(5)).contains("&7Contributors: &f1");
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-contributors");
+            assertThat(call.placeholders()).containsEntry("contributors", "1");
+        });
         assertThat(hasColor(consoleComponents.get(1), net.kyori.adventure.text.format.NamedTextColor.GREEN))
                 .as("Configured tier prefix in /status must retain its parsed color components")
                 .isTrue();
@@ -422,11 +429,19 @@ class StatusCommandTest {
         commandExecutor.lastExecution().join();
 
         List<String> messages = getMessages(player);
-        assertThat(messages).hasSize(6);
+        assertThat(messages).hasSize(7);
         assertThat(messages.get(2)).contains("&7Status Score: &f0");
         assertThat(messages.get(3)).contains("&7Confidence: &fUnknown");
-        assertThat(messages.get(4)).contains("&7Psychosis: &fNeutral");
-        assertThat(messages.get(5)).contains("&7Contributors: &f0");
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-psychosis");
+            assertThat(call.placeholders()).containsEntry("psychosis", messageRegistry.getRaw(configManager.snapshot(), "psychosis.neutral.name"));
+        }).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-serenity");
+            assertThat(call.placeholders()).containsEntry("serenity", "0.0");
+        }).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-contributors");
+            assertThat(call.placeholders()).containsEntry("contributors", "0");
+        });
     }
 
     @Test
@@ -516,11 +531,14 @@ class StatusCommandTest {
         assertThat(result).isTrue();
         commandExecutor.lastExecution().join();
 
-        assertThat(consoleMessages).hasSize(6);
+        assertThat(consoleMessages).hasSize(7);
         assertThat(consoleMessages.get(0)).contains("&8--- &bSocial Status: &eAlex &8---");
         // Status Score is derived only from valid event (+15)
         assertThat(consoleMessages.get(2)).contains("&7Status Score: &f15");
-        assertThat(consoleMessages.get(5)).contains("&7Contributors: &f1");
+        assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
+            assertThat(call.key()).isEqualTo("status.profile-contributors");
+            assertThat(call.placeholders()).containsEntry("contributors", "1");
+        });
 
         // Sender did not receive read-failed
         assertThat(messageRegistry.hasCall("status.read-failed")).isFalse();

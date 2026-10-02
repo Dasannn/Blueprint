@@ -63,7 +63,7 @@ public record EffectsConfigSection(
     public EffectsConfigSection(Duration checkInterval, SingleEffectConfig silverfish,
                                 SingleEffectConfig whisper, SingleEffectConfig creeper, SingleEffectConfig fakeAnnouncement) {
         this(checkInterval, silverfish, whisper, creeper, fakeAnnouncement,
-                Duration.ofMinutes(5), Duration.ofMinutes(2), Duration.ofSeconds(30), 200);
+                Duration.ofMinutes(2), Duration.ofMinutes(1), Duration.ofSeconds(20), 200);
     }
 
     private static Duration floor(Duration value, int seconds) {
@@ -107,6 +107,12 @@ public record EffectsConfigSection(
         return configured.compareTo(minimum) < 0 ? minimum : configured;
     }
 
+    public EffectsConfigSection scaled(PsychosisLevel level) {
+        return new EffectsConfigSection(checkInterval, silverfish, whisper, creeper, fakeAnnouncement,
+                mediumQuietInterval, highQuietInterval, extremeQuietInterval, maxEpisodeTicks,
+                presentation.scaled(level), serenity);
+    }
+
     public SingleEffectConfig getEffect(AmbientEffectType type) {
         if (presentation.rules().containsKey(type)) return presentation.rules().get(type).limits();
         return switch (type) {
@@ -119,11 +125,11 @@ public record EffectsConfigSection(
     }
 
     public static EffectsConfigSection defaults() {
-        return new EffectsConfigSection(Duration.ofSeconds(30),
-                SingleEffectConfig.of(Duration.ofMinutes(10), 3),
-                SingleEffectConfig.of(Duration.ofMinutes(5), 5),
-                SingleEffectConfig.of(Duration.ofMinutes(8), 3),
-                SingleEffectConfig.of(Duration.ofMinutes(15), 2));
+        return new EffectsConfigSection(Duration.ofSeconds(1),
+                SingleEffectConfig.of(Duration.ofMinutes(10), 6),
+                SingleEffectConfig.of(Duration.ofMinutes(5), 6),
+                SingleEffectConfig.of(Duration.ofMinutes(8), 6),
+                SingleEffectConfig.of(Duration.ofMinutes(15), 6));
     }
 
     public static EffectsConfigSection load(ConfigurationSection root) {
@@ -134,14 +140,14 @@ public record EffectsConfigSection(
             throw new ConfigValidationException("effects.max-episode-ticks", "Episode bound must be an integer");
         }
         return new EffectsConfigSection(
-                DurationParser.parsePositive(section.getString("check-interval", "30s"), "effects.check-interval"),
-                loadEffect(section, "silverfish", "10m", 3),
-                loadEffect(section, "whisper", "5m", 5),
-                loadEffect(section, "creeper", "8m", 3),
-                loadEffect(section, "fake-announcement", "15m", 2),
-                DurationParser.parseNonNegative(section.getString("quiet-interval.medium", "5m"), "effects.quiet-interval.medium"),
-                DurationParser.parseNonNegative(section.getString("quiet-interval.high", "2m"), "effects.quiet-interval.high"),
-                DurationParser.parseNonNegative(section.getString("quiet-interval.extreme", "30s"), "effects.quiet-interval.extreme"),
+                DurationParser.parsePositive(section.getString("check-interval", "1s"), "effects.check-interval"),
+                loadEffect(section, "silverfish", "10m", 6),
+                loadEffect(section, "whisper", "5m", 6),
+                loadEffect(section, "creeper", "8m", 6),
+                loadEffect(section, "fake-announcement", "15m", 6),
+                DurationParser.parseNonNegative(section.getString("quiet-interval.medium", "2m"), "effects.quiet-interval.medium"),
+                DurationParser.parseNonNegative(section.getString("quiet-interval.high", "1m"), "effects.quiet-interval.high"),
+                DurationParser.parseNonNegative(section.getString("quiet-interval.extreme", "20s"), "effects.quiet-interval.extreme"),
                 section.getInt("max-episode-ticks", 200), PresentationConfig.load(root), SerenityEffectsConfig.load(root));
     }
 

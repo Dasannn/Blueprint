@@ -122,7 +122,8 @@ class AmbientEffectSchedulerTest {
                 silverfish,
                 whisper,
                 creeper,
-                fakeAnnounce
+                fakeAnnounce,
+                Duration.ofMinutes(5), Duration.ofMinutes(2), Duration.ofSeconds(30), 200
         );
 
         PluginConfig fullConfig = configManager.config().withEffects(effectsCfg);
@@ -257,6 +258,56 @@ class AmbientEffectSchedulerTest {
                         .satisfies(record -> assertThat(record.type()).isEqualTo(chosen));
                 else assertThat(dispatchedList).isEmpty();
                 now += 1_000_000L;
+            }
+        }
+    }
+
+    @Test void schedulerPassesScaledVisualsAndStartsQuietAfterTheirScaledEnd() {
+        RuntimeSnapshot original = configManager.snapshot();
+        SingleEffectConfig disabled = SingleEffectConfig.of(Duration.ZERO, 0);
+        long now = 10_000_000L;
+        for (AmbientEffectType chosen : List.of(AmbientEffectType.SKY, AmbientEffectType.PARTICLES,
+                AmbientEffectType.SCREEN_FLASH, AmbientEffectType.BLOCK_CHANGE, AmbientEffectType.SIGN,
+                AmbientEffectType.BOSS_BAR, AmbientEffectType.SILVERFISH)) {
+            var yaml = new org.bukkit.configuration.file.YamlConfiguration();
+            if (chosen != AmbientEffectType.SILVERFISH) yaml.set("effects." + chosen.configId() + ".enabled", true);
+            yaml.set("effects.episodes.medium.interval-ticks", 2400);
+            yaml.set("effects.episodes.high.interval-ticks", 1200);
+            yaml.set("effects.episodes.extreme.interval-ticks", 400);
+            var presentation = com.dasannn.socialblueprint.config.PresentationConfig.load(yaml);
+            var config = new EffectsConfigSection(Duration.ofMillis(1),
+                    chosen == AmbientEffectType.SILVERFISH ? SingleEffectConfig.of(Duration.ZERO, 6) : disabled,
+                    disabled, disabled, disabled, Duration.ofMinutes(2), Duration.ofMinutes(1), Duration.ofSeconds(20), 100, presentation);
+            var snapshot = new RuntimeSnapshot(original.config().withEffects(config), original.messages());
+            configManager.snapshotReference().set(snapshot);
+            List<Long> renderedDurations = new ArrayList<>();
+            var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                    new FakeSilverfishService(null, new AmbientEntityRegistry(), null)) {
+                @Override public boolean dispatch(Player viewer, AmbientEffectType type, EffectsConfigSection settings, RuntimeSnapshot captured) {
+                    assertThat(type).isEqualTo(chosen);
+                    assertThat(captured).isSameAs(snapshot);
+                    renderedDurations.add(settings.presentation().durationTicks(type, captured.config().sounds()));
+                    return true;
+                }
+            };
+            var local = new AmbientEffectScheduler(null, configManager, profileService, dispatcher, () -> onlinePlayers);
+            for (int kills : List.of(2, 5, 10)) {
+                if (kills == 2 && chosen.floor() == PsychosisLevel.HIGH) continue;
+                UUID id = UUID.randomUUID();
+                onlinePlayers.clear();
+                onlinePlayers.add(createMockPlayer(id, "Scaled"));
+                setPsychosis(id, kills);
+                PsychosisLevel level = kills == 2 ? PsychosisLevel.MEDIUM : kills == 5 ? PsychosisLevel.HIGH : PsychosisLevel.EXTREME;
+                long base = chosen == AmbientEffectType.PARTICLES ? presentation.particles().durationTicks()
+                        : presentation.durationTicks(chosen, snapshot.config().sounds());
+                long expected = Math.min(100, (long) Math.ceil(base * (kills == 2 ? 1 : kills == 5 ? 1.5 : 2)));
+                if (chosen == AmbientEffectType.PARTICLES) expected = Math.max(expected, 41);
+                local.tickAt(now);
+                assertThat(renderedDurations.getLast()).isEqualTo(expected);
+                long allowedAt = now + expected * 50 + config.quietInterval(level).toMillis();
+                assertThat(local.getState(id).canStartEpisode(allowedAt - 1)).isFalse();
+                assertThat(local.getState(id).canStartEpisode(allowedAt)).isTrue();
+                now += 1_000_000;
             }
         }
     }
@@ -633,6 +684,8 @@ class AmbientEffectSchedulerTest {
                                                         RuntimeSnapshot snapshot, String name) {
                 player.getUniqueId(); // proxy asserts main-thread access
                 victims.add(name);
+                PsychosisLevel level = profileService.getViewQuick(PlayerId.of(player.getUniqueId()), snapshot).psychosis();
+                assertThat(settings.durationTicks()).isEqualTo(level == PsychosisLevel.EXTREME ? 80 : 60);
                 assertThat(snapshot).isSameAs(configManager.snapshot());
                 return true;
             }
@@ -673,6 +726,11 @@ class AmbientEffectSchedulerTest {
                 if (delivered) {
                     assertThat(victims).containsExactly("KnownVictim");
                     assertThat(state.canStartEpisode(state.getLastFiredMillis(AmbientEffectType.VICTIM_GHOST) + 40 * 50L)).isFalse();
+                    long duration = ending.equals("extreme") ? 80 : 60;
+                    PsychosisLevel level = ending.equals("extreme") ? PsychosisLevel.EXTREME : PsychosisLevel.HIGH;
+                    long allowedAt = state.getLastFiredMillis(AmbientEffectType.VICTIM_GHOST) + duration * 50L + config.quietInterval(level).toMillis();
+                    assertThat(state.canStartEpisode(allowedAt - 1)).isFalse();
+                    assertThat(state.canStartEpisode(allowedAt)).isTrue();
                     assertThat(state.canFire(AmbientEffectType.VICTIM_GHOST,
                             SingleEffectConfig.of(Duration.ZERO, 1), now + 1_000_000)).isFalse();
                 }

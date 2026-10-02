@@ -99,18 +99,18 @@ class ConfigValidationTest {
         assertThat(config.honor().maxPerTarget()).isEqualTo(3);
 
         // Verify Effects settings (SB-040, SB-043)
-        assertThat(config.effects().checkInterval()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(config.effects().checkInterval()).isEqualTo(Duration.ofSeconds(1));
         assertThat(config.effects().silverfish().cooldown()).isEqualTo(Duration.ofMinutes(10));
-        assertThat(config.effects().silverfish().sessionCap()).isEqualTo(3);
+        assertThat(config.effects().silverfish().sessionCap()).isEqualTo(6);
         assertThat(config.effects().whisper().cooldown()).isEqualTo(Duration.ofMinutes(5));
-        assertThat(config.effects().whisper().sessionCap()).isEqualTo(5);
+        assertThat(config.effects().whisper().sessionCap()).isEqualTo(6);
         assertThat(config.effects().creeper().cooldown()).isEqualTo(Duration.ofMinutes(8));
-        assertThat(config.effects().creeper().sessionCap()).isEqualTo(3);
+        assertThat(config.effects().creeper().sessionCap()).isEqualTo(6);
 
         // Verify History settings (T-124)
         assertThat(config.history().revealCost()).isEqualTo(100.0);
         assertThat(config.effects().fakeAnnouncement().cooldown()).isEqualTo(Duration.ofMinutes(15));
-        assertThat(config.effects().fakeAnnouncement().sessionCap()).isEqualTo(2);
+        assertThat(config.effects().fakeAnnouncement().sessionCap()).isEqualTo(6);
         // Verify Update settings (T-084, SB-075, SB-076)
         assertThat(config.update().checkOnStartup()).isTrue();
         assertThat(config.update().autoDownload()).isFalse();

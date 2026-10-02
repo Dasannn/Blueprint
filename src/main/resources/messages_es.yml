@@ -71,7 +71,8 @@ chat:
   hover-tier: '&7Rango: {prefix} &f{tier}'
   hover-confidence: '&7Confianza: &f{confidence}'
   hover-psychosis: '&7Psicosis: &f{psychosis}'
-  hover-contributors: '&7Colaboradores: &f{contributors}'
+  hover-serenity: '&7Serenidad: &f{serenity}/100'
+  hover-contributors: '&7Valorado por: &f{contributors} jugadores'
 
 status:
   not-found: '&cJugador no encontrado: &f{player}'
@@ -80,7 +81,8 @@ status:
   profile-status: '&7Puntuación de Estatus: &f{status}'
   profile-confidence: '&7Confianza: &f{confidence}'
   profile-psychosis: '&7Psicosis: &f{psychosis}'
-  profile-contributors: '&7Colaboradores: &f{contributors}'
+  profile-serenity: '&7Serenidad: &f{serenity}/100'
+  profile-contributors: '&7Valorado por: &f{contributors} jugadores'
   history-header: '&8--- &bHistorial de Reputación: &e{player} &8---'
   history-empty: '&7No hay eventos de reputación registrados.'
   history-entry: '&7[{time}] {delta}&7: &f{reason}'
@@ -203,6 +205,8 @@ gui:
     already-revealed: '&7La identidad de este calificador ya ha sido revelada.'
     insufficient-funds: '&cNecesitas {cost} para revelar la identidad de este calificador.'
     success: '&aSe ha revelado al calificador &e{player}&a por &6{cost}&a.'
+  reason-skip-word: '-'
+  prompt-give-reason: '&eEscribe una razón opcional para dar honor a &f{player}&e en el chat en 60 segundos; escribe &f{skip}&e para omitirla o &ccancelar&e para cancelar.'
   prompt-reason: '&eEscribe en el chat la razón para quitar honor a &f{player}&e en 60 segundos (o escribe &ccancelar&e).'
   prompt-cancelled: '&7Calificación cancelada.'
   prompt-expired: '&cEl tiempo para ingresar la razón ha expirado.'

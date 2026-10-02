@@ -110,16 +110,25 @@ public record PsychosisConfigSection(
     private static ChatCorruptionConfig loadChat(ConfigurationSection root) {
         ConfigurationSection section = root.getConfigurationSection("psychosis.chat");
         if (section == null) return ChatCorruptionConfig.DEFAULT;
-        int extent = integer(section, "extent", 20);
-        if (extent < 1 || extent > 25) {
-            throw new ConfigValidationException("psychosis.chat.extent", "Extent must be between 1 and 25 percent");
-        }
+        int mediumExtent = extent(section, "medium-extent", 20);
+        int highExtent = extent(section, "high-extent", 35);
+        int extremeExtent = extent(section, "extreme-extent", 50);
+        if (highExtent < mediumExtent) throw new ConfigValidationException("psychosis.chat.high-extent", "Must be >= medium-extent");
+        if (extremeExtent < highExtent) throw new ConfigValidationException("psychosis.chat.extreme-extent", "Must be >= high-extent");
+        int minLetters = integer(section, "min-letters", 6);
+        if (minLetters < 1) throw new ConfigValidationException("psychosis.chat.min-letters", "Must be positive");
         try {
             return new ChatCorruptionConfig(integer(section, "medium-rate", 10), integer(section, "high-rate", 25),
-                    integer(section, "extreme-rate", 40), extent);
+                    integer(section, "extreme-rate", 40), mediumExtent, highExtent, extremeExtent, minLetters);
         } catch (IllegalArgumentException ex) {
             throw new ConfigValidationException("psychosis.chat", ex.getMessage());
         }
+    }
+
+    private static int extent(ConfigurationSection section, String key, int fallback) {
+        int value = integer(section, key, fallback);
+        if (value < 1 || value > 50) throw new ConfigValidationException("psychosis.chat." + key, "Must be between 1 and 50 percent");
+        return value;
     }
 
     private static int integer(ConfigurationSection section, String key, int fallback) {

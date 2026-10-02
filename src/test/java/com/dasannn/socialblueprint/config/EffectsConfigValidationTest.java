@@ -34,6 +34,7 @@ class EffectsConfigValidationTest {
     @Test
     void zeroConfigurationCannotRemoveQuietOrGradation() {
         YamlConfiguration yaml = loadValidYaml();
+        yaml.set("effects.check-interval", "30s"); // Preserve the existing owner-configured scheduler floor check.
         for (String level : java.util.List.of("medium", "high", "extreme")) {
             yaml.set("effects.quiet-interval." + level, "0s");
         }
@@ -55,6 +56,22 @@ class EffectsConfigValidationTest {
                 .isGreaterThan(cfg.quietInterval(PsychosisLevel.HIGH));
         assertThat(cfg.quietInterval(PsychosisLevel.HIGH))
                 .isGreaterThan(cfg.quietInterval(PsychosisLevel.EXTREME));
+    }
+
+    @Test void secondAndSchedulerCheckFloorsRemainAfterTuning() {
+        YamlConfiguration yaml = loadValidYaml();
+        yaml.set("effects.episodes.medium.interval-ticks", 3);
+        yaml.set("effects.episodes.high.interval-ticks", 2);
+        yaml.set("effects.episodes.extreme.interval-ticks", 1);
+        yaml.set("effects.episodes.quiet-ticks", 1);
+        for (String level : java.util.List.of("medium", "high", "extreme")) yaml.set("effects.quiet-interval." + level, "0s");
+        for (int checkSeconds : java.util.List.of(1, 2)) {
+            yaml.set("effects.check-interval", checkSeconds + "s");
+            EffectsConfigSection cfg = PluginConfig.load(yaml).effects();
+            assertThat(cfg.quietInterval(PsychosisLevel.MEDIUM)).isEqualTo(Duration.ofSeconds(3L * checkSeconds));
+            assertThat(cfg.quietInterval(PsychosisLevel.HIGH)).isEqualTo(Duration.ofSeconds(2L * checkSeconds));
+            assertThat(cfg.quietInterval(PsychosisLevel.EXTREME)).isEqualTo(Duration.ofSeconds(checkSeconds));
+        }
     }
 
     @Test
@@ -79,11 +96,11 @@ class EffectsConfigValidationTest {
 
         PluginConfig config = PluginConfig.load(yaml);
         assertThat(config.effects()).isNotNull();
-        assertThat(config.effects().checkInterval()).isEqualTo(Duration.ofSeconds(30));
-        assertThat(config.effects().silverfish().sessionCap()).isEqualTo(3);
-        assertThat(config.effects().whisper().sessionCap()).isEqualTo(5);
-        assertThat(config.effects().creeper().sessionCap()).isEqualTo(3);
-        assertThat(config.effects().fakeAnnouncement().sessionCap()).isEqualTo(2);
+        assertThat(config.effects().checkInterval()).isEqualTo(Duration.ofSeconds(1));
+        assertThat(config.effects().silverfish().sessionCap()).isEqualTo(6);
+        assertThat(config.effects().whisper().sessionCap()).isEqualTo(6);
+        assertThat(config.effects().creeper().sessionCap()).isEqualTo(6);
+        assertThat(config.effects().fakeAnnouncement().sessionCap()).isEqualTo(6);
     }
 
     @Test

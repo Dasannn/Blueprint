@@ -99,7 +99,7 @@ class FakeSilverfishServiceTest {
     }
 
     @Test
-    void phantomIsRegisteredBeforeSpawnAndRemovedInTheSameCall() {
+    void phantomIsRegisteredBeforeSpawnAndRetainedUntilManagedExpiry() {
         List<String> packets = new ArrayList<>();
         ActiveEntityEntry entry = new ActiveEntityEntry(mockPlayer.getUniqueId(), 555, null,
                 mockWorld.getUID(), null, () -> packets.add("remove"));
@@ -107,6 +107,9 @@ class FakeSilverfishServiceTest {
             assertThat(registry.hasActiveEntities(mockPlayer.getUniqueId())).isTrue();
             packets.add("spawn");
         });
+        assertThat(packets).containsExactly("spawn");
+        assertThat(registry.getActiveCount()).isEqualTo(1);
+        registry.cleanDespawn(entry);
         assertThat(packets).containsExactly("spawn", "remove");
         assertThat(registry.getActiveCount()).isZero();
         assertThat(worldSpawnCount.get()).isZero();

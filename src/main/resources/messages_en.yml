@@ -71,7 +71,8 @@ chat:
   hover-tier: '&7Tier: {prefix} &f{tier}'
   hover-confidence: '&7Confidence: &f{confidence}'
   hover-psychosis: '&7Psychosis: &f{psychosis}'
-  hover-contributors: '&7Contributors: &f{contributors}'
+  hover-serenity: '&7Serenity: &f{serenity}/100'
+  hover-contributors: '&7Rated by: &f{contributors} players'
 
 status:
   not-found: '&cPlayer not found: &f{player}'
@@ -80,7 +81,8 @@ status:
   profile-status: '&7Status Score: &f{status}'
   profile-confidence: '&7Confidence: &f{confidence}'
   profile-psychosis: '&7Psychosis: &f{psychosis}'
-  profile-contributors: '&7Contributors: &f{contributors}'
+  profile-serenity: '&7Serenity: &f{serenity}/100'
+  profile-contributors: '&7Rated by: &f{contributors} players'
   history-header: '&8--- &bReputation History: &e{player} &8---'
   history-empty: '&7No reputation events recorded.'
   history-entry: '&7[{time}] {delta}&7: &f{reason}'
@@ -203,6 +205,8 @@ gui:
     already-revealed: '&7This rater''s identity is already revealed.'
     insufficient-funds: '&cYou need {cost} to reveal this rater''s identity.'
     success: '&aRevealed rater &e{player}&a for &6{cost}&a.'
+  reason-skip-word: '-'
+  prompt-give-reason: '&eType an optional reason for giving honor to &f{player}&e in chat within 60 seconds; type &f{skip}&e to skip or &ccancel&e to cancel.'
   prompt-reason: '&eType the reason for taking honor from &f{player}&e in chat within 60 seconds (or type &ccancel&e).'
   prompt-cancelled: '&7Rating cancelled.'
   prompt-expired: '&cRating reason prompt expired.'
