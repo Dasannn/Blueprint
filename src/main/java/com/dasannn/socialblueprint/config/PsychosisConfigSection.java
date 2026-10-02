@@ -1,110 +1,81 @@
 package com.dasannn.socialblueprint.config;
 
-import com.dasannn.socialblueprint.domain.PsychosisConfig;
-import com.dasannn.socialblueprint.domain.ChatCorruptionConfig;
+import com.dasannn.socialblueprint.domain.*;
 import org.bukkit.configuration.ConfigurationSection;
-
-import java.time.Duration;
+import java.util.Map;
+import java.util.EnumMap;
 import java.util.Objects;
 
-/**
- * Immutable configuration section for Killing Psychosis per T-030 and T-031.
- */
-public record PsychosisConfigSection(
-        Duration window,
-        int mediumThreshold,
-        int highThreshold,
-        int extremeThreshold,
-        ChatCorruptionConfig chat,
-        com.dasannn.socialblueprint.domain.SerenityConfig serenity
-) {
-    public PsychosisConfigSection(Duration window, int mediumThreshold, int highThreshold, int extremeThreshold, ChatCorruptionConfig chat) {
-        this(window, mediumThreshold, highThreshold, extremeThreshold, chat, com.dasannn.socialblueprint.domain.SerenityConfig.DEFAULT);
-    }
-    public PsychosisConfigSection(Duration window, int mediumThreshold, int highThreshold, int extremeThreshold) {
-        this(window, mediumThreshold, highThreshold, extremeThreshold, ChatCorruptionConfig.DEFAULT);
-    }
-
+public record PsychosisConfigSection(double mediumThreshold, double highThreshold, double extremeThreshold,
+        ChatCorruptionConfig chat, SerenityConfig serenity, Map<MindInput, MindInputConfig> inputs,
+        double nearDeathHealth, double cleanDayActiveMinutes, int peacefulCap) {
     public PsychosisConfigSection {
-        Objects.requireNonNull(chat, "Chat configuration must not be null");
-        Objects.requireNonNull(serenity, "Serenity configuration must not be null");
-        Objects.requireNonNull(window, "Window duration must not be null");
+        inputs = Map.copyOf(inputs);
+        Objects.requireNonNull(chat);
+        Objects.requireNonNull(serenity);
+        new PsychosisConfig(mediumThreshold, highThreshold, extremeThreshold);
     }
-
-    public PsychosisConfig toDomain() {
-        return new PsychosisConfig(window, mediumThreshold, highThreshold, extremeThreshold);
-    }
+    public PsychosisConfig toDomain() { return new PsychosisConfig(mediumThreshold, highThreshold, extremeThreshold); }
+    public MindInputConfig input(MindInput kind) { return inputs.get(kind); }
 
     public static PsychosisConfigSection load(ConfigurationSection root) {
-        Objects.requireNonNull(root, "ConfigurationSection must not be null");
-        ConfigurationSection section = root.getConfigurationSection("psychosis");
-        if (section == null) {
-            throw new ConfigValidationException("psychosis", "Missing required configuration section 'psychosis'");
+        if (root.getConfigurationSection("psychosis") == null)
+            throw new ConfigValidationException("psychosis", "Missing required configuration section");
+        for (String level : java.util.List.of("low", "medium", "high", "extreme")) {
+            String key = "psychosis.levels." + level;
+            if (!root.contains(key)) throw new ConfigValidationException(key, "Missing required key");
         }
-
-        String windowKey = "psychosis.window";
-        if (!section.contains("window")) {
-            throw new ConfigValidationException(windowKey, "Missing required key: " + windowKey);
+        double low = number(root, "psychosis.levels.low", 0);
+        if (low != 0) throw new ConfigValidationException("psychosis.levels.low", "Low begins above the fixed Neutral boundary 0");
+        double medium = number(root, "psychosis.levels.medium", 20);
+        double high = number(root, "psychosis.levels.high", 50);
+        double extreme = number(root, "psychosis.levels.extreme", 80);
+        if (medium <= 0 || medium > 100) throw new ConfigValidationException("psychosis.levels.medium", "Must be inside (0, 100]");
+        if (high <= medium || high > 100) throw new ConfigValidationException("psychosis.levels.high", "Must exceed Medium and be at most 100");
+        if (extreme <= high || extreme > 100) throw new ConfigValidationException("psychosis.levels.extreme", "Must exceed High and be at most 100");
+        for (String key : java.util.List.of("psychosis.levels", "psychosis.inputs", "psychosis.inputs.peaceful", "psychosis.serenity")) {
+            if (root.contains(key) && !root.isConfigurationSection(key)) throw new ConfigValidationException(key, "Must be a mapping");
         }
-        Duration window = DurationParser.parsePositive(section.getString("window"), windowKey);
-
-        String medKey = "psychosis.medium-threshold";
-        if (!section.contains("medium-threshold")) {
-            throw new ConfigValidationException(medKey, "Missing required key: " + medKey);
+        int peacefulCap = cap(root, "psychosis.inputs.peaceful.cap", 25);
+        Map<MindInput, MindInputConfig> inputs = new EnumMap<>(MindInput.class);
+        for (MindInput kind : MindInput.values()) {
+            String prefix = "psychosis.inputs." + kind.id() + ".";
+            if (root.contains("psychosis.inputs." + kind.id()) && !root.isConfigurationSection("psychosis.inputs." + kind.id()))
+                throw new ConfigValidationException("psychosis.inputs." + kind.id(), "Must be a mapping");
+            Object enabled = root.get(prefix + "enabled", true);
+            if (!(enabled instanceof Boolean)) throw new ConfigValidationException(prefix + "enabled", "Must be a boolean");
+            MindInputConfig defaults = kind.defaults();
+            inputs.put(kind, new MindInputConfig((Boolean) enabled,
+                    number(root, prefix + (kind.bad() ? "serene-drain" : "gain"), defaults.sereneAmount()),
+                    number(root, prefix + (kind.bad() ? "psychosis-weight" : "cure"), defaults.psychosisAmount()),
+                    kind.peaceful() ? peacefulCap : kind.bad() ? 0 : cap(root, prefix + "cap", defaults.cap())));
         }
-        int medium = parseInt(section, "medium-threshold", medKey);
-        if (medium <= 0) {
-            throw new ConfigValidationException(medKey, "medium-threshold must be > 0, got " + medium);
-        }
-
-        String highKey = "psychosis.high-threshold";
-        if (!section.contains("high-threshold")) {
-            throw new ConfigValidationException(highKey, "Missing required key: " + highKey);
-        }
-        int high = parseInt(section, "high-threshold", highKey);
-        if (high <= medium) {
-            throw new ConfigValidationException(highKey, "high-threshold must be > medium-threshold ("
-                    + medium + "), got " + high);
-        }
-
-        String extKey = "psychosis.extreme-threshold";
-        if (!section.contains("extreme-threshold")) {
-            throw new ConfigValidationException(extKey, "Missing required key: " + extKey);
-        }
-        int extreme = parseInt(section, "extreme-threshold", extKey);
-        if (extreme <= high) {
-            throw new ConfigValidationException(extKey, "extreme-threshold must be > high-threshold ("
-                    + high + "), got " + extreme);
-        }
-
-        return new PsychosisConfigSection(window, medium, high, extreme, loadChat(root),
-                new com.dasannn.socialblueprint.domain.SerenityConfig(
-                        serenityNumber(root, "ceiling", 100),
-                        serenityNumber(root, "active-hours-to-ceiling", 100),
-                        serenityNumber(root, "idle-timeout-seconds", 300)));
+        double health = number(root, "psychosis.inputs.near-death.health", 4);
+        if (health <= 0) throw new ConfigValidationException("psychosis.inputs.near-death.health", "Must be positive");
+        double minutes = number(root, "psychosis.inputs.clean-day.active-minutes", 30);
+        if (!Double.isFinite(minutes * 60_000))
+            throw new ConfigValidationException("psychosis.inputs.clean-day.active-minutes", "Must be finite in milliseconds");
+        double idle = number(root, "psychosis.serenity.idle-timeout-seconds", 300);
+        if (idle <= 0 || !Double.isFinite(idle * 1000))
+            throw new ConfigValidationException("psychosis.serenity.idle-timeout-seconds", "Must be positive and finite in milliseconds");
+        double ceiling = number(root, "psychosis.serenity.ceiling", 100);
+        if (ceiling <= 0 || ceiling > 100) throw new ConfigValidationException("psychosis.serenity.ceiling", "Must be inside (0, 100]");
+        return new PsychosisConfigSection(medium, high, extreme, loadChat(root),
+                new SerenityConfig(ceiling, 100, idle), inputs, health, minutes, peacefulCap);
     }
 
-    private static double serenityNumber(ConfigurationSection root, String leaf, double fallback) {
-        String key = "psychosis.serenity." + leaf;
-        Object raw = root.get(key);
-        if (raw == null) return fallback;
+    private static double number(ConfigurationSection root, String key, double fallback) {
+        Object raw = root.get(key, fallback);
         double value;
         try { value = Double.parseDouble(raw.toString()); }
-        catch (NumberFormatException ex) { throw new ConfigValidationException(key, "Must be a positive finite number"); }
-        double scaled = value * (leaf.equals("active-hours-to-ceiling") ? 3_600_000
-                : leaf.equals("idle-timeout-seconds") ? 1000 : 1);
-        if (!Double.isFinite(value) || value <= 0 || !Double.isFinite(scaled) || scaled == 0) {
-            throw new ConfigValidationException(key, "Must be a positive finite number");
-        }
-
-        if (root.contains("psychosis.serenity") && !root.isConfigurationSection("psychosis.serenity"))
-            throw new ConfigValidationException("psychosis.serenity", "Must be a mapping");
-        ConfigurationSection serenitySection = root.getConfigurationSection("psychosis.serenity");
-        if (serenitySection != null) for (String child : serenitySection.getKeys(false)) {
-            if (!java.util.Set.of("ceiling", "active-hours-to-ceiling", "idle-timeout-seconds").contains(child))
-                throw new ConfigValidationException("psychosis.serenity." + child, "Unknown key");
-        }
+        catch (NumberFormatException ex) { throw new ConfigValidationException(key, "Must be a finite nonnegative number"); }
+        if (!Double.isFinite(value) || value < 0) throw new ConfigValidationException(key, "Must be a finite nonnegative number");
         return value;
+    }
+    private static int cap(ConfigurationSection root, String key, int fallback) {
+        double value = number(root, key, fallback);
+        if (value != Math.rint(value) || value > Integer.MAX_VALUE) throw new ConfigValidationException(key, "Must be a nonnegative integer");
+        return (int) value;
     }
 
     private static ChatCorruptionConfig loadChat(ConfigurationSection root) {

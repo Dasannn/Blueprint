@@ -89,6 +89,39 @@ public class ConfigManager {
         reload();
     }
 
+    private File mindUpgradeFile() { return new File(configFile.getParentFile(), "mind-upgrade.yml"); }
+
+    private void retireMindKeys(YamlConfiguration before) {
+        // Keep conversion settings across a crash between YAML upgrade and migration commit.
+        File pending = mindUpgradeFile();
+        if (!pending.exists() && (before.contains("psychosis.window") || before.contains("psychosis.serenity.active-hours-to-ceiling"))) {
+            YamlConfiguration saved = new YamlConfiguration();
+            saved.set("window", before.getString("psychosis.window", "72h"));
+            saved.set("ceiling", before.get("psychosis.serenity.ceiling", 100));
+            saved.set("active-hours-to-ceiling", before.get("psychosis.serenity.active-hours-to-ceiling", 100));
+            try { saved.save(pending); }
+            catch (IOException error) { throw new ConfigValidationException("psychosis", "Cannot preserve upgrade settings: " + error.getMessage()); }
+        }
+        removeObsoleteKeys(configFile, List.of("psychosis.window", "psychosis.medium-threshold", "psychosis.high-threshold",
+                "psychosis.extreme-threshold", "psychosis.serenity.active-hours-to-ceiling"));
+    }
+
+    public com.dasannn.socialblueprint.domain.LegacyMindConversion legacyMindConversion() {
+        YamlConfiguration old = YamlConfiguration.loadConfiguration(mindUpgradeFile());
+        try {
+            return new com.dasannn.socialblueprint.domain.LegacyMindConversion(
+                    DurationParser.parsePositive(old.getString("window", "72h"), "psychosis.window"),
+                    new com.dasannn.socialblueprint.domain.SerenityConfig(old.getDouble("ceiling", 100),
+                            old.getDouble("active-hours-to-ceiling", 100), 300));
+        } catch (IllegalArgumentException error) { throw new ConfigValidationException("psychosis", "Invalid release-1 conversion settings: " + error.getMessage()); }
+    }
+
+    /** Called only after migration 6 has committed, on an IO executor. */
+    public void finishMindUpgrade() {
+        try { java.nio.file.Files.deleteIfExists(mindUpgradeFile().toPath()); }
+        catch (IOException error) { logger.warning("Cannot remove committed mind upgrade settings: " + error.getMessage()); }
+    }
+
     private void retireEffectsKeys() {
         removeObsoleteKeys(configFile, List.of("effects.threshold",
                 "effects.fake-announcement.fake-names", "permissions.effects",
@@ -215,6 +248,7 @@ public class ConfigManager {
             adoptPrivateTextLimits(beforeMerge);
             adoptChatExtents(beforeMerge);
             retireEffectsKeys();
+            retireMindKeys(beforeMerge);
 
             YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
             PluginConfig newConfig = PluginConfig.load(yaml);
@@ -627,10 +661,18 @@ public class ConfigManager {
         set.add("decay.floor");
         set.add("decay.cache-ttl");
 
-        set.add("psychosis.window");
-        set.add("psychosis.medium-threshold");
-        set.add("psychosis.high-threshold");
-        set.add("psychosis.extreme-threshold");
+        for (String level : List.of("low", "medium", "high", "extreme")) set.add("psychosis.levels." + level);
+        for (com.dasannn.socialblueprint.domain.MindInput input : com.dasannn.socialblueprint.domain.MindInput.values()) {
+            String prefix = "psychosis.inputs." + input.id() + ".";
+            set.add(prefix + "enabled");
+            set.add(prefix + (input.bad() ? "serene-drain" : "gain"));
+            set.add(prefix + (input.bad() ? "psychosis-weight" : "cure"));
+            if (!input.bad() && !input.peaceful()) set.add(prefix + "cap");
+        }
+        set.add("psychosis.inputs.peaceful.cap");
+        set.add("psychosis.inputs.near-death.health");
+        set.add("psychosis.inputs.clean-day.active-minutes");
+        set.add("permissions.admin-mind");
         set.add("psychosis.chat.medium-rate");
         set.add("psychosis.chat.high-rate");
         set.add("psychosis.chat.extreme-rate");
@@ -640,7 +682,6 @@ public class ConfigManager {
         set.add("psychosis.chat.min-letters");
         for (String level : List.of("medium", "high", "extreme")) set.add("psychosis.chat." + level + "-colour");
         set.add("psychosis.serenity.ceiling");
-        set.add("psychosis.serenity.active-hours-to-ceiling");
         set.add("psychosis.serenity.idle-timeout-seconds");
 
         set.add("honor.cost");
@@ -778,14 +819,25 @@ public class ConfigManager {
         if ("decay.floor".equals(path) && config.decay() != null) return String.valueOf(config.decay().floor());
         if ("decay.cache-ttl".equals(path) && config.decay() != null) return formatDuration(config.decay().cacheTtl());
 
-        if ("psychosis.window".equals(path) && config.psychosis() != null) return formatDuration(config.psychosis().window());
-        if ("psychosis.medium-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().mediumThreshold());
-        if ("psychosis.high-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().highThreshold());
-        if ("psychosis.extreme-threshold".equals(path) && config.psychosis() != null) return String.valueOf(config.psychosis().extremeThreshold());
         for (var level : List.of(com.dasannn.socialblueprint.domain.PsychosisLevel.MEDIUM,
                 com.dasannn.socialblueprint.domain.PsychosisLevel.HIGH, com.dasannn.socialblueprint.domain.PsychosisLevel.EXTREME)) {
             if (("psychosis.chat." + level.name().toLowerCase(java.util.Locale.ROOT) + "-colour").equals(path))
                 return config.psychosis().chat().colour(level);
+        }
+        if ("psychosis.levels.low".equals(path)) return "0";
+        if ("psychosis.levels.medium".equals(path)) return String.valueOf(config.psychosis().mediumThreshold());
+        if ("psychosis.levels.high".equals(path)) return String.valueOf(config.psychosis().highThreshold());
+        if ("psychosis.levels.extreme".equals(path)) return String.valueOf(config.psychosis().extremeThreshold());
+        if ("psychosis.inputs.peaceful.cap".equals(path)) return String.valueOf(config.psychosis().peacefulCap());
+        if ("psychosis.inputs.near-death.health".equals(path)) return String.valueOf(config.psychosis().nearDeathHealth());
+        if ("psychosis.inputs.clean-day.active-minutes".equals(path)) return String.valueOf(config.psychosis().cleanDayActiveMinutes());
+        for (com.dasannn.socialblueprint.domain.MindInput kind : com.dasannn.socialblueprint.domain.MindInput.values()) {
+            String prefix = "psychosis.inputs." + kind.id() + ".";
+            var input = config.psychosis().input(kind);
+            if ((prefix + "enabled").equals(path)) return String.valueOf(input.enabled());
+            if ((prefix + (kind.bad() ? "serene-drain" : "gain")).equals(path)) return String.valueOf(input.sereneAmount());
+            if ((prefix + (kind.bad() ? "psychosis-weight" : "cure")).equals(path)) return String.valueOf(input.psychosisAmount());
+            if ((prefix + "cap").equals(path)) return String.valueOf(input.cap());
         }
         if ("psychosis.chat.medium-rate".equals(path)) return String.valueOf(config.psychosis().chat().mediumRate());
         if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());
@@ -795,7 +847,6 @@ public class ConfigManager {
         if ("psychosis.chat.high-extent".equals(path)) return String.valueOf(config.psychosis().chat().highExtent());
         if ("psychosis.chat.extreme-extent".equals(path)) return String.valueOf(config.psychosis().chat().extremeExtent());
         if ("psychosis.serenity.ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().ceiling());
-        if ("psychosis.serenity.active-hours-to-ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().activeHoursToCeiling());
         if ("psychosis.serenity.idle-timeout-seconds".equals(path)) return String.valueOf(config.psychosis().serenity().idleTimeoutSeconds());
 
         if ("honor.cost".equals(path) && config.honor() != null) return String.valueOf(config.honor().cost());

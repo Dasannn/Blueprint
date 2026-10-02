@@ -85,10 +85,10 @@ class ConfigValidationTest {
         assertThat(config.decay().cacheTtl()).isEqualTo(Duration.ofSeconds(60));
 
         // Verify Psychosis settings
-        assertThat(config.psychosis().window()).isEqualTo(Duration.ofHours(72));
-        assertThat(config.psychosis().mediumThreshold()).isEqualTo(2);
-        assertThat(config.psychosis().highThreshold()).isEqualTo(5);
-        assertThat(config.psychosis().extremeThreshold()).isEqualTo(10);
+        assertThat(config.psychosis().input(com.dasannn.socialblueprint.domain.MindInput.KILL).psychosisAmount()).isEqualTo(10);
+        assertThat(config.psychosis().mediumThreshold()).isEqualTo(20);
+        assertThat(config.psychosis().highThreshold()).isEqualTo(50);
+        assertThat(config.psychosis().extremeThreshold()).isEqualTo(80);
 
         // Verify Honor settings
         assertThat(config.honor().cost()).isEqualTo(500.0);
@@ -231,10 +231,10 @@ class ConfigValidationTest {
                 .matches(e -> ((ConfigValidationException) e).key().equals("honor.cost"));
 
         YamlConfiguration yaml4 = loadValidYaml();
-        yaml4.set("psychosis.window", null);
+        yaml4.set("psychosis.levels.medium", null);
         assertThatThrownBy(() -> PluginConfig.load(yaml4))
                 .isInstanceOf(ConfigValidationException.class)
-                .matches(e -> ((ConfigValidationException) e).key().equals("psychosis.window"));
+                .matches(e -> ((ConfigValidationException) e).key().equals("psychosis.levels.medium"));
 
         YamlConfiguration yaml5 = loadValidYaml();
         yaml5.set("confidence.half-life", null);
@@ -247,12 +247,12 @@ class ConfigValidationTest {
     @DisplayName("T-031: Psychosis thresholds out of order fail naming the offending key")
     void psychosisThresholdsOutOfOrderFail() {
         YamlConfiguration yaml = loadValidYaml();
-        yaml.set("psychosis.high-threshold", 2); // equal to medium (2)
+        yaml.set("psychosis.levels.high", 20); // equal to medium (2)
 
         assertThatThrownBy(() -> PluginConfig.load(yaml))
                 .isInstanceOf(ConfigValidationException.class)
-                .hasMessageContaining("psychosis.high-threshold")
-                .matches(e -> ((ConfigValidationException) e).key().equals("psychosis.high-threshold"));
+                .hasMessageContaining("psychosis.levels.high")
+                .matches(e -> ((ConfigValidationException) e).key().equals("psychosis.levels.high"));
     }
 
     @Test

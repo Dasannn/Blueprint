@@ -3,7 +3,7 @@ package com.dasannn.socialblueprint.domain;
 import java.time.Instant;
 import java.time.Duration;
 
-/** Plain online-session accounting. A new session has no qualifying activity. */
+/** Plain active/idle accounting, not a mental-state value. A new session has no qualifying activity. */
 public final class SerenitySession {
     private double creditedMillis;
     private long checkedAt;
@@ -25,14 +25,8 @@ public final class SerenitySession {
         long start = now - Math.min(elapsed, 1000);
         if (!afk && lastAction != null) {
             double end = Math.min(now, lastAction + config.idleTimeoutSeconds() * 1000);
-            if (lastKill != null) {
-                Instant expiry = lastKill.plus(window);
-                if (expiry.isAfter(wallNow)) start = now;
-                else start = Math.max(start, now - Duration.between(expiry, wallNow).toMillis());
-            }
             creditedMillis += Math.max(0, end - start);
         }
-        creditedMillis = config.clamp(creditedMillis);
         checkedAt = now;
     }
 

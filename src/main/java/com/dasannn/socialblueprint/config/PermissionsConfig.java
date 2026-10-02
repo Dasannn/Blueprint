@@ -37,6 +37,7 @@ public record PermissionsConfig(
         }
         return switch (action) {
             case "version" -> "socialblueprint.version";
+            case "admin-mind" -> "socialblueprint.admin.mind";
             case "admin-update" -> "socialblueprint.admin.update";
             default -> null;
         };
@@ -61,6 +62,9 @@ public record PermissionsConfig(
             }
             nodes.put(action, node);
         }
+
+        if (section.contains("admin-mind") && (!section.isString("admin-mind") || section.getString("admin-mind").isBlank()))
+            throw new ConfigValidationException("permissions.admin-mind", "Permission node must be a nonblank string");
 
         // Include any additional custom nodes configured
         for (String key : section.getKeys(false)) {

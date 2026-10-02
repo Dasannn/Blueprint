@@ -68,7 +68,7 @@ class ConfigManagerTest {
         assertThat(configManager.get("language")).isEqualTo(configManager.config().language());
         assertThat(configManager.get("language")).isIn("en", "es");
         assertThat(configManager.get("honor.cost")).isEqualTo("500.0");
-        assertThat(configManager.get("psychosis.medium-threshold")).isEqualTo("2");
+        assertThat(configManager.get("psychosis.levels.medium")).isEqualTo("20");
         assertThat(configManager.get("tiers.tier-4.threshold")).isEqualTo("-50");
         assertThat(configManager.get("tier-4.threshold")).isEqualTo("-50");
     }

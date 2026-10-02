@@ -22,6 +22,9 @@ import java.util.concurrent.CompletableFuture;
  */
 public class StatusAdminCommand {
 
+    private StatusMindCommand mindCommand;
+    public void registerMindCommand(StatusMindCommand command) { this.mindCommand = command; }
+
     private final HonorService honorService;
     private final MessageRegistry messageRegistry;
     private final com.dasannn.socialblueprint.feature.legacy.LegacyImportService legacyImportService;
@@ -54,6 +57,10 @@ public class StatusAdminCommand {
         }
 
         String action = args[0].toLowerCase(Locale.ROOT);
+
+        if ("mind".equals(action) && mindCommand != null) {
+            return mindCommand.execute(sender, java.util.Arrays.copyOfRange(args, 1, args.length), snapshot);
+        }
 
         if ("import".equals(action)) {
             if (!PermissionChecker.hasPermission(sender, "admin-import", snapshot)) {
@@ -139,13 +146,15 @@ public class StatusAdminCommand {
         boolean canAdjust = PermissionChecker.hasPermission(sender, "admin-adjust", snapshot);
         boolean canImport = PermissionChecker.hasPermission(sender, "admin-import", snapshot);
 
-        if (!canAdjust && !canImport) {
+        boolean canMind = mindCommand != null && PermissionChecker.hasPermission(sender, "admin-mind", snapshot);
+        if (!canAdjust && !canImport && !canMind) {
             return Collections.emptyList();
         }
 
         if (args.length == 1) {
             String current = args[0].toLowerCase(Locale.ROOT);
             List<String> actions = new ArrayList<>();
+            if (canMind) actions.add("mind");
             if (canAdjust) {
                 actions.add("give");
                 actions.add("take");
@@ -163,6 +172,8 @@ public class StatusAdminCommand {
             return matches;
         }
 
+        if (args.length > 1 && "mind".equalsIgnoreCase(args[0]) && mindCommand != null)
+            return mindCommand.tabComplete(sender, java.util.Arrays.copyOfRange(args, 1, args.length), snapshot);
         return Collections.emptyList();
     }
 }

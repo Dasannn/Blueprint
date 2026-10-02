@@ -627,6 +627,14 @@ public final class ReputationRepository {
             KillPenaltySettings settings,
             PsychosisRepository psychosisRepository
     ) {
+        return executeKillPenaltyAsync(killerId, victimId, worldName, now, settings, psychosisRepository,
+                com.dasannn.socialblueprint.domain.MindInput.KILL.defaults());
+    }
+
+    public CompletableFuture<KillPenaltyResult> executeKillPenaltyAsync(
+            PlayerId killerId, PlayerId victimId, String worldName, Instant now, KillPenaltySettings settings,
+            PsychosisRepository psychosisRepository, com.dasannn.socialblueprint.domain.MindInputConfig mindInput
+    ) {
         Objects.requireNonNull(killerId, "killerId must not be null");
         Objects.requireNonNull(victimId, "victimId must not be null");
         Objects.requireNonNull(now, "now must not be null");
@@ -676,7 +684,7 @@ public final class ReputationRepository {
 
                 // Insert PsychosisEvent inside the exact same transaction (Finding 2)
                 PsychosisEvent psychosisEvent = new PsychosisEvent(0L, killerId, victimId, CombatContext.OPEN, now);
-                psychosisEvent = psychosisRepository.saveInternal(conn, psychosisEvent);
+                psychosisEvent = psychosisRepository.saveInternal(conn, psychosisEvent, mindInput);
 
                 conn.commit();
                 return new KillPenaltyResult(penaltyDelta, repEvent, psychosisEvent);

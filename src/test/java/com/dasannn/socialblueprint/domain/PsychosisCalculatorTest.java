@@ -1,124 +1,42 @@
 package com.dasannn.socialblueprint.domain;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 
 class PsychosisCalculatorTest {
-
-    private final PsychosisConfig config = new PsychosisConfig(Duration.ofHours(24), 2, 5, 10);
-    private final PsychosisCalculator calculator = new PsychosisCalculator(config);
-    private final Instant baseTime = Instant.parse("2026-09-29T12:00:00Z");
-
-    @Test
-    void defaultWindowRetainsKillsFor72HoursInsteadOf24() {
-        PsychosisCalculator defaultCalculator = new PsychosisCalculator(PsychosisConfig.defaults());
-        PlayerId killer = PlayerId.of(UUID.randomUUID());
-        List<PsychosisEvent> events = List.of(
-                new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime),
-                new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
-        assertThat(defaultCalculator.calculate(killer, events, baseTime.plus(Duration.ofHours(48)))).isEqualTo(PsychosisLevel.MEDIUM);
-        assertThat(defaultCalculator.calculate(killer, events, baseTime.plus(Duration.ofHours(72)))).isEqualTo(PsychosisLevel.NEUTRAL);
+    private final PsychosisCalculator calculator = new PsychosisCalculator(PsychosisConfig.defaults());
+    @Test void signedValueResolvesEveryBoundary() {
+        assertThat(calculator.calculate(0)).isEqualTo(PsychosisLevel.NEUTRAL);
+        assertThat(calculator.calculate(0.02)).isEqualTo(PsychosisLevel.SERENITY);
+        assertThat(calculator.calculate(100)).isEqualTo(PsychosisLevel.SERENITY);
+        assertThat(calculator.calculate(-0.02)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(calculator.calculate(-19.99)).isEqualTo(PsychosisLevel.LOW);
+        assertThat(calculator.calculate(-20)).isEqualTo(PsychosisLevel.MEDIUM);
+        assertThat(calculator.calculate(-49.99)).isEqualTo(PsychosisLevel.MEDIUM);
+        assertThat(calculator.calculate(-50)).isEqualTo(PsychosisLevel.HIGH);
+        assertThat(calculator.calculate(-79.99)).isEqualTo(PsychosisLevel.HIGH);
+        assertThat(calculator.calculate(-80)).isEqualTo(PsychosisLevel.EXTREME);
+        assertThat(calculator.calculate(-100)).isEqualTo(PsychosisLevel.EXTREME);
     }
-
-    @Test
-    @DisplayName("T-014, SB-005: Player with no kills resolves to lowest level LOW")
-    void noKillsResolvesToLow() {
-        PlayerId killer = PlayerId.of(UUID.randomUUID());
-        assertThat(calculator.calculate(killer, List.of(), baseTime)).isEqualTo(PsychosisLevel.NEUTRAL);
+    @Test void thresholdsAreConfigurableMagnitudes() {
+        var custom = new PsychosisCalculator(new PsychosisConfig(1, 2, 3));
+        assertThat(custom.calculate(-1)).isEqualTo(PsychosisLevel.MEDIUM);
+        assertThat(custom.calculate(-2)).isEqualTo(PsychosisLevel.HIGH);
+        assertThat(custom.calculate(-3)).isEqualTo(PsychosisLevel.EXTREME);
     }
-
-    @Test
-    @DisplayName("T-014, SB-031: Duel kills are ignored and do not affect Killing Psychosis")
-    void duelKillsAreIgnored() {
-        PlayerId killer = PlayerId.of(UUID.randomUUID());
-        PlayerId victim = PlayerId.of(UUID.randomUUID());
-
-        List<PsychosisEvent> duelKills = new ArrayList<>();
-        for (int i = 0; i < 20; i++) {
-            duelKills.add(new PsychosisEvent(killer, victim, CombatContext.DUEL, baseTime.minusSeconds(i * 60)));
+    @Test void thresholdsMustIncreaseInsideRange() {
+        for (double[] bad : new double[][]{{0,50,80},{20,20,80},{20,50,50},{20,50,101},{Double.NaN,50,80},{20,Double.POSITIVE_INFINITY,80}})
+            assertThatThrownBy(() -> new PsychosisConfig(bad[0],bad[1],bad[2])).isInstanceOf(IllegalArgumentException.class);
+        for (double bad : new double[]{-101,101,Double.NaN,Double.POSITIVE_INFINITY})
+            assertThatThrownBy(() -> calculator.calculate(bad)).isInstanceOf(IllegalArgumentException.class);
+    }
+    @Test void sequentialKillsAreLinearAndNeverExpire() {
+        double value = 0;
+        for (int i = 1; i <= 12; i++) {
+            value = MindState.apply(value, MindInput.KILL, MindInput.KILL.defaults()).after();
+            assertThat(value).isEqualTo(-Math.min(100, 10 * i));
         }
-
-        // Even with 20 duel kills, qualifying kills is 0 and Psychosis remains LOW
-        assertThat(calculator.countQualifyingKills(killer, duelKills, baseTime)).isZero();
-        assertThat(calculator.calculate(killer, duelKills, baseTime)).isEqualTo(PsychosisLevel.NEUTRAL);
-    }
-
-    @Test
-    @DisplayName("T-014, SB-032: Open-world kills raise Killing Psychosis level")
-    void openWorldKillsRaisePsychosis() {
-        PlayerId killer = PlayerId.of(UUID.randomUUID());
-
-        List<PsychosisEvent> events = new ArrayList<>();
-
-        // 1 kill -> LOW (< 2)
-        events.add(new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
-        assertThat(calculator.calculate(killer, events, baseTime)).isEqualTo(PsychosisLevel.LOW);
-
-        // 2 kills -> MEDIUM (>= 2 and < 5)
-        events.add(new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
-        assertThat(calculator.calculate(killer, events, baseTime)).isEqualTo(PsychosisLevel.MEDIUM);
-
-        // 5 kills -> HIGH (>= 5 and < 10)
-        for (int i = 0; i < 3; i++) {
-            events.add(new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
-        }
-        assertThat(calculator.calculate(killer, events, baseTime)).isEqualTo(PsychosisLevel.HIGH);
-
-        // 10 kills -> EXTREME (>= 10)
-        for (int i = 0; i < 5; i++) {
-            events.add(new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
-        }
-        assertThat(calculator.calculate(killer, events, baseTime)).isEqualTo(PsychosisLevel.EXTREME);
-    }
-
-    @Test
-    @DisplayName("T-014, T-020: Rolling window expiry restores Killing Psychosis to LOW")
-    void rollingWindowExpiryRestoresPsychosis() {
-        PlayerId killer = PlayerId.of(UUID.randomUUID());
-
-        // 12 open-world kills at baseTime -> EXTREME
-        List<PsychosisEvent> events = new ArrayList<>();
-        for (int i = 0; i < 12; i++) {
-            events.add(new PsychosisEvent(killer, PlayerId.of(UUID.randomUUID()), CombatContext.OPEN, baseTime));
-        }
-
-        assertThat(calculator.calculate(killer, events, baseTime)).isEqualTo(PsychosisLevel.EXTREME);
-
-        // Fast forward 12 hours (within 24h window) -> still EXTREME
-        Instant after12Hours = baseTime.plus(Duration.ofHours(12));
-        assertThat(calculator.calculate(killer, events, after12Hours)).isEqualTo(PsychosisLevel.EXTREME);
-
-        // Fast forward 25 hours (window has expired for all 12 kills)
-        Instant after25Hours = baseTime.plus(Duration.ofHours(25));
-        assertThat(calculator.countQualifyingKills(killer, events, after25Hours)).isZero();
-        assertThat(calculator.calculate(killer, events, after25Hours)).isEqualTo(PsychosisLevel.NEUTRAL);
-    }
-
-    @Test
-    @DisplayName("Finding 4: Psychosis rolling window uses half-open interval (now - window, now]")
-    void windowEdgeHalfOpenBoundary() {
-        PlayerId killer = PlayerId.of(UUID.randomUUID());
-        PlayerId victim = PlayerId.of(UUID.randomUUID());
-
-        List<PsychosisEvent> events = List.of(
-                new PsychosisEvent(killer, victim, CombatContext.OPEN, baseTime)
-        );
-
-        // Window is 24 hours. At exactly 24 hours after baseTime: now - window == baseTime -> excluded
-        Instant exactOneWindow = baseTime.plus(Duration.ofHours(24));
-        assertThat(calculator.countQualifyingKills(killer, events, exactOneWindow)).isZero();
-        assertThat(calculator.calculate(killer, events, exactOneWindow)).isEqualTo(PsychosisLevel.NEUTRAL);
-
-        // At 1 nanosecond before 24 hours: inside window -> included
-        Instant justBefore = exactOneWindow.minusNanos(1);
-        assertThat(calculator.countQualifyingKills(killer, events, justBefore)).isEqualTo(1);
+        // The calculator accepts only the persisted value: elapsed time cannot change it.
+        assertThat(calculator.calculate(value)).isEqualTo(PsychosisLevel.EXTREME);
     }
 }
