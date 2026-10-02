@@ -1099,6 +1099,18 @@ and console profile, chest and `/status psychosis`. In Spanish:
 `/status psychosis` adds the psychosis magnitude to one decimal. Supersedes
 the two-line display of SB-022 and SB-117. Labels live in both message files.
 
+**SB-146.** **Honor ratings move the mental state** (owner, 2026-10-02;
+amends constitution §2.3 through decision 0007). Each player rating a player
+**receives** applies input `honor-review`: a positive rating is a good action
+of 2 (cure 2 / gain 2), a negative rating a bad action of 2 (drain 2 / weight
+2), under the SB-132 rule, so it never crosses Neutral in one step. At most 3
+ratings per receiving player count per rolling 24 hours; later ones still
+change status but not the mental state. Administrator adjustments and system
+penalties (SB-032) do not apply. Revoking a rating (SB-152) writes a
+compensating mind event that reverses exactly the delta the rating applied,
+if it applied one. Configured under `psychosis.inputs.honor-review` with
+`enabled`, `gain`, `cure`, `serene-drain`, `psychosis-weight` and `cap`.
+
 ### 15.2 Effects
 
 **SB-140.** Madness episodes can start **several effects at once**. The

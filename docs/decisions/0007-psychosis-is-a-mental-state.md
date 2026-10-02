@@ -49,3 +49,12 @@ Duels stay outside the metric entirely, as in release 1.
 - Kill rows in `psychosis_event` are kept, because the victim ghost reads them.
 - Votes still cannot affect the metric. §2.3 still forbids deriving one metric
   from another.
+
+## Amendment, 2026-10-02
+
+The owner chose to let honor ratings move the mental state (SB-146): a
+received positive rating is a good action and a negative one a bad action,
+two points each, at most three per 24 hours. This is a deliberate exception
+to §2.3's "no metric derived from another": the mental state now reads one
+input from honor. Status still never reads the mental state, and the daily
+cap bounds coordinated abuse.

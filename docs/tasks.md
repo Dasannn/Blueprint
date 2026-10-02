@@ -344,5 +344,6 @@ T-201 and T-205 follow T-200; T-206 follows everything else.
 | T-203 | Mandatory reasons, word filter for chat and reasons, admin revoke from the GUI and the command. | SB-150 to SB-152 | done — merged, 768 tests green at merge |
 | T-204 | Filter the `plugin.yml` version from `pom.xml`. | SB-155 | done — `18c522c`, 735 tests green |
 | T-205 | After T-200, one mental-state line in hover, profiles, chest and `/status psychosis`, both languages. | SB-138 | done — merged, 793 tests green |
-| T-206 | After T-201 to T-205, the `/status admin features` switch GUI over every input and effect. | SB-145 | todo |
+| T-206 | After T-201 to T-205, the `/status admin features` switch GUI over every input and effect. | SB-145 | in progress — `feat/r2-features` |
+| T-208 | Honor ratings as a mental-state input with a 3-per-24-hours cap, revocation reversal. | SB-146 | in progress — `feat/r2-honor-mind` |
 | T-207 | Live acceptance walk for §16, including the release-1 boxes carried over. | §16 | todo |
