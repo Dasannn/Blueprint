@@ -164,6 +164,7 @@ psychosis:
     idle-timeout-seconds: 300 # Qualifying activity timeout; time alone earns no serenity.
   # Percentages; every other message and at least 50% of letters stay intact.
   chat:
+    enabled: true
     medium-rate: 10
     high-rate: 25
     extreme-rate: 40
@@ -209,6 +210,7 @@ honor:
 # Action-to-permission node mapping resolved at check time.
 # ==============================================================================
 permissions:
+  admin-features: socialblueprint.admin.features
   admin-revoke: socialblueprint.admin.revoke
   admin-mind: socialblueprint.admin.mind
   show: "socialblueprint.show"
@@ -436,6 +438,7 @@ effects:
   # Requires non-peaceful difficulty; skipped episodes consume no cap or cooldown.
   # Timed packet-only hostile phantom outside interaction reach; High and Extreme only (SB-099)
   silverfish:
+    enabled: true
     cooldown: 10m
     session-cap: 6
     mobs: [silverfish, zombie, skeleton, spider, creeper, enderman]

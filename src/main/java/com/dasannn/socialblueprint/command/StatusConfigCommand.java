@@ -41,6 +41,8 @@ public class StatusConfigCommand {
             "psychosis.levels.medium",
             "psychosis.levels.high",
             "psychosis.levels.extreme",
+            "psychosis.chat.enabled",
+            "permissions.admin-features",
             "psychosis.chat.medium-rate",
             "psychosis.chat.high-rate",
             "psychosis.chat.extreme-rate",
@@ -224,6 +226,25 @@ public class StatusConfigCommand {
             return CompletableFuture.completedFuture(null);
         }
 
+        return setValueAsync(sender, key, rawValue, snapshot);
+    }
+
+    /** Feature clicks use the same writer and audit path, with their own permission. */
+    public CompletableFuture<Void> toggleFeatureAsync(CommandSender sender, String key, RuntimeSnapshot snapshot) {
+        if (!PermissionChecker.hasPermission(sender, "admin-features", snapshot)) {
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
+            return CompletableFuture.completedFuture(null);
+        }
+        String value = snapshot.getLeaf(key);
+        if (!com.dasannn.socialblueprint.feature.gui.FeatureSwitchLayout.keys().contains(key)
+                || !("true".equals(value) || "false".equals(value))) {
+            sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "features.unavailable"));
+            return CompletableFuture.completedFuture(null);
+        }
+        return setValueAsync(sender, key, String.valueOf(!Boolean.parseBoolean(value)), snapshot);
+    }
+
+    private CompletableFuture<Void> setValueAsync(CommandSender sender, String key, String rawValue, RuntimeSnapshot snapshot) {
         // Set key value: /status config [set] <key> <value>
         if (!configManager.isEditableKey(snapshot, key)) {
             sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.config.invalid-key",

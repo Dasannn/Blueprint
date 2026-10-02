@@ -37,6 +37,7 @@ public record PermissionsConfig(
         }
         return switch (action) {
             case "version" -> "socialblueprint.version";
+            case "admin-features" -> "socialblueprint.admin.features";
             case "admin-mind" -> "socialblueprint.admin.mind";
             case "admin-update" -> "socialblueprint.admin.update";
             case "admin-revoke" -> "socialblueprint.admin.revoke";
@@ -69,6 +70,9 @@ public record PermissionsConfig(
             throw new ConfigValidationException("permissions.admin-revoke", "Permission node must not be blank");
         if (section.contains("admin-mind") && (!section.isString("admin-mind") || section.getString("admin-mind").isBlank()))
             throw new ConfigValidationException("permissions.admin-mind", "Permission node must be a nonblank string");
+
+        if (section.contains("admin-features") && (!section.isString("admin-features") || section.getString("admin-features").isBlank()))
+            throw new ConfigValidationException("permissions.admin-features", "Permission node must be a nonblank string");
 
         // Include any additional custom nodes configured
         for (String key : section.getKeys(false)) {

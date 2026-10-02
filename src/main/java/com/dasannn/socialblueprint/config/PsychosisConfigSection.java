@@ -81,6 +81,8 @@ public record PsychosisConfigSection(double mediumThreshold, double highThreshol
     private static ChatCorruptionConfig loadChat(ConfigurationSection root) {
         ConfigurationSection section = root.getConfigurationSection("psychosis.chat");
         if (section == null) return ChatCorruptionConfig.DEFAULT;
+        if (section.contains("enabled") && !section.isBoolean("enabled"))
+            throw new ConfigValidationException("psychosis.chat.enabled", "Must be a boolean");
         int mediumExtent = extent(section, "medium-extent", 20);
         int highExtent = extent(section, "high-extent", 35);
         int extremeExtent = extent(section, "extreme-extent", 50);
@@ -92,7 +94,7 @@ public record PsychosisConfigSection(double mediumThreshold, double highThreshol
             return new ChatCorruptionConfig(integer(section, "medium-rate", 10), integer(section, "high-rate", 25),
                     integer(section, "extreme-rate", 40), mediumExtent, highExtent, extremeExtent, minLetters,
                     section.getString("medium-colour", "#AAAAAA"), section.getString("high-colour", "#666666"),
-                    section.getString("extreme-colour", "#303030"));
+                    section.getString("extreme-colour", "#303030"), section.getBoolean("enabled", true));
         } catch (IllegalArgumentException ex) {
             for (String leaf : java.util.List.of("medium-colour", "high-colour", "extreme-colour")) {
                 if (ex.getMessage().startsWith(leaf + " "))

@@ -55,6 +55,7 @@ public class PlayerEffectState {
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(config, "config must not be null");
 
+        if (!config.enabled()) return false;
         int count = sessionCounts.getOrDefault(type, 0);
         if (count >= config.sessionCap()) {
             return false;

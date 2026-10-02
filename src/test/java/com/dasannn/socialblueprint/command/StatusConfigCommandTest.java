@@ -569,6 +569,65 @@ class StatusConfigCommandTest {
     }
 
 
+    @Test
+    void featurePermissionUsesSharedPersistenceReloadAndAuditWithoutConfigPermission() {
+        String key = "psychosis.inputs.kill.enabled";
+        MockSender features = new MockSender("Features", "socialblueprint.admin.features");
+        try (var storage = StorageEngine.inMemory()) {
+            storage.runMigrations();
+            var audits = new AuditRepository(storage);
+            var edits = new StatusConfigCommand(configManager, messageRegistry, audits);
+            var before = configManager.snapshot();
+            edits.toggleFeatureAsync(features, key, before).join();
+            assertThat(configManager.snapshot()).isNotSameAs(before);
+            assertThat(configManager.config().psychosis().input(com.dasannn.socialblueprint.domain.MindInput.KILL).enabled()).isFalse();
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-success");
+            var audit = audits.findByTarget(NonPlayerTarget.configKey(key));
+            assertThat(audit).hasSize(1);
+            assertThat(audit.getFirst().operation()).isEqualTo("config_set");
+            assertThat(audit.getFirst().before()).isEqualTo("true");
+            assertThat(audit.getFirst().after()).isEqualTo("false");
+            var restarted = new ConfigManager(new File(tempDir, "config.yml"), messageRegistry, Runnable::run, null);
+            restarted.initialize();
+            assertThat(restarted.get(key)).isEqualTo("false");
+            edits.toggleFeatureAsync(features, key, configManager.snapshot()).join();
+            assertThat(configManager.get(key)).isEqualTo("true");
+            assertThat(audits.findByTarget(NonPlayerTarget.configKey(key))).hasSize(2);
+            edits.executeAsync(features, new String[]{"honor.cost", "1"}, configManager.snapshot()).join();
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
+        }
+    }
+
+    @Test
+    void featureTogglesRejectOtherLeavesMissingHonorReviewAndConfigOnlyPermission() {
+        MockSender features = new MockSender("Features", "socialblueprint.admin.features");
+        var before = configManager.snapshot();
+        for (String key : List.of("honor.cost", "psychosis.inputs.kill.serene-drain", "psychosis.inputs.honor-review.enabled")) {
+            command.toggleFeatureAsync(features, key, before).join();
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("features.unavailable");
+            assertThat(configManager.snapshot()).isSameAs(before);
+        }
+        command.toggleFeatureAsync(new MockSender("Config", "socialblueprint.admin.config"),
+                "psychosis.chat.enabled", before).join();
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
+        assertThat(configManager.snapshot()).isSameAs(before);
+    }
+
+    @Test
+    void featureConsoleUsageAndCompletionArePermissionAware() {
+        MockSender features = new MockSender("Console", "socialblueprint.admin.features");
+        assertThat(dispatcher.onTabComplete(features, null, "status", new String[]{"a"})).contains("admin");
+        assertThat(dispatcher.onTabComplete(features, null, "status", new String[]{"admin", "f"})).containsExactly("features");
+        assertThat(dispatcher.onTabComplete(features, null, "status", new String[]{"admin", "features", ""})).isEmpty();
+        assertThat(dispatcher.onTabComplete(new MockSender("Regular"), null, "status", new String[]{"admin", "f"})).isEmpty();
+        dispatcher.onCommand(features, null, "status", new String[]{"admin", "features"});
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("features.usage");
+        dispatcher.onCommand(new MockSender("Regular"), null, "status", new String[]{"admin", "features"});
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
+        configManager.set("permissions.admin-features", "server.features");
+        assertThat(dispatcher.onTabComplete(new MockSender("Custom", "server.features"), null, "status", new String[]{"admin", "f"})).containsExactly("features");
+    }
+
     private static class MockSender implements CommandSender {
         private final String name;
         private final Set<String> permissions = new HashSet<>();

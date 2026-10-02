@@ -794,6 +794,10 @@ public class ConfigManager {
         set.add("psychosis.inputs.near-death.health");
         set.add("psychosis.inputs.clean-day.active-minutes");
         set.add("permissions.admin-mind");
+        set.add("permissions.admin-features");
+        set.add("psychosis.chat.enabled");
+        set.add("effects.silverfish.enabled");
+        set.add("psychosis.inputs.honor-review.enabled");
         set.add("psychosis.chat.medium-rate");
         set.add("psychosis.chat.high-rate");
         set.add("psychosis.chat.extreme-rate");
@@ -968,6 +972,7 @@ public class ConfigManager {
             if ((prefix + (kind.bad() ? "psychosis-weight" : "cure")).equals(path)) return String.valueOf(input.psychosisAmount());
             if ((prefix + "cap").equals(path)) return String.valueOf(input.cap());
         }
+        if ("psychosis.chat.enabled".equals(path)) return String.valueOf(config.psychosis().chat().enabled());
         if ("psychosis.chat.medium-rate".equals(path)) return String.valueOf(config.psychosis().chat().mediumRate());
         if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());
         if ("psychosis.chat.extreme-rate".equals(path)) return String.valueOf(config.psychosis().chat().extremeRate());
@@ -1023,6 +1028,7 @@ public class ConfigManager {
             if ("effects.quiet-interval.extreme".equals(path)) return formatDuration(config.effects().extremeQuietInterval());
             if ("effects.max-episode-ticks".equals(path)) return String.valueOf(config.effects().maxEpisodeTicks());
             if ("effects.check-interval".equals(path)) return formatDuration(config.effects().checkInterval());
+            if ("effects.silverfish.enabled".equals(path)) return String.valueOf(config.effects().silverfish().enabled());
             if ("effects.silverfish.cooldown".equals(path)) return formatDuration(config.effects().silverfish().cooldown());
             if ("effects.silverfish.session-cap".equals(path)) return String.valueOf(config.effects().silverfish().sessionCap());
             if ("effects.creeper.cooldown".equals(path)) return formatDuration(config.effects().creeper().cooldown());

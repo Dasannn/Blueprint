@@ -31,6 +31,7 @@ public final class ChatCorruption {
 
     public static boolean isEpisode(String message, PsychosisLevel level, long speakerSeed,
                                     long sequence, ChatCorruptionConfig config) {
+        if (!config.enabled()) return false;
         if (level.ordinal() < PsychosisLevel.MEDIUM.ordinal() || (sequence & 1) != 0) return false;
         Random random = new Random(seed(message, speakerSeed, sequence));
         int rate = switch (level) {
@@ -46,6 +47,7 @@ public final class ChatCorruption {
     public static String corruptEpisode(String message, PsychosisLevel level, long speakerSeed,
                                         long sequence, ChatCorruptionConfig config) {
         String safe = plain(message);
+        if (!config.enabled()) return safe;
         Random random = new Random(seed(message, speakerSeed, sequence));
         random.nextInt(50); // Advance past the shared episode roll.
         var words = new ArrayList<int[]>();

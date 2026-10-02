@@ -12,6 +12,9 @@ commands:
     description: Social profile and actions
 
 permissions:
+  socialblueprint.admin.features:
+    description: Toggle mental-state inputs and effects in the feature chest.
+    default: op
   socialblueprint.admin.revoke:
     description: Revoke an honor rating without deleting its history.
   socialblueprint.admin.mind:
@@ -35,6 +38,7 @@ permissions:
     default: op
     children:
       socialblueprint.admin.revoke: true
+      socialblueprint.admin.features: true
       socialblueprint.admin.mind: true
       socialblueprint.admin.adjust: true
       socialblueprint.admin.config: true

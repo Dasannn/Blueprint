@@ -247,3 +247,55 @@ mind-admin:
   confirm-expired: '&cNo active confirmation. Run /status admin mind reset-all again.'
   reset-all: '&aMental state reset to Neutral for {count} stored players.'
   failed: '&cCould not reset mental state. See the server log.'
+
+features:
+  title: "&8Feature switches"
+  usage: "&eUse /status admin features in-game; from console use /status config <key> <value>."
+  separator: "&8 "
+  unavailable: "&7This switch is unavailable in the loaded configuration."
+  key: "&7{key}"
+  toggle: "&eClick to toggle"
+  state:
+    "on": "&aOn"
+    "off": "&cOff"
+    unavailable: "&7Unavailable"
+  group:
+    inputs: "&eMental-state inputs"
+    madness: "&eMadness effects"
+    serenity: "&eSerenity effects"
+  name:
+    psychosis:
+      inputs:
+        kill: "&fKill"
+        death: "&fDeath"
+        near-death: "&fNear death"
+        sleepless-night: "&fSleepless night"
+        clean-day: "&fClean day"
+        sleep: "&fSleep"
+        fishing: "&fFishing"
+        breeding: "&fBreeding"
+        feeding: "&fFeeding"
+        planting: "&fPlanting"
+        harvesting: "&fHarvesting"
+        honor-review: "&fHonor review"
+      chat: "&fChat corruption"
+    effects:
+      silverfish: "&fPhantom mobs"
+      sky: "&fSky"
+      particles: "&fParticles"
+      screen-flash: "&fScreen flash"
+      source-less-sounds: "&fSource-less sounds"
+      block-change: "&fFake block change"
+      sign: "&fFake sign"
+      hurt-flash: "&fHurt flash"
+      victim-ghost: "&fVictim ghost"
+      advancement-toast: "&fAdvancement toast"
+      boss-bar: "&fBoss bar"
+      false-death: "&fFalse death"
+      fake-connection: "&fFake connection"
+      private-chat: "&fPrivate chat"
+      serenity:
+        dawn: "&fPrivate dawn"
+        source-less-sounds: "&fSerene sounds"
+        particles: "&fSerene particles"
+        apparition: "&fSerene apparition"

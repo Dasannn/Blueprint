@@ -160,6 +160,8 @@ public record EffectsConfigSection(
         if (cap < 0) {
             throw new ConfigValidationException(prefix + ".session-cap", "Session cap must not be negative");
         }
-        return SingleEffectConfig.of(cooldown, cap);
+        if (section.contains(key + ".enabled") && !section.isBoolean(key + ".enabled"))
+            throw new ConfigValidationException(prefix + ".enabled", "Must be a boolean");
+        return new SingleEffectConfig(cooldown, cap, section.getBoolean(key + ".enabled", true));
     }
 }

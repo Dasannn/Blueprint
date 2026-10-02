@@ -2,8 +2,15 @@ package com.dasannn.socialblueprint.domain;
 
 /** Rates are percentages of all messages; every other message is protected. */
 public record ChatCorruptionConfig(int mediumRate, int highRate, int extremeRate, int mediumExtent, int highExtent, int extremeExtent, int minLetters,
-                                   String mediumColour, String highColour, String extremeColour) {
+                                   String mediumColour, String highColour, String extremeColour, boolean enabled) {
     public static final ChatCorruptionConfig DEFAULT = new ChatCorruptionConfig(10, 25, 40, 20, 35, 50, 6);
+
+    public ChatCorruptionConfig(int mediumRate, int highRate, int extremeRate, int mediumExtent,
+                                int highExtent, int extremeExtent, int minLetters,
+                                String mediumColour, String highColour, String extremeColour) {
+        this(mediumRate, highRate, extremeRate, mediumExtent, highExtent, extremeExtent, minLetters,
+                mediumColour, highColour, extremeColour, true);
+    }
 
     public ChatCorruptionConfig(int mediumRate, int highRate, int extremeRate, int mediumExtent,
                                 int highExtent, int extremeExtent, int minLetters) {

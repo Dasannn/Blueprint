@@ -247,3 +247,55 @@ mind-admin:
   confirm-expired: '&cNo hay confirmación activa. Ejecuta /status admin mind reset-all de nuevo.'
   reset-all: '&aEstado mental restablecido a Neutral para {count} jugadores guardados.'
   failed: '&cNo se pudo restablecer el estado mental. Revisa el registro del servidor.'
+
+features:
+  title: "&8Interruptores de funciones"
+  usage: "&eUsa /status admin features en el juego; desde consola usa /status config <clave> <valor>."
+  separator: "&8 "
+  unavailable: "&7Este interruptor no está disponible en la configuración cargada."
+  key: "&7{key}"
+  toggle: "&eHaz clic para alternar"
+  state:
+    "on": "&aActivado"
+    "off": "&cDesactivado"
+    unavailable: "&7No disponible"
+  group:
+    inputs: "&eEntradas del estado mental"
+    madness: "&eEfectos de psicosis"
+    serenity: "&eEfectos de serenidad"
+  name:
+    psychosis:
+      inputs:
+        kill: "&fMatar"
+        death: "&fMorir"
+        near-death: "&fCasi morir"
+        sleepless-night: "&fNoche sin dormir"
+        clean-day: "&fDía limpio"
+        sleep: "&fDormir"
+        fishing: "&fPescar"
+        breeding: "&fCriar"
+        feeding: "&fAlimentar"
+        planting: "&fPlantar"
+        harvesting: "&fCosechar"
+        honor-review: "&fValoración de honor"
+      chat: "&fCorrupción del chat"
+    effects:
+      silverfish: "&fCriaturas fantasma"
+      sky: "&fCielo"
+      particles: "&fPartículas"
+      screen-flash: "&fDestello de pantalla"
+      source-less-sounds: "&fSonidos sin fuente"
+      block-change: "&fCambio de bloque falso"
+      sign: "&fCartel falso"
+      hurt-flash: "&fDestello de daño"
+      victim-ghost: "&fFantasma de víctima"
+      advancement-toast: "&fAviso de avance"
+      boss-bar: "&fBarra de jefe"
+      false-death: "&fMuerte falsa"
+      fake-connection: "&fConexión falsa"
+      private-chat: "&fChat privado"
+      serenity:
+        dawn: "&fAmanecer privado"
+        source-less-sounds: "&fSonidos serenos"
+        particles: "&fPartículas serenas"
+        apparition: "&fAparición serena"

@@ -635,7 +635,7 @@ public class StatusGuiService {
                 messages.getRaw(snapshot, "chat-filter.replacement"));
     }
 
-    private static GuiSlot resolveSlotText(GuiSlot slot, RuntimeSnapshot snapshot, MessageRegistry messages) {
+    static GuiSlot resolveSlotText(GuiSlot slot, RuntimeSnapshot snapshot, MessageRegistry messages) {
         Component title = slot.titleKey() == null ? null
                 : renderItemText(snapshot, messages, slot.titleKey(), slot.titlePlaceholders());
         List<Component> lore = new ArrayList<>();

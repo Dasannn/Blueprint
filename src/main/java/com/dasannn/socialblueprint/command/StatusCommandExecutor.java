@@ -61,6 +61,10 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
     private final Supplier<Collection<? extends Player>> onlinePlayersSupplier;
     private final com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService;
 
+    private final com.dasannn.socialblueprint.feature.gui.FeatureSwitchGuiService featuresGui;
+
+    public com.dasannn.socialblueprint.feature.gui.FeatureSwitchGuiService featuresGui() { return featuresGui; }
+
     private volatile CompletableFuture<?> lastExecution = CompletableFuture.completedFuture(null);
 
     public StatusCommandExecutor(
@@ -104,6 +108,8 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 ? new StatusAdminCommand(honorService, messageRegistry, legacyImportService) : null;
         if (profileService != null) this.adminCommand.registerMindCommand(new StatusMindCommand(
                 profileService, messageRegistry, this.mainThreadRunner, java.time.Clock.systemUTC()));
+        this.featuresGui = new com.dasannn.socialblueprint.feature.gui.FeatureSwitchGuiService(
+                configManager, messageRegistry, configCommand, this.mainThreadRunner);
         this.giveCommand = honorService != null ? new StatusGiveCommand(honorService, messageRegistry) : null;
         this.takeCommand = honorService != null ? new StatusTakeCommand(honorService, messageRegistry) : null;
         this.confirmCommand = honorService != null ? new StatusConfirmCommand(honorService, messageRegistry) : null;
@@ -467,6 +473,11 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
         }
 
         // 3. Subcommand: /status admin ...
+        if ("admin".equals(sub) && subArgs.length > 0 && "features".equalsIgnoreCase(subArgs[0])) {
+            this.lastExecution = featuresGui.execute(sender, subArgs, snapshot);
+            return true;
+        }
+
         if ("admin".equals(sub)) {
             if (adminCommand == null) {
                 sender.sendMessage(messageRegistry.renderWithPrefix(snapshot, "commands.no-permission"));
@@ -769,6 +780,9 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
                 suggestions.add("admin");
             }
 
+            if (PermissionChecker.hasPermission(sender, "admin-features", snapshot)
+                    && "admin".startsWith(current) && !suggestions.contains("admin")) suggestions.add("admin");
+
             if (PermissionChecker.hasPermission(sender, "version", snapshot) && "version".startsWith(current)) {
                 suggestions.add("version");
             }
@@ -840,6 +854,17 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
 
             if ("config".equals(sub)) {
                 return configCommand.tabComplete(sender, subArgs, snapshot);
+            }
+
+            if ("admin".equals(sub)) {
+                if (subArgs.length > 1 && "features".equalsIgnoreCase(subArgs[0])) return Collections.emptyList();
+                if (subArgs.length == 1) {
+                    List<String> matches = new ArrayList<>(adminCommand == null ? List.of()
+                            : adminCommand.tabComplete(sender, subArgs, snapshot));
+                    if (PermissionChecker.hasPermission(sender, "admin-features", snapshot)
+                            && "features".startsWith(subArgs[0].toLowerCase(Locale.ROOT))) matches.add("features");
+                    return matches;
+                }
             }
 
             if ("admin".equals(sub) && adminCommand != null) {

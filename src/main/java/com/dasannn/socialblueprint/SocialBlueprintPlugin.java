@@ -417,6 +417,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                     updateService,
                     statusGuiService
             );
+            getServer().getPluginManager().registerEvents(executor.featuresGui(), this);
             statusCmd.setExecutor(executor);
             statusCmd.setTabCompleter(executor);
         }
