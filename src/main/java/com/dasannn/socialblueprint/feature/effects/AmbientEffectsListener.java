@@ -54,6 +54,7 @@ public class AmbientEffectsListener implements Listener {
     public void onPlayerMove(org.bukkit.event.player.PlayerMoveEvent event) {
         if (event instanceof org.bukkit.event.player.PlayerTeleportEvent) return;
         if (dispatcher != null) {
+            dispatcher.checkWatcher(event.getPlayer(), event.getTo(), false);
             dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
             dispatcher.moveAnimalViewer(event.getPlayer(), event.getTo());
         }
@@ -62,6 +63,7 @@ public class AmbientEffectsListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerTeleport(org.bukkit.event.player.PlayerTeleportEvent event) {
         if (dispatcher != null) {
+            dispatcher.checkWatcher(event.getPlayer(), event.getTo(), true);
             dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
             dispatcher.removeAnimalViewer(event.getPlayer().getUniqueId());
         }
@@ -84,6 +86,7 @@ public class AmbientEffectsListener implements Listener {
 
     void cleanupPlayer(UUID playerId, boolean quit) {
         registry.cleanForPlayer(playerId);
+        if (quit && dispatcher != null) dispatcher.forgetHorror(playerId);
         if (quit && scheduler != null) scheduler.handlePlayerQuit(playerId);
         if (!quit && scheduler != null) scheduler.handlePlayerWorldChange(playerId);
         if (dispatcher != null) dispatcher.cancelPending(playerId);

@@ -148,6 +148,8 @@ duel:
   reconnected: '&e{player}&a ¡se reconectó al duelo!'
 
 effects:
+  subliminal:
+    words: ['&8DETRÁS', '&8MÍRAME', '&8{player}']
   sign:
     lines:
       - '&8Sigo aquí.'
@@ -301,6 +303,13 @@ features:
       false-death: "&fMuerte falsa"
       fake-connection: "&fConexión falsa"
       private-chat: "&fChat privado"
+      footsteps: "&fPasos"
+      watcher: "&fObservador"
+      nearby-noises: "&fRuidos cercanos"
+      torch-flicker: "&fParpadeo de antorchas"
+      subliminal: "&fPalabra subliminal"
+      red-vignette: "&fViñeta roja"
+      fake-lightning: "&fRelámpago falso"
       serenity:
         dawn: "&fAmanecer privado"
         source-less-sounds: "&fSonidos serenos"

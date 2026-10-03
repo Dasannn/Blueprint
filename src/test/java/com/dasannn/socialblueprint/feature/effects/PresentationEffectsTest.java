@@ -73,7 +73,7 @@ class PresentationEffectsTest {
             PresentationConfig.Rule rule = config.rules().get(type);
             assertThat(rule.allows(PsychosisLevel.LOW)).isEqualTo(type.floor() == PsychosisLevel.LOW);
             assertThat(rule.allows(PsychosisLevel.MEDIUM)).isEqualTo(type.floor().ordinal() <= PsychosisLevel.MEDIUM.ordinal());
-            assertThat(rule.allows(PsychosisLevel.HIGH)).isTrue();
+            assertThat(rule.allows(PsychosisLevel.HIGH)).isEqualTo(type.floor().ordinal() <= PsychosisLevel.HIGH.ordinal());
             assertThat(rule.allows(PsychosisLevel.EXTREME)).isTrue();
             yaml.set("effects." + type.configId() + ".minimum-level", "extreme");
             PresentationConfig.Rule raised = PresentationConfig.load(yaml).rules().get(type);

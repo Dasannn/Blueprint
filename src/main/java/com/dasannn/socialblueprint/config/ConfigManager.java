@@ -39,7 +39,7 @@ import java.util.regex.Pattern;
 public class ConfigManager {
 
     private static final Set<String> EFFECT_CHOICE_LISTS = Set.of("effects.particles.types",
-            "effects.serenity.particles.types", "effects.serenity.apparition.kinds");
+            "effects.serenity.particles.types", "effects.serenity.apparition.kinds", "effects.watcher.kinds");
     private static final Set<String> SUPPORTED_CONFIG_LEAVES = createSupportedConfigLeaves();
 
     private final File configFile;
@@ -950,6 +950,12 @@ public class ConfigManager {
         for (String key : List.of("advancement-toast.icon", "advancement-toast.duration-ticks", "boss-bar.colour",
                 "boss-bar.style", "boss-bar.progress", "boss-bar.duration-ticks", "false-death.range-blocks", "private-chat.max-visible-length"))
             set.add("effects." + key);
+        for (var type : HorrorConfig.TYPES) {
+            String id = type.configId();
+            for (String key : List.of("enabled", "minimum-level", "cooldown-ticks", "session-cap"))
+                set.add("effects." + id + "." + key);
+            for (String key : HorrorConfig.PARAMETERS.get(id)) set.add("effects." + id + "." + key);
+        }
         set.add("effects.check-interval");
         set.add("effects.debug");
         set.addAll(SerenityEffectsConfig.defaults().leafValues().keySet());

@@ -60,6 +60,7 @@ public class AmbientEffectDispatcher {
     private final Set<String> warnedKeys = ConcurrentHashMap.newKeySet();
     private final java.util.logging.Logger logger;
     private final Random random = new Random();
+    private final HorrorEffects horror = new HorrorEffects(this);
 
     public AmbientEffectDispatcher(
             Plugin plugin,
@@ -124,6 +125,8 @@ public class AmbientEffectDispatcher {
         Objects.requireNonNull(config, "config must not be null");
 
         return attempt(player.getUniqueId(), () -> switch (type) {
+            case FOOTSTEPS, WATCHER, NEARBY_NOISES, TORCH_FLICKER, SUBLIMINAL, RED_VIGNETTE, FAKE_LIGHTNING ->
+                    horror.dispatch(player, type, config.presentation().horror(), snapshot, messageRegistry);
             case ADVANCEMENT_TOAST -> {
                 List<String> keys = snapshot.messages().lineKeys("effects.advancement-toast.lines");
                 yield !keys.isEmpty() && ToastDecision.describe(keys.getFirst(), config.presentation().toast()).deliveryAvailable();
@@ -270,7 +273,7 @@ public class AmbientEffectDispatcher {
         return apparitionGround(origin, origin.getX() + offset.x(), origin.getZ() + offset.z());
     }
 
-    private Location apparitionGround(Location origin, double x, double z) {
+    Location apparitionGround(Location origin, double x, double z) {
         Location probe = new Location(origin.getWorld(), x, origin.getY() + 2, z);
         if (!Double.isFinite(probe.getX()) || !Double.isFinite(probe.getZ())
                 || !probe.getWorld().isChunkLoaded(probe.getBlockX() >> 4, probe.getBlockZ() >> 4)) return null;
@@ -284,7 +287,7 @@ public class AmbientEffectDispatcher {
         return at;
     }
 
-    private boolean clearAnimalSpace(Location at, SereneEpisode.Bounds bounds) {
+    boolean clearAnimalSpace(Location at, SereneEpisode.Bounds bounds) {
         var world = at.getWorld();
         if (bounds.minY() < world.getMinHeight() || bounds.maxY() >= world.getMaxHeight()) return false;
         // Conservative enclosing cubes also exclude fluids and complicated partial-block shapes.
@@ -299,7 +302,7 @@ public class AmbientEffectDispatcher {
         return true;
     }
 
-    private boolean visibleAnimal(Player subject, SereneEpisode.Bounds bounds) {
+    boolean visibleAnimal(Player subject, SereneEpisode.Bounds bounds) {
         Location eye = subject.getEyeLocation();
         var toward = new org.bukkit.util.Vector((bounds.minX() + bounds.maxX()) / 2 - eye.getX(),
                 (bounds.minY() + bounds.maxY()) / 2 - eye.getY(), (bounds.minZ() + bounds.maxZ()) / 2 - eye.getZ());
@@ -307,7 +310,7 @@ public class AmbientEffectDispatcher {
                 && eye.getWorld().rayTraceBlocks(eye, toward, toward.length()) == null;
     }
 
-    private boolean safeAnimalViewer(Player viewer, SereneEpisode.Bounds bounds) {
+    boolean safeAnimalViewer(Player viewer, SereneEpisode.Bounds bounds) {
         return safeAnimalViewerAt(viewer, bounds, viewer.getLocation());
     }
 
@@ -396,7 +399,7 @@ public class AmbientEffectDispatcher {
         return true;
     }
 
-    private boolean safeAnimalViewerAt(Player viewer, SereneEpisode.Bounds bounds, Location at) {
+    boolean safeAnimalViewerAt(Player viewer, SereneEpisode.Bounds bounds, Location at) {
         var reach = viewer.getAttribute(org.bukkit.attribute.Attribute.ENTITY_INTERACTION_RANGE);
         if (reach == null || at == null || !at.getWorld().equals(viewer.getWorld())) return false;
         Location current = viewer.getLocation(), eye = viewer.getEyeLocation();
@@ -625,10 +628,14 @@ public class AmbientEffectDispatcher {
                 .filter(entry -> entry.type() == type).findFirst().orElse(null);
     }
 
+    public void forgetHorror(UUID player) { horror.forget(player); }
+
+    public void checkWatcher(Player player, Location at, boolean teleport) { horror.checkWatcher(player, at, teleport); }
+
     public void restoreBlocks(UUID playerId) {
         AmbientEntityRegistry registry = silverfishService.registry();
         for (ActivePresentationEntry entry : registry.presentationsFor(playerId))
-            if (entry.type() == AmbientEffectType.BLOCK_CHANGE || entry.type() == AmbientEffectType.SIGN)
+            if (entry.type() == AmbientEffectType.BLOCK_CHANGE || entry.type() == AmbientEffectType.SIGN || entry.type() == AmbientEffectType.TORCH_FLICKER)
                 registry.cleanPresentation(entry);
     }
 
@@ -903,7 +910,7 @@ public class AmbientEffectDispatcher {
         playSoundSlot(player, slot, slotName, snapshot, soundPlayer);
     }
 
-    private void playSoundSlot(Player player, SoundSlotConfig slot, String slotName, RuntimeSnapshot snapshot, SoundPlayer playback) {
+    void playSoundSlot(Player player, SoundSlotConfig slot, String slotName, RuntimeSnapshot snapshot, SoundPlayer playback) {
         if (player == null) return;
         playSoundSlot(player, player.getUniqueId(), slot, slotName, snapshot, playback);
     }
@@ -965,7 +972,7 @@ public class AmbientEffectDispatcher {
         }, 1);
     }
 
-    private boolean scheduleTracked(UUID playerId, Runnable action, long delayTicks) {
+    boolean scheduleTracked(UUID playerId, Runnable action, long delayTicks) {
         AtomicReference<SoundScheduler.TaskHandle> handleRef = new AtomicReference<>();
         SoundScheduler.TaskHandle handle = scheduler.schedule(() -> {
             try {
