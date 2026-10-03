@@ -54,7 +54,7 @@ public class AmbientEffectsListener implements Listener {
     public void onPlayerMove(org.bukkit.event.player.PlayerMoveEvent event) {
         if (event instanceof org.bukkit.event.player.PlayerTeleportEvent) return;
         if (dispatcher != null) {
-            dispatcher.restoreBlocks(event.getPlayer().getUniqueId());
+            dispatcher.restoreBlocksOnMove(event.getPlayer(), event.getTo());
             dispatcher.moveAnimalViewer(event.getPlayer(), event.getTo());
         }
     }

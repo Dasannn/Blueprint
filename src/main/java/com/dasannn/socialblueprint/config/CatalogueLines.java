@@ -12,7 +12,8 @@ import java.util.regex.Pattern;
 public final class CatalogueLines {
     public static final String CUSTOM = "effects.private-chat.custom-lines";
     public static final Set<String> LISTS = Set.of("effects.private-chat.lines", CUSTOM,
-            "effects.advancement-toast.lines", "effects.boss-bar.lines", "effects.false-death.lines");
+            "effects.advancement-toast.lines", "effects.boss-bar.lines", "effects.false-death.lines",
+            "effects.serenity.warm-phrases.lines");
     public static final Set<String> TEMPLATES = Set.of("effects.fake-connection.join",
             "effects.fake-connection.leave");
     // ponytail: conservative English/Spanish keywords; extend for additional server languages.

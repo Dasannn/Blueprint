@@ -174,7 +174,7 @@ public class AmbientEffectDispatcher {
         UUID owner = subject.getUniqueId();
         cancelPending(owner);
         directionGuards.put(owner, stillSerene);
-        boolean dawn = effect.equals("dawn");
+        boolean dawn = CalmEffectDecision.privateEffect(effect);
         Set<UUID> ids = sereneAudience(subject, dawn, config.observerRange());
         List<Player> audience = subject.getWorld().getPlayers().stream()
                 .filter(p -> ids.contains(p.getUniqueId())).toList();
@@ -188,6 +188,17 @@ public class AmbientEffectDispatcher {
                 return false;
             }
             boolean delivered = switch (effect) {
+                case "flowers" -> dispatchFlowers(subject, config.flowers());
+                case "clear-sky" -> {
+                    org.bukkit.WeatherType weather = subject.getPlayerWeather();
+                    if (!CalmEffectDecision.needsClear(weather == null ? null : weather.name(),
+                            subject.getWorld().hasStorm() || subject.getWorld().isThundering())) yield false;
+                    yield dispatchSky(subject, config.clearDuration(), 0, false, true, org.bukkit.WeatherType.CLEAR);
+                }
+                case "ambient-particles" -> dispatchAmbient(subject, config.ambient());
+                case "music" -> dispatchMusic(subject, config.music());
+                case "warm-phrases" -> dispatchWarmPhrase(subject, config.phraseDuration(), snapshot);
+                case "glowing-animals" -> dispatchGlowingAnimals(subject, config.glow());
                 case "dawn" -> dispatchSky(subject, config.dawnDuration(), config.dawnTime(), true, false);
                 case "particles" -> dispatchParticles(subject, config.particles(), audience);
                 case "source-less-sounds" -> {
@@ -635,6 +646,21 @@ public class AmbientEffectDispatcher {
                 registry.cleanPresentation(entry);
     }
 
+    private record FlowerPresentation(ActivePresentationEntry entry, List<Location> sites) {}
+    private final Map<UUID, FlowerPresentation> activeFlowers = new java.util.HashMap<>();
+
+    public void restoreBlocksOnMove(Player player, Location to) {
+        FlowerPresentation flowers = activeFlowers.get(player.getUniqueId());
+        AmbientEntityRegistry registry = silverfishService.registry();
+        for (ActivePresentationEntry entry : registry.presentationsFor(player.getUniqueId())) {
+            if (flowers != null && entry == flowers.entry()) {
+                if (flowers.sites().stream().anyMatch(at -> !PrivateFlowers.safe(player, at, to)))
+                    registry.cleanPresentation(entry);
+            } else if (entry.type() == AmbientEffectType.BLOCK_CHANGE || entry.type() == AmbientEffectType.SIGN)
+                registry.cleanPresentation(entry);
+        }
+    }
+
     private boolean dispatchSky(Player player, PresentationConfig.Sky config,
                                 PsychosisLevel level) {
         SkyDecision sky = SkyDecision.choose(level, config.mode(), random);
@@ -643,10 +669,15 @@ public class AmbientEffectDispatcher {
     }
 
     private boolean dispatchSky(Player player, int duration, long time, boolean changesTime, boolean changesWeather) {
+        return dispatchSky(player, duration, time, changesTime, changesWeather, org.bukkit.WeatherType.DOWNFALL);
+    }
+
+    private boolean dispatchSky(Player player, int duration, long time, boolean changesTime, boolean changesWeather,
+                                org.bukkit.WeatherType weather) {
         org.bukkit.WeatherType previousWeather = player.getPlayerWeather();
         UUID worldId = player.getWorld().getUID();
         SkyPresentation sky = new SkyPresentation(player.getPlayerTimeOffset(), player.isPlayerTimeRelative(),
-                previousWeather == null ? null : previousWeather.name(), time, false, "DOWNFALL", changesTime, changesWeather);
+                previousWeather == null ? null : previousWeather.name(), time, false, weather.name(), changesTime, changesWeather);
         ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.SKY, duration, () -> {
             if (sky.ownsTime(player.getPlayerTimeOffset(), player.isPlayerTimeRelative())) {
                 if (sky.resetTime(player.getWorld().getUID().equals(worldId))) player.resetPlayerTime();
@@ -661,7 +692,7 @@ public class AmbientEffectDispatcher {
         if (entry == null) return false;
         try {
             if (changesTime) player.setPlayerTime(time, false);
-            if (changesWeather) player.setPlayerWeather(org.bukkit.WeatherType.DOWNFALL);
+            if (changesWeather) player.setPlayerWeather(weather);
             return true;
         } catch (RuntimeException failure) {
             silverfishService.registry().cleanPresentation(entry);
@@ -703,10 +734,125 @@ public class AmbientEffectDispatcher {
         }
     }
 
+    private int nextWarmPhrase;
+
+    private boolean dispatchWarmPhrase(Player player, int duration, RuntimeSnapshot snapshot) {
+        List<String> keys = snapshot.messages().lineKeys("effects.serenity.warm-phrases.lines");
+        if (keys.isEmpty()) return false;
+        String key = keys.get(CalmEffectDecision.phraseIndex(nextWarmPhrase, keys.size()));
+        if (!validLine(snapshot, key, Map.of(), 160)) return false;
+        boolean shown = dispatchScreen(player, new PresentationConfig.Flash("action-bar", 0, duration, 0), snapshot, key);
+        if (shown) nextWarmPhrase++;
+        return shown;
+    }
+
+    boolean dispatchMusic(Player player, com.dasannn.socialblueprint.config.SerenityEffectsConfig.Music config) {
+        String key = config.keys().get(random.nextInt(config.keys().size()));
+        java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean();
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.SOURCE_LESS_SOUNDS,
+                config.duration(), () -> { if (started.get()) player.stopSound(key, org.bukkit.SoundCategory.MUSIC); });
+        if (entry == null) return false;
+        started.set(true);
+        player.playSound(player.getLocation(), key, org.bukkit.SoundCategory.MUSIC, config.volume(), 1);
+        return true;
+    }
+
+    private boolean dispatchAmbient(Player player, com.dasannn.socialblueprint.config.SerenityEffectsConfig.Ambient config) {
+        String key = CalmEffectDecision.particle(player.getPlayerTime());
+        org.bukkit.Particle particle = org.bukkit.Particle.valueOf(key.toUpperCase(java.util.Locale.ROOT));
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.PARTICLES,
+                config.duration() + CalmEffectDecision.PARTICLE_TAIL, () -> {});
+        if (entry == null) return false;
+        UUID world = player.getWorld().getUID();
+        for (int i = 0; i < config.count(); i++) {
+            Runnable emit = () -> {
+                if (entry.ended().get() || !player.isOnline() || !player.getWorld().getUID().equals(world)) return;
+                double angle = random.nextDouble() * Math.PI * 2;
+                double radius = Math.sqrt(random.nextDouble()) * config.radius();
+                Location at = player.getLocation().add(Math.cos(angle) * radius, 1 + random.nextDouble(), Math.sin(angle) * radius);
+                player.spawnParticle(particle, at, 1, 0, 0, 0, 0);
+            };
+            long delay = (long) (config.duration() - 1) * i / Math.max(1, config.count() - 1);
+            if (delay == 0) emit.run();
+            else if (!scheduleTracked(player.getUniqueId(), emit, delay)) return false;
+        }
+        return true;
+    }
+
+    private boolean dispatchFlowers(Player player, com.dasannn.socialblueprint.config.SerenityEffectsConfig.Flowers config) {
+        List<Location> sites = PrivateFlowers.choose(player, config, random);
+        if (sites.isEmpty()) return false;
+        // Same fake-block restoration used by world changes, interaction and shutdown.
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.BLOCK_CHANGE,
+                config.duration(), () -> {
+                    activeFlowers.remove(player.getUniqueId());
+                    sites.forEach(at -> PrivateBlocks.restore(player, at));
+                });
+        if (entry == null) return false;
+        activeFlowers.put(player.getUniqueId(), new FlowerPresentation(entry, sites));
+        for (Location at : sites) {
+            if (!at.getBlock().getType().isAir()) continue;
+            String flower = config.types().get(random.nextInt(config.types().size()));
+            player.sendBlockChange(at, player.getServer().createBlockData("minecraft:" + flower));
+        }
+        return watchFlowers(player, sites, entry, config.duration());
+    }
+
+    private boolean watchFlowers(Player player, List<Location> sites, ActivePresentationEntry entry, long remaining) {
+        if (remaining <= 1) return true;
+        return scheduleTracked(player.getUniqueId(), () -> {
+            if (entry.ended().get()) return;
+            if (sites.stream().anyMatch(at -> !PrivateFlowers.safe(player, at))) {
+                silverfishService.registry().cleanPresentation(entry);
+            } else if (!watchFlowers(player, sites, entry, remaining - 1)) silverfishService.registry().cleanPresentation(entry);
+        }, 1);
+    }
+
+    private boolean dispatchGlowingAnimals(Player player, com.dasannn.socialblueprint.config.SerenityEffectsConfig.Glow config)
+            throws ReflectiveOperationException {
+        List<PrivateAnimalGlow> animals = new java.util.ArrayList<>();
+        for (org.bukkit.entity.Entity entity : player.getNearbyEntities(config.range(), config.range(), config.range())) {
+            if (!(entity instanceof org.bukkit.entity.Animals)
+                    || !CalmEffectDecision.PASSIVE_ANIMALS.contains(entity.getType().name())) continue;
+            PrivateAnimalGlow glow = new PrivateAnimalGlow(player, entity);
+            if (glow.eligible(config.range())) animals.add(glow);
+            if (animals.size() == config.count()) break;
+        }
+        if (animals.isEmpty()) return false;
+        ActivePresentationEntry entry = startPresentation(player.getUniqueId(), AmbientEffectType.PARTICLES,
+                config.duration(), () -> animals.forEach(PrivateAnimalGlow::restore));
+        if (entry == null) return false;
+        for (PrivateAnimalGlow animal : animals) animal.show();
+        return watchGlowingAnimals(player, animals, config.range(), entry, config.duration());
+    }
+
+    private boolean watchGlowingAnimals(Player player, List<PrivateAnimalGlow> animals, double range,
+                                        ActivePresentationEntry entry, long remaining) {
+        if (remaining <= 5) return true;
+        return scheduleTracked(player.getUniqueId(), () -> {
+            if (entry.ended().get()) return;
+            try {
+                for (var iterator = animals.iterator(); iterator.hasNext();) {
+                    PrivateAnimalGlow animal = iterator.next();
+                    if (!animal.eligible(range)) { animal.restore(); iterator.remove(); }
+                    else animal.show(); // A real server metadata update may have replaced the private flag.
+                }
+                if (animals.isEmpty() || !watchGlowingAnimals(player, animals, range, entry, remaining - 5))
+                    silverfishService.registry().cleanPresentation(entry);
+            } catch (ReflectiveOperationException | RuntimeException failure) {
+                silverfishService.registry().cleanPresentation(entry);
+            }
+        }, 5);
+    }
+
     private boolean dispatchScreen(Player player, PresentationConfig.Flash config, RuntimeSnapshot snapshot) {
         List<String> keys = snapshot.messages().lineKeys("effects.screen-flash.lines");
         if (keys.isEmpty()) return false;
         String key = keys.get(random.nextInt(keys.size()));
+        return dispatchScreen(player, config, snapshot, key);
+    }
+
+    private boolean dispatchScreen(Player player, PresentationConfig.Flash config, RuntimeSnapshot snapshot, String key) {
         Component text = messageRegistry.render(snapshot, key, Map.of());
         PrivateScreen screen;
         try { screen = new PrivateScreen(player, text, config); }

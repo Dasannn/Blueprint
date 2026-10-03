@@ -10,9 +10,22 @@ import java.util.Locale;
 public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double observerRange,
                                     Map<String, Rule> rules, int dawnTime, int dawnDuration,
                                     PresentationConfig.Sounds sounds, PresentationConfig.Particles particles,
-                                    java.util.List<String> animals, double animalRange, int animalDuration, int followUpdateTicks, double followDistance) {
+                                    java.util.List<String> animals, double animalRange, int animalDuration, int followUpdateTicks, double followDistance,
+                                    Flowers flowers, int clearDuration, Ambient ambient,
+                                    Music music, int phraseDuration, Glow glow) {
+    public record Flowers(java.util.List<String> types, double range, int count, int duration) {
+        public Flowers { types = java.util.List.copyOf(types); }
+    }
+    public record Ambient(int count, double radius, int duration) {}
+    public record Music(java.util.List<String> keys, float volume, int duration) {
+        public Music { keys = java.util.List.copyOf(keys); }
+    }
+    public record Glow(double range, int count, int duration) {}
+    public static final Set<String> FLOWERS = Set.of("poppy", "dandelion", "cornflower", "oxeye_daisy", "allium",
+            "azure_bluet", "red_tulip", "orange_tulip", "white_tulip", "pink_tulip", "blue_orchid", "lily_of_the_valley");
     public static final java.util.List<String> DEFAULT_ANIMALS = java.util.List.of("turtle", "fox", "armadillo", "bee");
-    public static final Set<String> EFFECTS = Set.of("dawn", "source-less-sounds", "particles", "apparition");
+    public static final Set<String> EFFECTS = Set.of("dawn", "source-less-sounds", "particles", "apparition",
+            "flowers", "clear-sky", "ambient-particles", "music", "warm-phrases", "glowing-animals");
     public record Rule(boolean enabled, double minimumSerenity, long cooldownTicks, int sessionCap) {}
     public SerenityEffectsConfig { rules = Map.copyOf(rules); animals = java.util.List.copyOf(animals); }
     public static SerenityEffectsConfig defaults() { return load(new MemoryConfiguration()); }
@@ -57,7 +70,21 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                 PresentationConfig.choices(root, path("apparition.kinds"), DEFAULT_ANIMALS, Set.of("turtle", "fox", "armadillo", "bee", "cat", "wolf")),
                 number(root, "apparition.range-blocks", 8, true), integer(root, "apparition.duration-ticks", 300, 1, 400),
                 integer(root, "apparition.follow-update-ticks", 5, 1, 20),
-                number(root, "apparition.follow-distance-blocks", 6, true));
+                number(root, "apparition.follow-distance-blocks", 6, true),
+                new Flowers(PresentationConfig.choices(root, path("flowers.types"),
+                        java.util.List.of("poppy", "dandelion", "cornflower", "oxeye_daisy", "allium"), FLOWERS),
+                        boundedRange(root, "flowers.range-blocks", 6, 8), integer(root, "flowers.count", 8, 1, 32),
+                        integer(root, "flowers.duration-ticks", 200, 1, 400)),
+                integer(root, "clear-sky.duration-ticks", 200, 1, 1200),
+                new Ambient(integer(root, "ambient-particles.count", 24, 1, 64),
+                        boundedRange(root, "ambient-particles.radius-blocks", 2, 8),
+                        integer(root, "ambient-particles.duration-ticks", 60, 1, 200)),
+                new Music(musicKeys(root), (float) boundedRange(root, "music.volume", .3, 1),
+                        integer(root, "music.duration-ticks", 200, 1, 1200)),
+                integer(root, "warm-phrases.duration-ticks", 60, 1, 200),
+                new Glow(boundedRange(root, "glowing-animals.range-blocks", 8, 32),
+                        integer(root, "glowing-animals.count", 8, 1, 32),
+                        integer(root, "glowing-animals.duration-ticks", 100, 1, 400)));
         if (result.followDistance() <= 3 + com.dasannn.socialblueprint.feature.effects.SereneEpisode.REACH_MARGIN)
             fail("apparition.follow-distance-blocks", "Must exceed interaction reach plus margin");
         ConfigurationSection section = root.getConfigurationSection("effects.serenity");
@@ -87,9 +114,33 @@ public record SerenityEffectsConfig(long intervalTicks, long quietTicks, double 
                 Map.entry("particles.count", particles.count()), Map.entry("particles.radius-blocks", particles.radius()),
                 Map.entry("particles.duration-ticks", particles.durationTicks()), Map.entry("apparition.kinds", animals),
                 Map.entry("apparition.range-blocks", animalRange), Map.entry("apparition.duration-ticks", animalDuration),
-                Map.entry("apparition.follow-update-ticks", followUpdateTicks), Map.entry("apparition.follow-distance-blocks", followDistance));
+                Map.entry("apparition.follow-update-ticks", followUpdateTicks), Map.entry("apparition.follow-distance-blocks", followDistance),
+                Map.entry("flowers.types", flowers.types()), Map.entry("flowers.range-blocks", flowers.range()),
+                Map.entry("flowers.count", flowers.count()), Map.entry("flowers.duration-ticks", flowers.duration()),
+                Map.entry("clear-sky.duration-ticks", clearDuration), Map.entry("ambient-particles.count", ambient.count()),
+                Map.entry("ambient-particles.radius-blocks", ambient.radius()), Map.entry("ambient-particles.duration-ticks", ambient.duration()),
+                Map.entry("music.keys", music.keys()), Map.entry("music.volume", music.volume()), Map.entry("music.duration-ticks", music.duration()),
+                Map.entry("warm-phrases.duration-ticks", phraseDuration), Map.entry("glowing-animals.range-blocks", glow.range()),
+                Map.entry("glowing-animals.count", glow.count()), Map.entry("glowing-animals.duration-ticks", glow.duration()));
         details.forEach((key, value) -> values.put(path(key), value.toString()));
         return Map.copyOf(values);
+    }
+    private static double boundedRange(ConfigurationSection root, String key, double fallback, double max) {
+        double value = number(root, key, fallback, true);
+        if (value > max) fail(key, "Must not exceed " + max);
+        return value;
+    }
+    private static java.util.List<String> musicKeys(ConfigurationSection root) {
+        String key = "music.keys";
+        Object raw = root.get(path(key), java.util.List.of("minecraft:music.overworld.meadow", "minecraft:music.overworld.cherry_grove"));
+        if (!(raw instanceof java.util.List<?> list) || list.isEmpty()) { fail(key, "Must be a nonempty list"); return java.util.List.of(); }
+        java.util.List<String> result = new java.util.ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof String sound) || !sound.matches("minecraft:music\\.[a-z0-9_.]+"))
+                fail(key, "Expected a vanilla music sound key");
+            result.add((String) item);
+        }
+        return java.util.List.copyOf(result);
     }
     private static String path(String key) { return "effects.serenity." + key; }
     private static int integer(ConfigurationSection root, String key, int fallback, int min, int max) {
