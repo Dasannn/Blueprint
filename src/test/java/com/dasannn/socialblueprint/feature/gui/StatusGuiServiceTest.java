@@ -528,6 +528,7 @@ public class StatusGuiServiceTest {
         assertThat(headSlot).isNotNull();
         assertThat(headSlot.iconKind()).isEqualTo(GuiIconKind.SUBJECT_HEAD);
         assertThat(headSlot.owningPlayerId()).isEqualTo(subjectUuid);
+        assertThat(headSlot.applyPlayerSkin()).isTrue();
         assertThat(headSlot.titleKey()).isEqualTo("gui.top.subject-head-title");
         assertThat(headSlot.titlePlaceholders()).containsEntry("player", "PublicSubject");
     }
@@ -731,6 +732,9 @@ public class StatusGuiServiceTest {
         assertThat(layout.get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
         assertThat(layout.get(28).titleKey()).isEqualTo("gui.history.revealed-rater");
         assertThat(layout.get(29).titleKey()).isEqualTo("status.system-actor");
+        assertThat(layout.get(27).applyPlayerSkin()).isFalse();
+        assertThat(layout.get(28).applyPlayerSkin()).isTrue();
+        assertThat(layout.get(29).applyPlayerSkin()).isFalse();
         assertThat(layout.get(37).lore().getFirst().isPlain()).isTrue();
         assertThat(layout.get(38).lore().getFirst().key()).isEqualTo("kill-penalty.reason");
         assertThat(layout.get(39).lore().getFirst().key()).isEqualTo("gui.history.no-reason");
@@ -801,6 +805,7 @@ public class StatusGuiServiceTest {
         assertThat(raterHead).isNotNull();
         assertThat(raterHead.iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertThat(raterHead.owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(raterHead.applyPlayerSkin()).isFalse();
 
         assertThat(reasonPaper).isNotNull();
         assertThat(reasonPaper.iconKind()).isEqualTo(GuiIconKind.REASON_PAPER);
@@ -1249,6 +1254,11 @@ public class StatusGuiServiceTest {
         // 1. By default, rater is not revealed to regular viewer
         assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isFalse();
         assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(holder.layout().get(27).applyPlayerSkin()).isFalse();
+        assertThat(holder.layout().get(27).owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(holder.layout().get(27).titlePlaceholders()).isEmpty();
+        assertThat(holder.layout().get(27).lore()).containsExactly(
+                GuiLoreLine.ofKey("gui.history.click-to-reveal", Map.of("cost", HonorService.formatCost(100.0))));
 
         // 2. Click rater head at slot 27 to reveal
         guiService.handleClick(viewer, holder, 27);
@@ -1261,6 +1271,8 @@ public class StatusGuiServiceTest {
         // Now revealed in holder
         assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isTrue();
         assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(holder.layout().get(27).applyPlayerSkin()).isTrue();
+        assertThat(holder.layout().get(27).owningPlayerId()).isEqualTo(raterUuid);
         assertThat(holder.layout().get(27).titlePlaceholders()).containsEntry("player", "SecretRater");
         assertParsedText(holder.layout());
 
@@ -1271,6 +1283,7 @@ public class StatusGuiServiceTest {
         drainMainThreadQueue();
         StatusGuiHolder reopenedHolder = (StatusGuiHolder) openedInventories.get(1).getHolder();
         assertThat(reopenedHolder.layout().get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(reopenedHolder.layout().get(27).applyPlayerSkin()).isTrue();
         assertThat(reopenedHolder.layout().get(27).titlePlaceholders()).containsEntry("player", "SecretRater");
         assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
 
@@ -1282,6 +1295,7 @@ public class StatusGuiServiceTest {
         StatusGuiHolder otherHolder = (StatusGuiHolder) openedInventories.get(2).getHolder();
         assertThat(guiService.isRaterRevealed(otherViewer, saved, otherHolder)).isFalse();
         assertThat(otherHolder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(otherHolder.layout().get(27).applyPlayerSkin()).isFalse();
     }
 
     @Test
@@ -1319,6 +1333,11 @@ public class StatusGuiServiceTest {
         // Error message received
         assertThat(messageRegistry.hasCall("gui.reveal.insufficient-funds")).isTrue();
         assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(holder.layout().get(27).applyPlayerSkin()).isFalse();
+        assertThat(holder.layout().get(27).owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(holder.layout().get(27).titlePlaceholders()).isEmpty();
+        assertThat(holder.layout().get(27).lore()).containsExactly(
+                GuiLoreLine.ofKey("gui.history.click-to-reveal", Map.of("cost", HonorService.formatCost(100.0))));
         // Not persisted
         assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(brokeViewerUuid).join()).isEmpty();
     }
@@ -1353,6 +1372,7 @@ public class StatusGuiServiceTest {
         assertThat(raterSlot.titleKey()).isEqualTo("status.system-actor");
         assertThat(raterSlot.lore()).isEmpty();
         assertThat(raterSlot.owningPlayerId()).isNull();
+        assertThat(raterSlot.applyPlayerSkin()).isFalse();
 
         // 2. Verify paper slot at slot 36 has kill-penalty.reason as translated key
         GuiSlot paperSlot = holder.layout().get(36);
@@ -1446,6 +1466,10 @@ public class StatusGuiServiceTest {
         GuiLayout adminLayout = guiService.computeLayout(holder, admin);
         assertParsedText(adminLayout);
         assertThat(adminLayout.get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(adminLayout.get(27).applyPlayerSkin()).isTrue();
+        assertThat(guiService.computeAllPages(null, List.of(event), Set.of(), admin,
+                configManager.snapshot()).getFirst().get(27).applyPlayerSkin()).isTrue();
+        holder.setLayout(adminLayout);
 
         // Regular player without admin permission
         Player regular = createMockPlayer("Bob", UUID.randomUUID(), "socialblueprint.show");
@@ -1453,6 +1477,13 @@ public class StatusGuiServiceTest {
         GuiLayout regularLayout = guiService.computeLayout(holder, regular);
         assertParsedText(regularLayout);
         assertThat(regularLayout.get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(regularLayout.get(27).applyPlayerSkin()).isFalse();
+        assertThat(regularLayout.get(27).owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(regularLayout.get(27).titlePlaceholders()).isEmpty();
+
+        Player rater = createMockPlayer("SecretRater", raterUuid, "socialblueprint.show");
+        assertThat(guiService.computeAllPages(null, List.of(event), Set.of(), rater,
+                configManager.snapshot()).getFirst().get(27).applyPlayerSkin()).isTrue();
     }
 
     @Test

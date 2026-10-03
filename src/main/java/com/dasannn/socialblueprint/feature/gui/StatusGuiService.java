@@ -64,8 +64,7 @@ import java.util.logging.Logger;
  * - Rating actions in the GUI invoke the exact same HonorService logic that commands use.
  *
  * Anonymity (T-124, T-126, SB-082):
- * - Rater's head carries their real skin so the player sees who rated them as a face.
- * - Rater's name is hidden by default; revealed per viewer and persisted in SQLite.
+ * - Rater's name and skin are hidden by default; revealed per viewer and persisted in SQLite.
  * - Administrators always see real names without paying (T-126).
  * - Comments are length-bounded and completely inert (T-125).
  */
@@ -532,20 +531,20 @@ public class StatusGuiService {
                 int col = i - start; // All nine columns, 0..8
 
                 // 1. Rater's Head (Row 4: slot 27 + col)
-                // Deliberate product decision (SB-082): Anonymity covers the name only;
-                // the rater's head carries their real skin so the player sees who rated them as a face.
+                // SB-082: Keep the actor UUID server-side; apply their skin only once revealed.
                 UUID raterUuid = event.actor() != null ? event.actor().uuid() : null;
                 boolean isSystem = (event.actor() == null || event.kind() == HonorKind.SYSTEM_KILL);
 
                 String raterTitleKey;
                 Map<String, String> raterTitlePlaceholders;
                 List<GuiLoreLine> raterLore;
+                boolean revealed = false;
                 if (isSystem) {
                     raterTitleKey = "status.system-actor";
                     raterTitlePlaceholders = Map.of();
                     raterLore = List.of();
                 } else {
-                    boolean revealed = isRaterRevealedStatic(viewer, event.id(), raterUuid, snapshot, reveals);
+                    revealed = isRaterRevealedStatic(viewer, event.id(), raterUuid, snapshot, reveals);
                     if (revealed) {
                         String raterName = (raterNameResolver != null && raterUuid != null)
                                 ? raterNameResolver.apply(raterUuid, snapshot)
@@ -572,7 +571,8 @@ public class StatusGuiService {
                         null,
                         raterTitleKey,
                         raterTitlePlaceholders,
-                        raterLore
+                        raterLore,
+                        revealed
                 ));
 
                 // 2. Paper whose lore holds the written reason (Row 5: slot 36 + col, T-125, Finding 5)
@@ -633,7 +633,7 @@ public class StatusGuiService {
                     if (event.revokedBy() != null)
                         lore.add(GuiLoreLine.ofKey("honor.revoked", Map.of("admin", event.revokedBy())));
                     slots.put(rowSlot, new GuiSlot(item.slot(), item.iconKind(), item.owningPlayerId(), item.eventId(),
-                            item.tier(), item.dyeKind(), item.titleKey(), item.titlePlaceholders(), lore));
+                            item.tier(), item.dyeKind(), item.titleKey(), item.titlePlaceholders(), lore, item.applyPlayerSkin()));
                 }
             }
         }
@@ -649,7 +649,7 @@ public class StatusGuiService {
                 lore.add(wait.isZero() ? GuiLoreLine.ofKey("rating-wait.allowed")
                         : GuiLoreLine.ofKey("rating-wait.blocked", Map.of("time", HonorService.ratingWaitText(wait, snapshot, messageRegistry))));
                 slots.put(banner, new GuiSlot(item.slot(), item.iconKind(), item.owningPlayerId(), item.eventId(),
-                        item.tier(), item.dyeKind(), item.titleKey(), item.titlePlaceholders(), lore));
+                        item.tier(), item.dyeKind(), item.titleKey(), item.titlePlaceholders(), lore, item.applyPlayerSkin()));
             }
         }
         slots.replaceAll((index, slot) -> resolveSlotText(slot, snapshot, messageRegistry));
@@ -672,7 +672,7 @@ public class StatusGuiService {
                     : renderItemText(snapshot, messages, line.key(), line.placeholders()));
         }
         return new GuiSlot(slot.slot(), slot.iconKind(), slot.owningPlayerId(), slot.eventId(),
-                slot.tier(), slot.dyeKind(), slot.titleKey(), slot.titlePlaceholders(), slot.lore(), title, lore);
+                slot.tier(), slot.dyeKind(), slot.titleKey(), slot.titlePlaceholders(), slot.lore(), title, lore, slot.applyPlayerSkin());
     }
 
     private static Component renderItemText(RuntimeSnapshot snapshot, MessageRegistry messages,
@@ -718,7 +718,8 @@ public class StatusGuiService {
                             null,
                             "gui.history.revealed-rater",
                             Map.of("player", raterName),
-                            revealLore(slot.lore(), "gui.history.revealed-info", Map.of())
+                            revealLore(slot.lore(), "gui.history.revealed-info", Map.of()),
+                            true
                     ));
                 } else if (!revealed && "gui.history.revealed-rater".equals(slot.titleKey())) {
                     double cost = holder.snapshot().config().history().revealCost();
@@ -732,7 +733,8 @@ public class StatusGuiService {
                             "gui.history.anonymous-rater",
                             Map.of(),
                             revealLore(slot.lore(), "gui.history.click-to-reveal",
-                                    Map.of("cost", HonorService.formatCost(cost)))
+                                    Map.of("cost", HonorService.formatCost(cost))),
+                            false
                     ));
                 }
             }
@@ -1340,7 +1342,8 @@ public class StatusGuiService {
                             null,
                             "gui.history.revealed-rater",
                             Map.of("player", raterName),
-                            revealLore(s.lore(), "gui.history.revealed-info", Map.of())
+                            revealLore(s.lore(), "gui.history.revealed-info", Map.of()),
+                            true
                     ));
                     modified = true;
                 }
