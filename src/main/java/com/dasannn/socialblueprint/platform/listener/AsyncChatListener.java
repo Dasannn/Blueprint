@@ -153,7 +153,10 @@ public class AsyncChatListener implements Listener {
             String original = snapshot.config().chatFilter().apply(extractPlainText(event.message()),
                     messageRegistry.getRaw(snapshot, "chat-filter.replacement"));
             if (!original.equals(extractPlainText(event.message()))) event.message(Component.text(original));
-            if (!(event.renderer() instanceof ChatRenderer.Default)) {
+            ChatRenderer renderer = event.renderer();
+            if (renderer instanceof OwnedRenderer) return;
+            boolean foreign = !(renderer instanceof ChatRenderer.Default);
+            if (foreign && snapshot.config().foreignRenderer().mode().equals("leave")) {
                 warnForeignRenderer();
                 return;
             }
@@ -177,6 +180,12 @@ public class AsyncChatListener implements Listener {
             Component body = messageBody(original, view.psychosis(), speakerSeed, sequence,
                     snapshot.config().psychosis().chat());
 
+            if (foreign) {
+                event.renderer(createForeignRenderer(renderer, prefixComp, body,
+                        snapshot.config().foreignRenderer()));
+                return;
+            }
+
             // Format name hover summary from message bundle (T-043)
             Component hoverComponent = buildHoverComponent(snapshot, view, tier);
 
@@ -190,6 +199,19 @@ public class AsyncChatListener implements Listener {
                         Component.empty().append(sourceDisplayName).append(Component.text(": ")).append(body)));
             }
         }
+    }
+
+    public ChatRenderer createForeignRenderer(ChatRenderer foreign, Component prefix, Component body,
+            com.dasannn.socialblueprint.config.ForeignRendererConfig config) {
+        if (foreign instanceof OwnedRenderer || config.mode().equals("leave")) return foreign;
+        Component leading = prefix.equals(Component.empty()) ? Component.empty()
+                : Component.empty().append(prefix).append(Component.space());
+        // Preserve the foreign name's hover/click actions and its complete line structure.
+        return new OwnedRenderer((source, name, message, viewer) -> {
+            Component displayName = config.prefix().equals("display-name") ? leading.append(name) : name;
+            Component line = foreign.render(source, displayName, body, viewer);
+            return config.prefix().equals("before-line") ? leading.append(line) : line;
+        });
     }
 
     public ChatRenderer createRenderer(Component prefixComp, Component hoverComponent, Component body) {

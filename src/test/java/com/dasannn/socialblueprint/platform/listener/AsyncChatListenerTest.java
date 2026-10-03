@@ -211,7 +211,86 @@ class AsyncChatListenerTest {
     }
 
     @Test
+    void foreignWrapperReplacesBodyAndPlacesPrefixWithoutChangingForeignFormat() {
+        Component prefix = Component.text("[tier]", NamedTextColor.GREEN);
+        Component name = Component.text("Nick", NamedTextColor.YELLOW)
+                .hoverEvent(HoverEvent.showText(Component.text("foreign hover")))
+                .clickEvent(ClickEvent.suggestCommand("/msg Nick "));
+        Component body = Component.text("shared body", NamedTextColor.DARK_GRAY);
+        Audience viewer = Audience.empty();
+        AtomicReference<Component> passedName = new AtomicReference<>();
+        AtomicReference<Component> passedBody = new AtomicReference<>();
+        ChatRenderer foreign = (source, displayName, message, reader) -> {
+            assertThat(reader).isSameAs(viewer);
+            passedName.set(displayName);
+            passedBody.set(message);
+            return Component.text("world > ", NamedTextColor.BLUE).append(displayName)
+                    .append(Component.text(" :: ")).append(message);
+        };
+        for (String placement : java.util.List.of("before-line", "display-name", "none")) {
+            var config = new com.dasannn.socialblueprint.config.ForeignRendererConfig("wrap", placement);
+            ChatRenderer wrapper = chatListener.createForeignRenderer(foreign, prefix, body, config);
+            Component rendered = wrapper.render(null, name, Component.text("ignored input"), viewer);
+            Component leading = Component.empty().append(prefix).append(Component.space());
+            Component expectedName = placement.equals("display-name") ? leading.append(name) : name;
+            Component expectedLine = Component.text("world > ", NamedTextColor.BLUE).append(expectedName)
+                    .append(Component.text(" :: ")).append(body);
+            assertThat(passedBody.get()).isSameAs(body);
+            assertThat(passedName.get()).isEqualTo(expectedName);
+            assertThat(rendered).isEqualTo(placement.equals("before-line") ? leading.append(expectedLine) : expectedLine);
+            assertThat(chatListener.createForeignRenderer(wrapper, prefix, body, config)).isSameAs(wrapper);
+        }
+        var leave = new com.dasannn.socialblueprint.config.ForeignRendererConfig("leave", "before-line");
+        assertThat(chatListener.createForeignRenderer(foreign, prefix, body, leave)).isSameAs(foreign);
+    }
+
+    @Test
+    void highestListenerWrapsForeignRendererOnceAndKeepsWordFilteringInBothModes() throws Exception {
+        var annotation = AsyncChatListener.class.getMethod("onChat", AsyncChatEvent.class)
+                .getAnnotation(org.bukkit.event.EventHandler.class);
+        assertThat(annotation.priority()).isEqualTo(org.bukkit.event.EventPriority.HIGHEST);
+        try (var in = getClass().getClassLoader().getResourceAsStream("plugin.yml");
+             var reader = new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
+            var manifest = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(reader);
+            assertThat(manifest.getStringList("softdepend")).contains("EssentialsChat");
+        }
+        Component prefix = ColorParser.parse(configManager.config().tiers().prefix(Tier.PARTICULAR));
+        String input = "Please idiot bring wooden supplies";
+        String filtered = configManager.config().chatFilter().apply(input,
+                messageRegistry.getRaw(configManager.snapshot(), "chat-filter.replacement"));
+        assertThat(filtered).isNotEqualTo(input);
+        ChatRenderer foreign = (source, name, message, viewer) -> Component.text("<").append(name)
+                .append(Component.text("> ")).append(message);
+        for (String placement : java.util.List.of("before-line", "display-name", "none")) {
+            configManager.set("chat.foreign-renderer.prefix", placement);
+            AsyncChatEvent event = chatEvent(null, Component.text(input));
+            event.renderer(foreign);
+            chatListener.onChat(event);
+            ChatRenderer wrapper = event.renderer();
+            assertThat(wrapper).isNotSameAs(foreign);
+            Component leading = Component.empty().append(prefix).append(Component.space());
+            Component name = Component.text("Speaker");
+            Component expectedName = placement.equals("display-name") ? leading.append(name) : name;
+            Component expected = Component.text("<").append(expectedName).append(Component.text("> "))
+                    .append(Component.text(filtered));
+            if (placement.equals("before-line")) expected = leading.append(expected);
+            assertThat(wrapper.render(null, name, Component.empty(), null)).isEqualTo(expected);
+            chatListener.onChat(event);
+            assertThat(event.renderer()).isSameAs(wrapper);
+            assertThat(wrapper.render(null, name, Component.text("changed input"), null)).isEqualTo(expected);
+            assertThat(event.isCancelled()).isFalse();
+        }
+        configManager.set("chat.foreign-renderer.mode", "leave");
+        AsyncChatEvent event = chatEvent(null, Component.text(input));
+        event.renderer(foreign);
+        chatListener.onChat(event);
+        assertThat(event.renderer()).isSameAs(foreign);
+        assertThat(event.message()).isEqualTo(Component.text(filtered));
+    }
+
+    @Test
     void foreignRendererBeforeOrAfterOurListenerIsPreservedAndLoggedOnce() {
+        configManager.set("chat.foreign-renderer.mode", "leave");
         var logger = Logger.getLogger(AsyncChatListener.class.getName());
         java.util.List<java.util.logging.LogRecord> records = new java.util.ArrayList<>();
         var handler = new java.util.logging.Handler() {
@@ -389,6 +468,15 @@ class AsyncChatListenerTest {
 
     @Test
     void asyncMessageIsComputedOnceForSeveralViewersWithoutPlayerOrStorageCalls() throws Exception {
+        sharedBodyAcrossViewers(false);
+    }
+
+    @Test
+    void foreignRendererSharesCorruptionAndEpisodeColourWithoutPlayerOrStorageCalls() throws Exception {
+        sharedBodyAcrossViewers(true);
+    }
+
+    private void sharedBodyAcrossViewers(boolean foreign) throws Exception {
         UUID uuid = UUID.fromString("00000000-0000-0000-0000-000000000123");
         PlayerId id = PlayerId.of(uuid);
         RuntimeSnapshot snapshot = configManager.snapshot();
@@ -421,7 +509,10 @@ class AsyncChatListenerTest {
             try {
                 for (int sequence = 0; sequence < 100; sequence++) {
                     AsyncChatEvent event = chatEvent(speaker, Component.text(unfiltered));
+                    if (foreign) event.renderer((source, name, message, viewer) ->
+                            Component.empty().append(name).append(Component.text(" :: ")).append(message));
                     chatListener.onChat(event);
+                    if (foreign) chatListener.onChat(event); // Must not reroll or advance the speaker sequence.
                     String expectedText = ChatCorruption.corrupt(original, view.psychosis(),
                             uuid.getMostSignificantBits() ^ uuid.getLeastSignificantBits(), sequence,
                             snapshot.config().psychosis().chat());
@@ -439,11 +530,19 @@ class AsyncChatListenerTest {
                                 });
                         Component rendered = event.renderer().render(speaker, Component.text("Speaker"),
                                 Component.text("different renderer input " + reader), viewer);
-                        assertThat(rendered.children().getLast()).isEqualTo(expectedBody);
-                        assertThat(rendered).isEqualTo(Component.empty().append(prefix).append(Component.space())
-                                .append(Component.text("Speaker").hoverEvent(HoverEvent.showText(
-                                        chatListener.buildHoverComponent(snapshot, view, view.tier()))))
-                                .append(Component.text(": ")).append(expectedBody));
+                        if (foreign) {
+                            Component foreignLine = Component.empty().append(Component.text("Speaker"))
+                                    .append(Component.text(" :: ")).append(expectedBody);
+                            assertThat(rendered).isEqualTo(Component.empty().append(prefix).append(Component.space())
+                                    .append(foreignLine));
+                            assertThat(rendered.children().getLast().children().getLast()).isEqualTo(expectedBody);
+                        } else {
+                            assertThat(rendered.children().getLast()).isEqualTo(expectedBody);
+                            assertThat(rendered).isEqualTo(Component.empty().append(prefix).append(Component.space())
+                                    .append(Component.text("Speaker").hoverEvent(HoverEvent.showText(
+                                            chatListener.buildHoverComponent(snapshot, view, view.tier()))))
+                                    .append(Component.text(": ")).append(expectedBody));
+                        }
                         if (first == null) first = rendered;
                         else assertThat(rendered).isEqualTo(first);
                     }

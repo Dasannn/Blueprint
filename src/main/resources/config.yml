@@ -570,3 +570,9 @@ chat-filter:
   words:
     es: [idiota, imbecil, estupido, mierda, puta, cabron]
     en: [idiot, asshole, bastard, shit, fuck, bitch]
+
+# Coexist with EssentialsX Chat and other Paper chat renderers.
+chat:
+  foreign-renderer:
+    mode: wrap # wrap | leave
+    prefix: before-line # before-line | display-name | none
