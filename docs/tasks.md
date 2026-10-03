@@ -31,7 +31,7 @@ second place where progress is recorded.
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
 | P13 Psychosis effects and chat | `feat/p13-tuning` | **done** — released in v1.0; T-169/T-174 two-client walks move to T-207 |
 | P14 Release 2 | `integration/r2` | **done** — 882 tests green, Codex review closed, owner and bot acceptance passed; ready to release as v2.0 |
-| P15 Release 2.0.1 | `integration/r2.0.1` | **review** — merged baseline: 943 unit tests and 15/15 live bot scenarios green; T-229 owner manual check and attached-comment prune regression build pending |
+| P15 Release 2.0.1 | `main`, tag `v2.0.1` | **done** — 946 unit tests and 15/15 live bot scenarios green; owner checked tab prefix, effects, anonymous head, two-click reveal, EssentialsX chat and name hover live |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -377,4 +377,4 @@ acceptance; this worktree does not run Maven.
 | T-226 | EssentialsX Chat/foreign renderer coexistence, shared early body, prefix modes, leave mode and configuration/tests. | SB-179 | done |
 | T-227 | Two-page feature GUI with all 45 switches, bounded navigation and retained page on audited toggle refresh. | SB-180 | done |
 | T-228 | Consolidate merged release requirements/acceptance and README; prune attached obsolete-key comments with upgrade regression coverage. | SB-182, §15.6, §16 | done |
-| T-229 | Owner manual check 2.0.1: tab prefix, the 13 effects visually, anonymous head, two-click reveal, EssentialsX chat look. | SB-160, SB-164 to SB-181 | review |
+| T-229 | Owner manual check 2.0.1: tab prefix, the 13 effects visually, anonymous head, two-click reveal, EssentialsX chat look. | SB-160, SB-164 to SB-181 | done |
