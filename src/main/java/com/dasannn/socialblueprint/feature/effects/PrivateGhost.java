@@ -56,10 +56,10 @@ final class PrivateGhost {
                 // Constructor default profile only; no victim identity or profile lookup.
                 display.getMethod("setImmovable", boolean.class).invoke(entity, true);
                 display.getMethod("setHideDescription", boolean.class).invoke(entity, true);
-            } else display.getMethod("setNoAi", boolean.class).invoke(entity, true);
+            } else if (!animal.equals("lightning_bolt")) display.getMethod("setNoAi", boolean.class).invoke(entity, true);
             display.getMethod("setSilent", boolean.class).invoke(entity, true);
             display.getMethod("setYRot", float.class).invoke(entity, at.getYaw());
-            display.getMethod("setYHeadRot", float.class).invoke(entity, at.getYaw());
+            if (!animal.equals("lightning_bolt")) display.getMethod("setYHeadRot", float.class).invoke(entity, at.getYaw());
         } else {
             Class<?> billboard = Class.forName("net.minecraft.world.entity.Display$BillboardConstraints");
             display.getMethod("setBillboardConstraints", billboard).invoke(entity, billboard.getField("CENTER").get(null));

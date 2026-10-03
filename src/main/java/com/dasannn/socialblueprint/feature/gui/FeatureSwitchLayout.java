@@ -51,7 +51,7 @@ public final class FeatureSwitchLayout {
         for (int slot = 0; slot < 54; slot++) slots.put(slot, GuiSlot.of(slot, GuiIconKind.FILLER, "features.separator"));
         group(snapshot, slots, switches, 0, "inputs", inputs());
         group(snapshot, slots, switches, 18, "madness", madness());
-        group(snapshot, slots, switches, 36, "serenity", serenity());
+        group(snapshot, slots, switches, 45, "serenity", serenity());
         return new View(new GuiLayout(54, slots), switches);
     }
 

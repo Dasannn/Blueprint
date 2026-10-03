@@ -13,7 +13,7 @@ public final class CatalogueLines {
     public static final String CUSTOM = "effects.private-chat.custom-lines";
     public static final Set<String> LISTS = Set.of("effects.private-chat.lines", CUSTOM,
             "effects.advancement-toast.lines", "effects.boss-bar.lines", "effects.false-death.lines",
-            "effects.serenity.warm-phrases.lines");
+            "effects.serenity.warm-phrases.lines", "effects.subliminal.words");
     public static final Set<String> TEMPLATES = Set.of("effects.fake-connection.join",
             "effects.fake-connection.leave");
     // ponytail: conservative English/Spanish keywords; extend for additional server languages.
@@ -51,7 +51,12 @@ public final class CatalogueLines {
             if (key.equals("effects.false-death.lines") && !line.contains("{player}"))
                 throw new ConfigValidationException(key + "[" + i + "]", "Must contain {player}");
             // Reserve the full vanilla username width on load/edit; delivery checks the actual name.
-            validateLine(key, i, line, Map.of("player", "x".repeat(16)), max, key.equals(CUSTOM));
+            validateLine(key, i, line, Map.of("player", "x".repeat(16)), key.equals("effects.subliminal.words") ? 32 : max, key.equals(CUSTOM));
+            if (key.equals("effects.subliminal.words")) {
+                String visible = PlainTextComponentSerializer.plainText().serialize(ColorParser.renderTemplate(line, Map.of("player", "x".repeat(16))));
+                if (visible.isBlank() || visible.codePoints().anyMatch(Character::isWhitespace))
+                    throw new ConfigValidationException(key + "[" + i + "]", "Expected a single word");
+            }
         }
         return list.stream().map(String.class::cast).toList();
     }

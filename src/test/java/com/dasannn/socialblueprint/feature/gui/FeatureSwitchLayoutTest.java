@@ -28,7 +28,7 @@ class FeatureSwitchLayoutTest {
         for (MindInput input : MindInput.values()) expected.add("psychosis.inputs." + input.id() + ".enabled");
         expected.add("psychosis.inputs.honor-review.enabled");
         for (String id : List.of("sky", "particles", "screen-flash", "source-less-sounds", "block-change", "sign",
-                "hurt-flash", "victim-ghost", "advancement-toast", "boss-bar", "false-death", "fake-connection", "private-chat", "silverfish", "creeper"))
+                "hurt-flash", "victim-ghost", "advancement-toast", "boss-bar", "false-death", "fake-connection", "private-chat", "silverfish", "creeper", "footsteps", "watcher", "nearby-noises", "torch-flicker", "subliminal", "red-vignette", "fake-lightning"))
             expected.add("effects." + id + ".enabled");
         expected.add("psychosis.chat.enabled");
         for (String id : List.of("dawn", "source-less-sounds", "particles", "apparition", "flowers", "clear-sky",
@@ -38,7 +38,7 @@ class FeatureSwitchLayoutTest {
         assertThat(view.switches()).hasSize(expected.size());
         assertThat(view.layout().get(0).titleKey()).isEqualTo("features.group.inputs");
         assertThat(view.layout().get(18).titleKey()).isEqualTo("features.group.madness");
-        assertThat(view.layout().get(36).titleKey()).isEqualTo("features.group.serenity");
+        assertThat(view.layout().get(45).titleKey()).isEqualTo("features.group.serenity");
         assertThat(view.layout().get(17).iconKind()).isEqualTo(GuiIconKind.FILLER);
         for (String lang : List.of("en", "es")) {
             var messages = MessageRegistry.loadMessagesSnapshot(folder.toFile(), lang, null);

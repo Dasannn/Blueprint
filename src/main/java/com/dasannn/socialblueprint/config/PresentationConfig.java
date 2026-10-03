@@ -13,7 +13,14 @@ import java.util.Set;
 /** Typed SB-102–108 settings. No registry-backed Bukkit objects in the decisions. */
 public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Particles particles,
                                  Flash flash, Sounds sounds, Episodes episodes, Block block, Block sign,
-                                 Hurt hurt, Ghost ghost, Toast toast, Bar bar, double deathRange, int maxVisibleLength, DurationScale durationScale, Phantom phantom) {
+                                 Hurt hurt, Ghost ghost, Toast toast, Bar bar, double deathRange, int maxVisibleLength, DurationScale durationScale, Phantom phantom, HorrorConfig horror) {
+    public PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Particles particles,
+                              Flash flash, Sounds sounds, Episodes episodes, Block block, Block sign,
+                              Hurt hurt, Ghost ghost, Toast toast, Bar bar, double deathRange, int maxVisibleLength,
+                              DurationScale durationScale, Phantom phantom) {
+        this(rules, sky, particles, flash, sounds, episodes, block, sign, hurt, ghost, toast, bar,
+                deathRange, maxVisibleLength, durationScale, phantom, HorrorConfig.defaults());
+    }
     public record Rule(boolean enabled, PsychosisLevel minimumLevel, SingleEffectConfig limits) {
         public boolean allows(PsychosisLevel level) {
             return enabled && level.hasMadnessEffects() && level.ordinal() >= minimumLevel.ordinal();
@@ -80,7 +87,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                 new Toast(toast.icon(), durationScale.ticks(toast.durationTicks(), level)),
                 new Bar(bar.colour(), bar.style(), bar.progress(), durationScale.ticks(bar.durationTicks(), level)),
                 deathRange, maxVisibleLength, durationScale,
-                new Phantom(phantom.mobs(), phantom.distance(), durationScale.ticks(phantom.durationTicks(), level)));
+                new Phantom(phantom.mobs(), phantom.distance(), durationScale.ticks(phantom.durationTicks(), level)), horror);
     }
 
     public record Sky(String mode, int durationTicks) {}
@@ -142,6 +149,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
 
     public long durationTicks(AmbientEffectType type, SoundsConfigSection slots) {
         return switch (type) {
+            case FOOTSTEPS, WATCHER, NEARBY_NOISES, TORCH_FLICKER, SUBLIMINAL, RED_VIGNETTE, FAKE_LIGHTNING -> horror.durationTicks(type, slots);
             case SILVERFISH -> phantom.durationTicks();
             case ADVANCEMENT_TOAST -> toast.durationTicks();
             case BOSS_BAR -> bar.durationTicks();
@@ -190,11 +198,14 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                 AmbientEffectType.SCREEN_FLASH, AmbientEffectType.SOURCE_LESS_SOUNDS,
                 AmbientEffectType.BLOCK_CHANGE, AmbientEffectType.SIGN, AmbientEffectType.HURT_FLASH, AmbientEffectType.VICTIM_GHOST,
                 AmbientEffectType.ADVANCEMENT_TOAST, AmbientEffectType.BOSS_BAR, AmbientEffectType.FALSE_DEATH,
-                AmbientEffectType.WHISPER, AmbientEffectType.FAKE_ANNOUNCEMENT)) {
+                AmbientEffectType.WHISPER, AmbientEffectType.FAKE_ANNOUNCEMENT,
+                AmbientEffectType.FOOTSTEPS, AmbientEffectType.WATCHER, AmbientEffectType.NEARBY_NOISES,
+                AmbientEffectType.TORCH_FLICKER, AmbientEffectType.SUBLIMINAL, AmbientEffectType.RED_VIGNETTE, AmbientEffectType.FAKE_LIGHTNING)) {
             String id = type.configId();
             String path = "effects." + id;
             Set<String> allowed = new java.util.HashSet<>(Set.of("enabled", "minimum-level", "cooldown-ticks", "session-cap"));
             allowed.addAll(switch (type) {
+                case FOOTSTEPS, WATCHER, NEARBY_NOISES, TORCH_FLICKER, SUBLIMINAL, RED_VIGNETTE, FAKE_LIGHTNING -> HorrorConfig.PARAMETERS.get(id);
                 case ADVANCEMENT_TOAST -> Set.of("icon", "duration-ticks");
                 case BOSS_BAR -> Set.of("colour", "style", "progress", "duration-ticks");
                 case FALSE_DEATH -> Set.of("range-blocks");
@@ -292,7 +303,7 @@ public record PresentationConfig(Map<AmbientEffectType, Rule> rules, Sky sky, Pa
                         number(root, "episodes.duration-scale.high", 1.5, false),
                         number(root, "episodes.duration-scale.extreme", 2, false)),
                 new Phantom(phantomMobs(root), number(root, "silverfish.distance-blocks", 8, true),
-                        integer(root, "silverfish.duration-ticks", 20, 1, 100)));
+                        integer(root, "silverfish.duration-ticks", 20, 1, 100)), HorrorConfig.load(root));
     }
 
     private static java.util.List<String> phantomMobs(ConfigurationSection root) {

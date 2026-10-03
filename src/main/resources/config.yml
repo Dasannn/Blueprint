@@ -472,6 +472,68 @@ effects:
       right-blocks: 0
       up-blocks: 0
     playback-ticks: 20
+  # Private horror episodes; loaded terrain only, no real world changes.
+  footsteps:
+    enabled: true
+    minimum-level: low
+    cooldown-ticks: 1200
+    session-cap: 6
+    duration-ticks: 60
+    steps: 7
+    start-distance-blocks: 6
+    end-distance-blocks: 2
+    volume: 0.6
+    pitch: 1.0
+  watcher:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 6
+    kinds: [enderman]
+    min-distance-blocks: 20
+    max-distance-blocks: 40
+    look-dot: 0.985
+    duration-ticks: 100
+  nearby-noises:
+    enabled: true
+    minimum-level: low
+    cooldown-ticks: 1200
+    session-cap: 6
+    range-blocks: 8
+    volume: 0.7
+    pitch: 0.8
+    playback-ticks: 40
+  torch-flicker:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 6
+    range-blocks: 8
+    max-lights: 3
+    flickers: 3
+    duration-ticks: 40
+  subliminal:
+    enabled: true
+    minimum-level: medium
+    cooldown-ticks: 1200
+    session-cap: 6
+    duration-ticks: 3
+  red-vignette:
+    enabled: true
+    minimum-level: high
+    cooldown-ticks: 1200
+    session-cap: 6
+    duration-ticks: 60
+  fake-lightning:
+    enabled: true
+    minimum-level: extreme
+    cooldown-ticks: 1200
+    session-cap: 6
+    range-blocks: 12
+    duration-ticks: 20
+    sound-slot: horror-thunder
+    playback-ticks: 80
+
   # Silence after a complete episode. Must decrease Medium > High > Extreme.
   # Minimums: 3/2/1 seconds and 3/2/1 scheduler checks respectively, even with zero cooldowns.
   quiet-interval:
@@ -551,6 +613,11 @@ kill-penalty:
 # Configurable Sounds (SB-090, SB-091, T-135 to T-137)
 # ==============================================================================
 sounds:
+  horror-thunder:
+    key: minecraft:entity.lightning_bolt.thunder
+    volume: 0.7
+    pitch: 1.0
+    category: WEATHER
   hurt:
     key: minecraft:entity.player.hurt
     volume: 0.7

@@ -155,6 +155,8 @@ effects:
         - '&aThe air smells of grass'
         - '&aA gentle breeze surrounds you'
         - '&aThe world feels calm'
+  subliminal:
+    words: ['&8BEHIND', '&8LOOK', '&8{player}']
   sign:
     lines:
       - '&8Still here.'
@@ -312,6 +314,13 @@ features:
       false-death: "&fFalse death"
       fake-connection: "&fFake connection"
       private-chat: "&fPrivate chat"
+      footsteps: "&fFootsteps"
+      watcher: "&fWatcher"
+      nearby-noises: "&fNearby noises"
+      torch-flicker: "&fTorch flicker"
+      subliminal: "&fSubliminal word"
+      red-vignette: "&fRed vignette"
+      fake-lightning: "&fFake lightning"
       serenity:
         dawn: "&fPrivate dawn"
         source-less-sounds: "&fSerene sounds"

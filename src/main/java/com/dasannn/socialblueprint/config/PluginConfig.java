@@ -160,6 +160,7 @@ public record PluginConfig(
                 : SoundsConfigSection.defaults();
         HistoryConfig history = HistoryConfig.load(root);
         if (root.contains("effects.source-less-sounds")) effects.presentation().validateSounds(sounds);
+        if (root.contains("effects.fake-lightning")) effects.presentation().horror().validateSounds(sounds);
         if (root.contains("effects.hurt-flash")) effects.presentation().validateHurtSounds(sounds);
         if (root.contains("effects.serenity")) effects.serenity().validateSounds(sounds);
 
