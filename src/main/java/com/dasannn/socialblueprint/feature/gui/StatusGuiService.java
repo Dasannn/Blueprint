@@ -47,6 +47,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.logging.Level;
@@ -104,6 +105,8 @@ public class StatusGuiService {
     private final Consumer<Runnable> mainThreadRunner;
     private final Function<UUID, OfflinePlayer> offlinePlayerResolver;
     private final Clock clock;
+    private final RevealConfirmation revealConfirmation;
+    private BiConsumer<Runnable, Long> revealExpiryRunner = (task, ticks) -> {};
     private final GuiRenderer renderer;
     private final CompensationRepository compensationRepository;
     private final Logger logger;
@@ -227,9 +230,19 @@ public class StatusGuiService {
             return null;
         };
         this.clock = clock != null ? clock : Clock.systemUTC();
+        this.revealConfirmation = new RevealConfirmation(this.clock);
         this.renderer = renderer;
         this.compensationRepository = compensationRepository;
         this.logger = logger != null ? logger : Logger.getLogger(StatusGuiService.class.getName());
+    }
+
+    /** Configured by the platform to schedule on the main thread. */
+    public void setRevealExpiryRunner(BiConsumer<Runnable, Long> runner) {
+        this.revealExpiryRunner = Objects.requireNonNull(runner);
+    }
+
+    public void disarmReveal(UUID viewerUuid) {
+        revealConfirmation.disarm(viewerUuid);
     }
 
     public void setEconomy(Economy economy) {
@@ -740,7 +753,18 @@ public class StatusGuiService {
             }
         }
 
-        adaptedSlots.replaceAll((index, slot) -> resolveSlotText(slot, holder.snapshot(), messageRegistry));
+        RevealConfirmation.Arm arm = viewer == null ? null : revealConfirmation.armed(viewer.getUniqueId());
+        adaptedSlots.replaceAll((index, slot) -> {
+            if (slot.iconKind() == GuiIconKind.RATER_HEAD && "gui.history.anonymous-rater".equals(slot.titleKey())) {
+                boolean armed = arm != null && Objects.equals(slot.eventId(), arm.eventId());
+                slot = new GuiSlot(slot.slot(), slot.iconKind(), slot.owningPlayerId(), slot.eventId(),
+                        slot.tier(), slot.dyeKind(), slot.titleKey(), slot.titlePlaceholders(),
+                        revealLore(slot.lore(), armed ? "gui.history.confirm-reveal" : "gui.history.click-to-reveal",
+                                Map.of("cost", HonorService.formatCost(HonorCostCalculator.roundCurrency(
+                                        holder.snapshot().config().history().revealCost())))), false);
+            }
+            return resolveSlotText(slot, holder.snapshot(), messageRegistry);
+        });
         return new GuiLayout(baseLayout.size(), adaptedSlots);
     }
 
@@ -909,6 +933,7 @@ public class StatusGuiService {
             // 3. Edge slot: Page Back (T-121, Finding 7)
             case PAGE_PREVIOUS_STAR -> {
                 if (holder.currentPage() > 0) {
+                    disarmReveal(viewer.getUniqueId());
                     holder.setCurrentPage(holder.currentPage() - 1);
                     renderGui(holder, viewer);
                 }
@@ -918,6 +943,7 @@ public class StatusGuiService {
             // 4. Edge slot: Page Forward (T-121, Finding 7)
             case PAGE_NEXT_STAR -> {
                 if (holder.currentPage() < holder.totalPages() - 1) {
+                    disarmReveal(viewer.getUniqueId());
                     holder.setCurrentPage(holder.currentPage() + 1);
                     renderGui(holder, viewer);
                 }
@@ -1078,7 +1104,7 @@ public class StatusGuiService {
         if (event == null || event.actor() == null || event.kind() == HonorKind.SYSTEM_KILL) {
             return;
         }
-        handleRevealWithIds(viewer, holder, event.id(), event.actor().uuid());
+        handleRevealConfirmation(viewer, holder, event.id(), event.actor().uuid());
     }
 
     public void handleRevealClick(Player viewer, StatusGuiHolder holder, GuiSlot clickedSlot) {
@@ -1086,7 +1112,39 @@ public class StatusGuiService {
                 || "status.system-actor".equals(clickedSlot.titleKey())) {
             return;
         }
-        handleRevealWithIds(viewer, holder, clickedSlot.eventId(), clickedSlot.owningPlayerId());
+        handleRevealConfirmation(viewer, holder, clickedSlot.eventId(), clickedSlot.owningPlayerId());
+    }
+
+    private void handleRevealConfirmation(Player viewer, StatusGuiHolder holder, long eventId, UUID raterUuid) {
+        UUID viewerUuid = viewer.getUniqueId();
+        if (!viewerUuid.equals(holder.viewerUuid()) || pendingReveals.contains(viewerUuid + ":" + eventId)) {
+            return;
+        }
+        if (isRaterRevealed(viewer, eventId, raterUuid, holder.snapshot(), holder.revealedEventIds())) {
+            handleRevealWithIds(viewer, holder, eventId, raterUuid);
+            return;
+        }
+        boolean confirmed = revealConfirmation.click(viewerUuid, eventId,
+                holder.snapshot().config().history().revealConfirmSeconds());
+        renderGui(holder, viewer);
+        if (confirmed) {
+            handleRevealWithIds(viewer, holder, eventId, raterUuid);
+        } else {
+            scheduleRevealExpiry(viewer, holder, revealConfirmation.armed(viewerUuid));
+        }
+    }
+
+    private void scheduleRevealExpiry(Player viewer, StatusGuiHolder holder, RevealConfirmation.Arm expected) {
+        long ticks = Math.max(1L, (java.time.Duration.between(clock.instant(), expected.expiry()).toMillis() + 49) / 50);
+        revealExpiryRunner.accept(() -> {
+            RevealConfirmation.Arm current = revealConfirmation.armed(viewer.getUniqueId());
+            if (expected.equals(current)) {
+                scheduleRevealExpiry(viewer, holder, expected);
+            } else if (current == null && viewer.isOnline() && viewer.getOpenInventory() != null
+                    && viewer.getOpenInventory().getTopInventory().getHolder() == holder) {
+                renderGui(holder, viewer);
+            }
+        }, ticks);
     }
 
     private void handleRevealWithIds(Player viewer, StatusGuiHolder holder, long eventId, UUID raterUuid) {

@@ -589,6 +589,12 @@ class ConfigUpgradeMergeTest {
         assertThat(configManager.get("history.reveal-cost")).isEqualTo("75.0");
         assertThat(configManager.config().history().revealCost()).isEqualTo(75.0);
 
+        assertThat(configManager.get("history.reveal-confirm-seconds")).isEqualTo("5");
+        assertThat(configManager.isEditableKey("history.reveal-confirm-seconds")).isTrue();
+        assertThat(cmd.execute(sender, new String[]{"set", "reveal-confirm-seconds", "9"})).isTrue();
+        assertThat(configManager.config().history().revealConfirmSeconds()).isEqualTo(9);
+        assertThat(configManager.get("history.reveal-confirm-seconds")).isEqualTo("9");
+
         // Set merged key: legacy-import.trust-name-lookup
         assertThat(configManager.isEditableKey("legacy-import.trust-name-lookup")).isTrue();
         assertThat(configManager.get("legacy-import.trust-name-lookup")).isEqualTo("false");

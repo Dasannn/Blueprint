@@ -217,6 +217,7 @@ gui:
     click-to-reveal: '&eClick to reveal name &7(&6{cost}&7)'
     revealed-rater: '&b{player}'
     revealed-info: '&aIdentity revealed'
+    confirm-reveal: '&eClick again to confirm — costs &6{cost}'
     paper-title: '&fRating Reason'
     no-reason: '&7(No reason provided)'
     positive-banner: '&a+ Positive Rating'

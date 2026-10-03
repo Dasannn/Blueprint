@@ -562,6 +562,7 @@ sounds:
 history:
   # Cost in currency to reveal an anonymous rater's identity in the /status GUI (T-124).
   reveal-cost: 100.0
+  reveal-confirm-seconds: 5
 
 
 # All language lists apply to every reader (SB-151).
