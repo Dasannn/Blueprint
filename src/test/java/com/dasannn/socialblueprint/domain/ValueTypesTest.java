@@ -221,27 +221,13 @@ class ValueTypesTest {
     @Test
     @DisplayName("Finding 6: HonorCostConfig rejects free, negative, and non-finite charges per Constitution §2.4")
     void honorCostConfigValidation() {
-        java.time.Duration window = java.time.Duration.ofHours(1);
-
-        // Base cost cannot be 0.0, negative, NaN or Infinity
-        assertThatThrownBy(() -> new HonorCostConfig(0.0, java.util.List.of(1.0), window))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new HonorCostConfig(-100.0, java.util.List.of(1.0), window))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new HonorCostConfig(Double.NaN, java.util.List.of(1.0), window))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new HonorCostConfig(Double.POSITIVE_INFINITY, java.util.List.of(1.0), window))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        // Multipliers cannot contain 0.0, negative, NaN or Infinity
-        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(0.0), window))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(-1.0), window))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(Double.NaN), window))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new HonorCostConfig(500.0, java.util.List.of(Double.POSITIVE_INFINITY), window))
-                .isInstanceOf(IllegalArgumentException.class);
+        for (double base : new double[] {-1, Double.NaN, Double.POSITIVE_INFINITY})
+            assertThatThrownBy(() -> new HonorCostConfig(base, 8)).isInstanceOf(IllegalArgumentException.class);
+        for (double percent : new double[] {-1, 101, Double.NaN, Double.POSITIVE_INFINITY})
+            assertThatThrownBy(() -> new HonorCostConfig(30, percent)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HonorCostConfig(0, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new HonorCostConfig(0, 8).baseCost()).isZero();
+        assertThat(new HonorCostConfig(30, 0).percent()).isZero();
     }
 
     @Test

@@ -875,7 +875,7 @@ public class StatusCommandExecutor implements CommandExecutor, TabCompleter {
             if ("admin".equals(sub) && adminCommand != null) {
                 if (subArgs.length > 1 && "mind".equalsIgnoreCase(subArgs[0])) {
                     if (!PermissionChecker.hasPermission(sender, "admin-mind", snapshot)) return Collections.emptyList();
-                    if (subArgs.length == 3 && ("reset".equalsIgnoreCase(subArgs[1]) || "set".equalsIgnoreCase(subArgs[1]))) {
+                    if (subArgs.length == 3 && ("reset".equalsIgnoreCase(subArgs[1]) || "set".equalsIgnoreCase(subArgs[1]) || "reduce".equalsIgnoreCase(subArgs[1]))) {
                         String current = subArgs[2].toLowerCase(Locale.ROOT);
                         return onlinePlayersSupplier.get().stream().map(Player::getName)
                                 .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(current)).toList();

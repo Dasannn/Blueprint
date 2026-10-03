@@ -88,7 +88,10 @@ public class ProfileService {
     private final ConcurrentMap<PlayerId, Long> lastQuitEpochs = new ConcurrentHashMap<>();
     private final AtomicLong quitEpoch = new AtomicLong();
     private final Object loadLock = new Object();
+    private final ConcurrentMap<PlayerId, String> onlineNames = new ConcurrentHashMap<>();
     private volatile long configGeneration;
+    private final java.util.List<java.util.function.BiConsumer<PlayerSocialView, RuntimeSnapshot>> viewListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    public void addViewListener(java.util.function.BiConsumer<PlayerSocialView, RuntimeSnapshot> listener) { viewListeners.add(listener); }
 
     public ProfileService(
             StorageEngine storageEngine,
@@ -294,6 +297,7 @@ public class ProfileService {
                 Instant expiresAt = now.plus(cfg.decay().cacheTtl());
                 viewCache.put(id, new CachedView(view, expiresAt, currentGen, loadConfigGeneration, snapshot));
                 statusCache.put(id, status, cfg.decay().toDomain());
+                viewListeners.forEach(listener -> listener.accept(view, snapshot));
                 return view;
             }
         }
@@ -424,6 +428,7 @@ public class ProfileService {
         Objects.requireNonNull(id, "PlayerId must not be null");
         Objects.requireNonNull(snapshot, "RuntimeSnapshot must not be null");
         serenity.join(id);
+        onlineNames.put(id, name);
 
         int gen;
         long requestEpoch;
@@ -461,12 +466,19 @@ public class ProfileService {
             // ponytail: scan is bounded to 1000 loads; index by player if write throughput warrants it.
             boolean loading = inFlightLoads.keySet().stream().anyMatch(key -> key.id().equals(id));
             invalidate(id);
-            if (!evictedPlayers.contains(id) && (cached != null || loading)) {
-                loadViewAsync(id, cached != null ? cached.view().name() : id.toString(), snapshot)
-                        .exceptionally(error -> {
-                            logger.log(Level.WARNING, "Failed to refresh profile for " + id, error);
-                            return null;
-                        });
+            if (!evictedPlayers.contains(id) && (cached != null || loading || onlineNames.containsKey(id))) {
+                String name = cached != null ? cached.view().name() : onlineNames.getOrDefault(id, id.toString());
+                // A committed write already on storage rebuilds before the next queued write,
+                // so consecutive threshold crossings cannot be coalesced away.
+                if (storageEngine.isStorageThread()) {
+                    try { loadViewInternal(id, name, snapshot, playerGenerations.getOrDefault(id, 0), quitEpoch.get(), configGeneration); }
+                    catch (RuntimeException error) { logger.log(Level.WARNING, "Failed to refresh profile for " + id, error); }
+                } else {
+                    loadViewAsync(id, name, snapshot).exceptionally(error -> {
+                        logger.log(Level.WARNING, "Failed to refresh profile for " + id, error);
+                        return null;
+                    });
+                }
             }
         }
     }
@@ -493,7 +505,7 @@ public class ProfileService {
     }
 
     public void evict(PlayerId id) {
-        if (id != null) serenity.leave(id);
+        if (id != null) { onlineNames.remove(id); serenity.leave(id); }
         if (id != null) {
             synchronized (loadLock) {
                 evictedPlayers.add(id);

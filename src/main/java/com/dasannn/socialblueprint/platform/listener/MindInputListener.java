@@ -54,6 +54,8 @@ public final class MindInputListener implements Listener {
         activity.setMetadataAfk(id(player), player.getMetadata("afk").stream().anyMatch(value -> value.asBoolean()));
     }
     private void apply(PlayerId player, MindInput kind, String source, RuntimeSnapshot snapshot, boolean active) {
+        Player online = plugin.getServer().getPlayer(player.value());
+        if (online != null && snapshot.config().worldRules().isDisabled(online.getWorld().getName())) return;
         var config = snapshot.config().psychosis().input(kind);
         if (!MindTriggers.eligible(config.enabled(), duels.isInActiveDuel(player), active)) return;
         mind.applyAsync(player, kind, config, source, Instant.now()).exceptionally(ex -> {
@@ -61,6 +63,7 @@ public final class MindInputListener implements Listener {
         });
     }
     private void peaceful(Player player, MindInput kind, String source, RuntimeSnapshot snapshot) {
+        if (snapshot.config().worldRules().isDisabled(player.getWorld().getName())) return;
         refresh(player);
         activity.activity(id(player));
         apply(id(player), kind, source, snapshot, activity.active(id(player)));
@@ -70,6 +73,7 @@ public final class MindInputListener implements Listener {
     public void damage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
         RuntimeSnapshot snapshot = manager.snapshot();
+        if (snapshot.config().worldRules().isDisabled(player.getWorld().getName())) return;
         double threshold = snapshot.config().psychosis().nearDeathHealth();
         PlayerId victim = id(player);
         double before = player.getHealth();
@@ -91,11 +95,13 @@ public final class MindInputListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void fishing(PlayerFishEvent event) {
         Player player = event.getPlayer();
+        RuntimeSnapshot snapshot = manager.snapshot();
+        if (snapshot.config().worldRules().isDisabled(player.getWorld().getName())) return;
         refresh(player);
         boolean fish = event.getState() == PlayerFishEvent.State.CAUGHT_FISH
                 && event.getCaught() instanceof Item item && MindTriggers.fish(item.getItemStack().getType().name());
         if (MindTriggers.fishing(fish, activity.active(id(player)), activity.afk(id(player))))
-            apply(id(player), MindInput.FISHING, "caught-fish", manager.snapshot(), true);
+            apply(id(player), MindInput.FISHING, "caught-fish", snapshot, true);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -118,6 +124,7 @@ public final class MindInputListener implements Listener {
         int before = baby.getAge();
         RuntimeSnapshot snapshot = manager.snapshot();
         Player actorBefore = event.getPlayer();
+        if (snapshot.config().worldRules().isDisabled(actorBefore.getWorld().getName())) return;
         refresh(actorBefore); activity.activity(id(actorBefore));
         if (duels.isInActiveDuel(id(actorBefore)) || !activity.active(id(actorBefore))) return;
         var hand = event.getHand();
@@ -166,6 +173,7 @@ public final class MindInputListener implements Listener {
 
     private MindNight night(World world) { return nights.computeIfAbsent(world.getUID(), ignored -> new MindNight(13000, 23000)); }
     private void credits(World world, java.util.List<MindNight.Credit> credits, RuntimeSnapshot snapshot) {
+        if (snapshot.config().worldRules().isDisabled(world.getName())) return;
         for (var credit : credits) {
             boolean eligible = true;
             if (credit.kind() == MindInput.SLEEP) {
@@ -182,6 +190,11 @@ public final class MindInputListener implements Listener {
     public void tick() {
         RuntimeSnapshot snapshot = manager.snapshot();
         for (World world : plugin.getServer().getWorlds()) {
+            if (snapshot.config().worldRules().isDisabled(world.getName())) {
+                nights.remove(world.getUID()); worldTimes.remove(world.getUID());
+                world.getPlayers().forEach(player -> samples.remove(id(player)));
+                continue;
+            }
             if (world.getEnvironment() != World.Environment.NORMAL) continue;
             MindNight night = night(world);
             long now = world.getFullTime();
@@ -200,18 +213,21 @@ public final class MindInputListener implements Listener {
             credits(world, night.time(now), snapshot);
         }
         // Health can re-arm in the Nether and End too.
-        for (Player player : plugin.getServer().getOnlinePlayers())
-            nearDeath.computeIfAbsent(id(player), ignored -> new MindTriggers.NearDeath()).observe(player.getHealth(), snapshot.config().psychosis().nearDeathHealth());
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (snapshot.config().worldRules().isDisabled(player.getWorld().getName())) nearDeath.remove(id(player));
+            else nearDeath.computeIfAbsent(id(player), ignored -> new MindTriggers.NearDeath()).observe(player.getHealth(), snapshot.config().psychosis().nearDeathHealth());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void bed(PlayerBedEnterEvent event) {
         if (event.getBedEnterResult() != PlayerBedEnterEvent.BedEnterResult.OK) return;
         Player player = event.getPlayer();
-        if (player.getWorld().getEnvironment() != World.Environment.NORMAL) return;
+        RuntimeSnapshot snapshot = manager.snapshot();
+        if (snapshot.config().worldRules().isDisabled(player.getWorld().getName()) || player.getWorld().getEnvironment() != World.Environment.NORMAL) return;
         refresh(player); activity.activity(id(player));
         var night = night(player.getWorld());
-        credits(player.getWorld(), night.time(player.getWorld().getFullTime()), manager.snapshot());
+        credits(player.getWorld(), night.time(player.getWorld().getFullTime()), snapshot);
         night.presence(id(player), 0, true, false, false);
     }
 
@@ -224,10 +240,11 @@ public final class MindInputListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void deep(io.papermc.paper.event.player.PlayerDeepSleepEvent event) {
         Player player = event.getPlayer();
-        if (player.getWorld().getEnvironment() != World.Environment.NORMAL) return;
+        RuntimeSnapshot snapshot = manager.snapshot();
+        if (snapshot.config().worldRules().isDisabled(player.getWorld().getName()) || player.getWorld().getEnvironment() != World.Environment.NORMAL) return;
         refresh(player);
         MindNight night = night(player.getWorld());
-        credits(player.getWorld(), night.time(player.getWorld().getFullTime()), manager.snapshot());
+        credits(player.getWorld(), night.time(player.getWorld().getFullTime()), snapshot);
         night.presence(id(player), 0, true, true, activity.active(id(player)) && !duels.isInActiveDuel(id(player)));
     }
 
@@ -244,7 +261,7 @@ public final class MindInputListener implements Listener {
     }
 
     private void skip(World world, long amount, ClockTimeSkipEvent.SkipReason reason, RuntimeSnapshot snapshot) {
-        if (world.getEnvironment() != World.Environment.NORMAL) return;
+        if (snapshot.config().worldRules().isDisabled(world.getName()) || world.getEnvironment() != World.Environment.NORMAL) return;
         MindNight night = night(world);
         credits(world, night.time(world.getFullTime()), snapshot);
         boolean earlySleep = !night.isNight(world.getFullTime()) && reason == ClockTimeSkipEvent.SkipReason.NIGHT_SKIP;
@@ -276,6 +293,7 @@ public final class MindInputListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void world(PlayerChangedWorldEvent event) {
         samples.remove(id(event.getPlayer()));
+        nearDeath.remove(id(event.getPlayer()));
         MindNight old = nights.get(event.getFrom().getUID());
         if (old != null) old.wake(id(event.getPlayer()));
     }

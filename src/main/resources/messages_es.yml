@@ -245,9 +245,12 @@ chat-filter:
   replacement: 'bobba'
 # Administrative mental-state resets (SB-137).
 mind-admin:
+  reduced: '&aPsicosis de {player} reducida un {percent}% (ahora {value}).'
+  reduce-unchanged: '&7{player} está Neutral o Sereno; su estado mental no cambió.'
+  invalid-percent: '&cUsa un porcentaje finito mayor que 0 y como máximo 100: {percent}'
   set: '&aEstado mental de {player} establecido en {value}.'
   invalid-value: '&cUsa un valor finito entre -100 y 100: {value}'
-  usage: '&eUso: /status admin mind set <jugador> <valor> | reset <jugador> | reset-all [confirm]'
+  usage: '&eUso: /status admin mind set <jugador> <valor> | reduce <jugador> <porcentaje> | reset <jugador> | reset-all [confirm]'
   reset: '&aEstado mental de {player} restablecido a Neutral.'
   confirm: '&eRepite /status admin mind reset-all confirm en 30 segundos para restablecer a todos los jugadores guardados.'
   confirm-expired: '&cNo hay confirmación activa. Ejecuta /status admin mind reset-all de nuevo.'
@@ -315,3 +318,12 @@ rating-wait:
   blocked: '&ePodrás volver a valorar en {time}'
 config-suffix:
   ambiguous: '&eClave ambigua {key}. Coincidencias: {keys}'
+
+mind-notices:
+  psychosis-rose: '&7Tu psicosis subió {change} puntos (ahora {now}).'
+  psychosis-fell: '&7Tu psicosis bajó {change} puntos (ahora {now}).'
+  serenity-rose: '&7Tu serenidad subió {change} puntos (ahora {now}).'
+  serenity-fell: '&7Tu serenidad bajó {change} puntos (ahora {now}).'
+
+worlds:
+  disabled: '&eEl honor y los duelos de SocialBlueprint están desactivados en este mundo.'

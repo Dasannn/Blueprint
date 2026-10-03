@@ -40,6 +40,31 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ProfileServiceTest {
 
+    @Test void queuedMindWritesPublishEveryCrossingBeforeTheNextWrite() throws Exception {
+        PlayerId id = PlayerId.of(UUID.randomUUID());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        profileService.warmUp(id, "Notices", snapshot).get(5, java.util.concurrent.TimeUnit.SECONDS);
+        var values = new java.util.concurrent.CopyOnWriteArrayList<Double>();
+        profileService.addViewListener((view, published) -> {
+            if (view.playerId().equals(id)) values.add(view.psychosis() == PsychosisLevel.SERENITY
+                    ? view.psychosisMagnitude() : -view.psychosisMagnitude());
+        });
+        var blocked = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var gate = com.dasannn.socialblueprint.storage.StorageTestSupport.blockExecutor(storage, blocked, release);
+        CompletableFuture<Void> first;
+        CompletableFuture<Void> second;
+        try {
+            assertThat(blocked.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            first = profileService.mind().setAsync(id, -10, PlayerId.CONSOLE, "Owner", baseTime);
+            second = profileService.mind().setAsync(id, 10, PlayerId.CONSOLE, "Owner", baseTime);
+        } finally { release.countDown(); }
+        gate.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(values).containsExactly(-10.0, 10.0);
+    }
+
     @Test
     void offlineProfileStillDisplaysPersistedSerenityAfterQuit() throws Exception {
         PlayerId id = PlayerId.of(UUID.randomUUID());

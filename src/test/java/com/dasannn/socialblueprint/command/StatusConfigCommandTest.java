@@ -77,6 +77,14 @@ class StatusConfigCommandTest {
         messageRegistry.clear();
     }
 
+    @Test void honorPercentAliasReadsAndEditsCanonicalKey() {
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+        command.execute(admin, new String[]{"honor.percent"});
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("key", "honor.cost-percent").containsEntry("value", "8.0");
+        command.execute(admin, new String[]{"honor.percent", "12.5"});
+        assertThat(configManager.config().honor().costPercent()).isEqualTo(12.5);
+    }
+
     @Test
     void pinnedEnglishRatingWaitText() {
         setLanguage("en");
@@ -209,7 +217,7 @@ class StatusConfigCommandTest {
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
         assertThat(messageRegistry.lastCall().placeholders())
                 .containsEntry("key", "honor.cost")
-                .containsEntry("value", "500.0");
+                .containsEntry("value", "30.0");
     }
 
     @Test
@@ -285,7 +293,7 @@ class StatusConfigCommandTest {
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
         assertThat(messageRegistry.lastCall().placeholders())
                 .containsEntry("key", "honor.cost")
-                .containsEntry("value", "500.0");
+                .containsEntry("value", "30.0");
     }
 
     @Test
@@ -294,7 +302,7 @@ class StatusConfigCommandTest {
         MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
 
         List<String> suggestions = command.tabComplete(admin, new String[]{"hon"});
-        assertThat(suggestions).contains("honor.cost", "honor.multiplier-window", "honor.cap-window", "honor.cooldown-per-pair", "honor.max-per-target");
+        assertThat(suggestions).contains("honor.cost", "honor.cost-percent", "honor.cap-window", "honor.cooldown-per-pair", "honor.max-per-target");
 
         List<String> langSuggestions = command.tabComplete(admin, new String[]{"language", ""});
         assertThat(langSuggestions).containsExactly("en", "es");
@@ -519,32 +527,32 @@ class StatusConfigCommandTest {
     }
 
     @Test
-    @DisplayName("Finding 8: /status config <key> [value] edits kill-penalty.exempt-worlds in-game")
-    void finding8_editExemptWorldsInGame() {
+    @DisplayName("Finding 8: /status config <key> [value] edits disabled-worlds in-game")
+    void finding8_editDisabledWorldsInGame() {
         MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
 
         // 1. Read default value
-        boolean readResult = command.execute(admin, new String[]{"kill-penalty.exempt-worlds"});
+        boolean readResult = command.execute(admin, new String[]{"disabled-worlds"});
         assertThat(readResult).isTrue();
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
         assertThat(messageRegistry.lastCall().placeholders())
-                .containsEntry("key", "kill-penalty.exempt-worlds")
-                .containsEntry("value", "[]");
+                .containsEntry("key", "disabled-worlds")
+                .containsEntry("value", "[minigames]");
 
         // 2. Set bracketed list: [nether, the_end]
         messageRegistry.clear();
-        boolean setResult = command.execute(admin, new String[]{"kill-penalty.exempt-worlds", "[nether, the_end]"});
+        boolean setResult = command.execute(admin, new String[]{"disabled-worlds", "[nether, the_end]"});
         assertThat(setResult).isTrue();
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-success");
         assertThat(messageRegistry.lastCall().placeholders())
-                .containsEntry("key", "kill-penalty.exempt-worlds")
+                .containsEntry("key", "disabled-worlds")
                 .containsEntry("value", "[nether, the_end]");
 
-        assertThat(configManager.config().killPenalty().exemptWorlds()).containsExactlyInAnyOrder("nether", "the_end");
+        assertThat(configManager.config().worldRules().disabledWorlds()).containsExactlyInAnyOrder("nether", "the_end");
 
         // 3. Read back
         messageRegistry.clear();
-        command.execute(admin, new String[]{"kill-penalty.exempt-worlds"});
+        command.execute(admin, new String[]{"disabled-worlds"});
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
         assertThat(messageRegistry.lastCall().placeholders().get("value")).contains("nether").contains("the_end");
     }
@@ -644,9 +652,9 @@ class StatusConfigCommandTest {
         assertThat(result).isTrue();
         assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.get");
         assertThat(messageRegistry.lastCall().placeholders().get("key")).isEqualTo("honor.cost");
-        // 500.0 is the shipped default; the point of the test is that it was read
+        // 30.0 is the shipped default; the point of the test is that it was read
         // with config.yml renamed out from under the command.
-        assertThat(messageRegistry.lastCall().placeholders().get("value")).isEqualTo("500.0");
+        assertThat(messageRegistry.lastCall().placeholders().get("value")).isEqualTo("30.0");
 
         // Restore file
         Files.move(deletedConfig.toPath(), configFile.toPath(), StandardCopyOption.REPLACE_EXISTING);

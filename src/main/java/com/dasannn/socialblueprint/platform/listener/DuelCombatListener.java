@@ -137,6 +137,8 @@ public class DuelCombatListener implements Listener {
             return;
         }
 
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        if (player.getWorld() != null && snapshot.config().worldRules().isDisabled(player.getWorld().getName())) return;
         PlayerId shooterId = PlayerId.of(player.getUniqueId());
         ActiveDuelSession session = duelService.getActiveDuel(shooterId);
         String duelId = session != null ? session.id() : null;
@@ -176,7 +178,10 @@ public class DuelCombatListener implements Listener {
             return;
         }
 
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        if (victim.getWorld() != null && snapshot.config().worldRules().isDisabled(victim.getWorld().getName())) return;
         Player attacker = resolvePlayerAttacker(damager);
+        if (attacker != null && attacker.getWorld() != null && snapshot.config().worldRules().isDisabled(attacker.getWorld().getName())) return;
         if (attacker != null && !attacker.getUniqueId().equals(victim.getUniqueId())) {
             PlayerId victimId = PlayerId.of(victim.getUniqueId());
             PlayerId attackerId = PlayerId.of(attacker.getUniqueId());
@@ -189,7 +194,7 @@ public class DuelCombatListener implements Listener {
 
             // T-139: Record duel context against attacker and victim when qualifying hit lands
             CombatContext context = resolveAttackContext(damager, attackerId, victimId);
-            recordAttackContext(victimId, attackerId, context, now);
+            recordAttackContext(victimId, attackerId, context, now, snapshot);
         }
     }
 
@@ -234,9 +239,9 @@ public class DuelCombatListener implements Listener {
         return record;
     }
 
-    private void recordAttackContext(PlayerId victimId, PlayerId attackerId, CombatContext context, Instant now) {
+    private void recordAttackContext(PlayerId victimId, PlayerId attackerId, CombatContext context, Instant now, RuntimeSnapshot snapshot) {
         victimAttackRecords.put(victimId, new AttackRecord(attackerId, context, now));
-        pruneExpiredVictimRecords(now);
+        pruneExpiredVictimRecords(now, snapshot);
     }
 
     private Duration getAttackContextWindow(RuntimeSnapshot snapshot) {
@@ -249,8 +254,8 @@ public class DuelCombatListener implements Listener {
         return DuelConfigSection.DEFAULT_ATTACK_CONTEXT_WINDOW;
     }
 
-    private void pruneExpiredVictimRecords(Instant now) {
-        Duration window = getAttackContextWindow(configManager.snapshot());
+    private void pruneExpiredVictimRecords(Instant now, RuntimeSnapshot snapshot) {
+        Duration window = getAttackContextWindow(snapshot);
         victimAttackRecords.values().removeIf(rec -> rec.isExpired(now, window));
         if (victimAttackRecords.size() > MAX_MAP_SIZE) {
             var it = victimAttackRecords.entrySet().iterator();
@@ -335,7 +340,9 @@ public class DuelCombatListener implements Listener {
                 ? PlayerId.of(killer.getUniqueId())
                 : null;
 
-        handleDeath(victimId, killerId, worldName, Instant.now(), configManager.snapshot())
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        String killerWorld = killer != null && killer.getWorld() != null ? killer.getWorld().getName() : null;
+        handleDeath(victimId, killerId, worldName, killerWorld, Instant.now(), snapshot)
                 .exceptionally(ex -> {
                     LOGGER.log(Level.SEVERE, "Failed to record death outcome for killer=" + killerId + " victim=" + victimId, ex);
                     return null;
@@ -360,6 +367,11 @@ public class DuelCombatListener implements Listener {
             Instant now,
             com.dasannn.socialblueprint.config.RuntimeSnapshot snapshot
     ) {
+        return handleDeath(victimId, killerId, worldName, null, now, snapshot);
+    }
+
+    public CompletableFuture<KillPenaltyResult> handleDeath(PlayerId victimId, PlayerId killerId,
+            String worldName, String killerWorld, Instant now, RuntimeSnapshot snapshot) {
         Objects.requireNonNull(victimId, "victimId must not be null");
         Objects.requireNonNull(now, "now must not be null");
         Objects.requireNonNull(snapshot, "snapshot must not be null");
@@ -367,6 +379,8 @@ public class DuelCombatListener implements Listener {
         // T-139: The context belongs to the attack, not to the death.
         // Cleared on death per rule.
         AttackRecord attackRecord = victimAttackRecords.remove(victimId);
+        if (snapshot.config().worldRules().isDisabled(worldName) || snapshot.config().worldRules().isDisabled(killerWorld))
+            return CompletableFuture.completedFuture(new KillPenaltyResult(0, null, null));
 
         CombatContext deathContext = context(victimId, killerId, attackRecord, now, snapshot);
         CompletableFuture<?> death = mindRepository != null && deathContext != CombatContext.DUEL
@@ -456,6 +470,14 @@ public class DuelCombatListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
+    public void onWorldChange(org.bukkit.event.player.PlayerChangedWorldEvent event) {
+        PlayerId id = PlayerId.of(event.getPlayer().getUniqueId());
+        victimAttackRecords.remove(id);
+        victimAttackRecords.entrySet().removeIf(entry -> entry.getValue().attackerId().equals(id));
+        duelService.handleWorldChange(id, configManager.snapshot());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         PlayerId playerId = PlayerId.of(player.getUniqueId());
@@ -464,13 +486,18 @@ public class DuelCombatListener implements Listener {
             projectileLaunches.values().removeIf(rec -> rec.shooterId().equals(playerId));
         }
         projectileLaunchesByUuid.values().removeIf(rec -> rec.shooterId().equals(playerId));
-        duelService.handlePlayerQuit(playerId, Instant.now(), configManager.snapshot());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        duelService.handleWorldChange(playerId, snapshot);
+        duelService.handlePlayerQuit(playerId, Instant.now(), snapshot);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        duelService.handlePlayerJoin(PlayerId.of(player.getUniqueId()), configManager.snapshot());
+        RuntimeSnapshot snapshot = configManager.snapshot();
+        PlayerId id = PlayerId.of(player.getUniqueId());
+        duelService.handleWorldChange(id, snapshot);
+        duelService.handlePlayerJoin(id, snapshot);
     }
 
     private Player resolvePlayerAttacker(Entity damager) {

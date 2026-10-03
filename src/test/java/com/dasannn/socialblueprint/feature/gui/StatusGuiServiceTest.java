@@ -103,6 +103,7 @@ public class StatusGuiServiceTest {
 
     private final Queue<Runnable> mainThreadQueue = new ConcurrentLinkedQueue<>();
     private final Map<UUID, Double> economyBalances = new ConcurrentHashMap<>();
+    private final Map<UUID, String> playerWorlds = new ConcurrentHashMap<>();
     private final Map<String, PlayerLookup.KnownPlayer> onlineLookupMap = new ConcurrentHashMap<>();
     private final Map<UUID, String> offlineNames = new ConcurrentHashMap<>();
     private final List<Inventory> openedInventories = new ArrayList<>();
@@ -1135,27 +1136,69 @@ public class StatusGuiServiceTest {
     }
 
     @Test
-    void repricedGuiConfirmationOpensAnotherChestPreview() {
+    void receivingHonorInDisabledWorldDoesNotCountAsMentalInput() {
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        honorService.bindWorldLookup(id -> id.equals(target) ? "minigames" : "world");
+        for (HonorKind kind : List.of(HonorKind.POSITIVE, HonorKind.NEGATIVE)) {
+            UUID uuid = UUID.randomUUID();
+            Player actor = createMockPlayer("ReviewActor", uuid, "socialblueprint.give-reputation", "socialblueprint.take-reputation");
+            economyBalances.put(uuid, 10000.0);
+            awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", kind, "Helpful neighbor", configManager.snapshot()));
+            assertThat(honorService.getPendingConfirmation(uuid)).isPresent();
+            awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+        }
+        assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(2);
+        assertThat(mind.events(target)).isEmpty();
+        assertThat(mind.value(target)).isZero();
+    }
+
+    @Test
+    void honorGiveTakeAndGuiConfirmationAreRefusedInDisabledWorld() {
+        UUID uuid = UUID.randomUUID();
+        Player actor = createMockPlayer("WorldActor", uuid, "socialblueprint.give-reputation", "socialblueprint.take-reputation");
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        economyBalances.put(uuid, 10000.0);
+        for (HonorKind kind : List.of(HonorKind.POSITIVE, HonorKind.NEGATIVE)) {
+            playerWorlds.put(uuid, "minigames");
+            awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", kind, "Helpful neighbor", configManager.snapshot()));
+            assertThat(messageRegistry.hasCall("worlds.disabled")).isTrue();
+            assertThat(honorService.getPendingConfirmation(uuid)).isEmpty();
+            playerWorlds.put(uuid, "world");
+            awaitQueued(honorService.preparePlayerHonor(actor, "TargetUser", kind, "Helpful neighbor", configManager.snapshot()));
+            assertThat(honorService.getPendingConfirmation(uuid)).isPresent();
+            playerWorlds.put(uuid, "minigames");
+            awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
+            assertThat(honorService.getPendingConfirmation(uuid)).isEmpty();
+            assertThat(economyBalances.get(uuid)).isEqualTo(10000.0);
+            assertThat(reputationRepo.findByTargetAsync(target).join()).isEmpty();
+            assertThat(auditRepo.findByTarget(target)).isEmpty();
+        }
+        Player guiActor = openGiveConfirmation();
+        StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        playerWorlds.put(guiActor.getUniqueId(), "minigames");
+        awaitQueued(guiService.handleClick(guiActor, holder, StatusGuiService.SLOT_HONOR_CONFIRM));
+        assertThat(honorService.getPendingConfirmation(guiActor.getUniqueId())).isEmpty();
+        assertThat(economyBalances.get(guiActor.getUniqueId())).isEqualTo(10000.0);
+        assertThat(reputationRepo.findByTargetAsync(holder.honorPreview().targetId()).join()).isEmpty();
+    }
+
+    @Test
+    void quotedGuiConfirmationChargesOriginalAmountAfterBalanceChange() {
         Player actor = openGiveConfirmation();
-        StatusGuiHolder old = (StatusGuiHolder) openedInventories.getLast().getHolder();
-        var pending = old.honorPreview();
-        // An unrelated rating changes the progressive multiplier without triggering pair cooldown.
+        StatusGuiHolder original = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        var pending = original.honorPreview();
+        assertThat(pending.cost()).isEqualTo(830.0);
         reputationRepo.saveAsync(new ReputationEvent(pending.actorId(), PlayerId.of(UUID.randomUUID()), 1,
                 HonorKind.POSITIVE, pending.cost(), null, Instant.now())).join();
-        messageRegistry.clearCalls();
-        awaitQueued(guiService.handleClick(actor, old, StatusGuiService.SLOT_HONOR_CONFIRM));
-        StatusGuiHolder refreshed = (StatusGuiHolder) openedInventories.getLast().getHolder();
-        assertThat(refreshed).isNotSameAs(old);
-        assertThat(refreshed.honorPreview().cost()).isNotEqualTo(pending.cost());
-        assertThat(refreshed.honorPreview()).isSameAs(honorService.getPendingConfirmation(actor.getUniqueId()).orElseThrow());
-        assertThat(refreshed.layout().get(StatusGuiService.SLOT_HONOR_DETAILS).lore())
-                .contains(GuiLoreLine.ofKey("gui.honor-confirmation.cost",
-                        Map.of("cost", HonorService.formatCost(refreshed.honorPreview().cost()))));
-        assertThat(messageRegistry.hasCall("honor.cost-preview")).isFalse();
-        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(10000.0);
-        assertThat(reputationRepo.findByTargetAsync(pending.targetId()).join()).isEmpty();
-        awaitQueued(guiService.handleClick(actor, refreshed, StatusGuiService.SLOT_HONOR_CONFIRM));
-        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(10000.0 - refreshed.honorPreview().cost());
+        economyBalances.put(actor.getUniqueId(), 20000.0);
+        awaitQueued(guiService.handleClick(actor, original, StatusGuiService.SLOT_HONOR_CONFIRM));
+        assertThat(honorService.getPendingConfirmation(actor.getUniqueId())).isEmpty();
+        assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(20000.0 - pending.cost());
+        assertThat(reputationRepo.findByTargetAsync(pending.targetId()).join()).hasSize(1);
+        assertThat(reputationRepo.findByTargetAsync(pending.targetId()).join().getFirst().cost()).isEqualTo(pending.cost());
     }
 
     @Test
@@ -1590,7 +1633,7 @@ public class StatusGuiServiceTest {
     }
 
     @Test
-    void honorRechecksAllowanceAndPriceBeforeCharging() {
+    void honorKeepsQuotedPriceAndRechecksAllowanceBeforeCharging() {
         UUID actorUuid = UUID.randomUUID();
         PlayerId actorId = PlayerId.of(actorUuid);
         Player actor = createMockPlayer("Actor", actorUuid, "socialblueprint.give-reputation");
@@ -1602,19 +1645,22 @@ public class StatusGuiServiceTest {
         double original = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
         configManager.set("honor.cost", "750");
         awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
-        double changed = honorService.getPendingConfirmation(actorUuid).orElseThrow().cost();
-        assertThat(changed).isNotEqualTo(original);
-        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
-        assertThat(reputationRepo.findByTargetAsync(target).join()).isEmpty();
-        // Fill the allowance after the new preview, outside pair cooldown but inside cap window.
+        assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0 - original);
+        assertThat(reputationRepo.findByTargetAsync(target).join()).singleElement()
+                .satisfies(event -> assertThat(event.cost()).isEqualTo(original));
+        PlayerId cappedTarget = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("capped", new PlayerLookup.KnownPlayer(cappedTarget, "Capped", true));
+        awaitQueued(honorService.preparePlayerHonor(actor, "Capped", HonorKind.POSITIVE, "Helpful neighbor", configManager.snapshot()));
+        // Fill the allowance after the preview, outside pair cooldown but inside cap window.
         Instant now = Instant.now();
-        for (int days : List.of(2, 4, 6)) reputationRepo.saveAsync(new ReputationEvent(actorId, target, 1,
+        for (int days : List.of(2, 4, 6)) reputationRepo.saveAsync(new ReputationEvent(actorId, cappedTarget, 1,
                 HonorKind.POSITIVE, 500, null, now.minus(Duration.ofDays(days)))).join();
         awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
         assertThat(messageRegistry.hasCall("honor.cap-reached")).isTrue();
         assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
-        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
-        assertThat(reputationRepo.findByTargetAsync(target).join()).hasSize(3);
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0 - original);
+        assertThat(reputationRepo.findByTargetAsync(cappedTarget).join()).hasSize(3);
         PlayerId other = PlayerId.of(UUID.randomUUID());
         onlineLookupMap.put("other", new PlayerLookup.KnownPlayer(other, "Other", true));
         awaitQueued(honorService.preparePlayerHonor(actor, "Other", HonorKind.POSITIVE, "Helpful neighbor", configManager.snapshot()));
@@ -1622,7 +1668,7 @@ public class StatusGuiServiceTest {
         awaitQueued(honorService.confirmPlayerHonor(actor, configManager.snapshot()));
         assertThat(messageRegistry.hasCall("honor.cooldown")).isTrue();
         assertThat(honorService.getPendingConfirmation(actorUuid)).isEmpty();
-        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0);
+        assertThat(economyBalances.get(actorUuid)).isEqualTo(10000.0 - original);
         assertThat(reputationRepo.findByTargetAsync(other).join()).hasSize(1);
     }
 
@@ -2098,6 +2144,12 @@ public class StatusGuiServiceTest {
             String mName = method.getName();
             if ("getName".equals(mName)) return name;
             if ("getUniqueId".equals(mName)) return uuid;
+            if ("getWorld".equals(mName)) return Proxy.newProxyInstance(
+                    org.bukkit.World.class.getClassLoader(), new Class<?>[]{org.bukkit.World.class},
+                    (world, call, values) -> {
+                        if (call.getName().equals("getName")) return playerWorlds.getOrDefault(uuid, "world");
+                        throw new AssertionError("Unexpected World call: " + call.getName());
+                    });
             if ("isOnline".equals(mName)) return true;
             if ("hasPermission".equals(mName)) {
                 if (args != null && args.length > 0 && args[0] instanceof String perm) {
@@ -2184,6 +2236,9 @@ public class StatusGuiServiceTest {
     private Economy createMockEconomy() {
         InvocationHandler econHandler = (proxy, method, args) -> {
             String mName = method.getName();
+            if ("getBalance".equals(mName) && args[0] instanceof OfflinePlayer p) {
+                return economyBalances.getOrDefault(p.getUniqueId(), 0.0);
+            }
             if ("has".equals(mName) && args.length >= 2) {
                 OfflinePlayer p = (OfflinePlayer) args[0];
                 double amt = ((Number) args[1]).doubleValue();

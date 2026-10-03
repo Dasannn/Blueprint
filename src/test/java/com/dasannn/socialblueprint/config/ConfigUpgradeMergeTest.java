@@ -347,7 +347,7 @@ class ConfigUpgradeMergeTest {
         InputStream in = getClass().getClassLoader().getResourceAsStream("config.yml");
         assertThat(in).isNotNull();
         String bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        String customized = bundled.replace("cost: 500.0", "cost: 250.0");
+        String customized = bundled.replace("cost: 30.0", "cost: 250.0");
 
         // Remove sounds section to trigger merge
         int soundsIdx = customized.indexOf("sounds:");
@@ -597,9 +597,9 @@ class ConfigUpgradeMergeTest {
         assertThat(configManager.config().legacyImport().trustNameLookup()).isTrue();
 
         // Set merged key: kill-penalty.exempt-worlds
-        assertThat(configManager.isEditableKey("kill-penalty.exempt-worlds")).isTrue();
-        assertThat(cmd.execute(sender, new String[]{"set", "kill-penalty.exempt-worlds", "[world_nether]"})).isTrue();
-        assertThat(configManager.config().killPenalty().exemptWorlds()).contains("world_nether");
+        assertThat(configManager.isEditableKey("disabled-worlds")).isTrue();
+        assertThat(cmd.execute(sender, new String[]{"set", "disabled-worlds", "[world_nether]"})).isTrue();
+        assertThat(configManager.config().worldRules().disabledWorlds()).contains("world_nether");
 
         // Set merged key: sounds.creeper-fuse.volume
         assertThat(configManager.isEditableKey("sounds.creeper-fuse.volume")).isTrue();
@@ -723,7 +723,7 @@ class ConfigUpgradeMergeTest {
             assertThat(in).isNotNull();
             String bundled = new String(in.readAllBytes(), StandardCharsets.UTF_8);
             String oldConfig = bundled.replace("    volume: 1.0", "")
-                    .replace("  exempt-worlds: []", "")
+                    .replace("disabled-worlds: [minigames]", "")
                     .replace("    key: \"entity.creeper.primed\"", "      key: \"entity.creeper.primed\"")
                     .replace("    pitch: 0.5", "      pitch: 0.5")
                     .replace("    category: HOSTILE", "      category: HOSTILE");
@@ -735,8 +735,8 @@ class ConfigUpgradeMergeTest {
 
         String merged = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
         assertThat(merged).contains("\n      volume: 1.0\n");
-        assertThat(merged).contains("\n  # Worlds where a kill costs nothing.\n  exempt-worlds: []\n");
+        assertThat(merged).contains("\ndisabled-worlds: [minigames]\n");
         assertThat(configManager.get("sounds.creeper-fuse.volume")).isEqualTo("1.0");
-        assertThat(configManager.get("kill-penalty.exempt-worlds")).isEqualTo("[]");
+        assertThat(configManager.get("disabled-worlds")).isEqualTo("[minigames]");
     }
 }

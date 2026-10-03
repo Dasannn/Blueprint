@@ -17,7 +17,7 @@ import java.util.Objects;
  * Player lifecycle listener per T-042 and T-044.
  * - Warms up player profiles on join asynchronously.
  * - Evicts or cleans up on quit.
- * - Never calls setDisplayName, setPlayerListName, or setCustomName (T-044).
+ * - Tab presentation is refreshed by the shared profile publication hook (SB-160).
  */
 public class PlayerLifecycleListener implements Listener {
 
@@ -33,11 +33,18 @@ public class PlayerLifecycleListener implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         RuntimeSnapshot snapshot = configManager.snapshot();
+        profileService.serenity().world(PlayerId.of(player.getUniqueId()), player.getWorld() == null ? null : player.getWorld().getName());
         profileService.warmUp(
                 PlayerId.of(player.getUniqueId()),
                 player.getName(),
                 snapshot
         );
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onWorldChange(org.bukkit.event.player.PlayerChangedWorldEvent event) {
+        Player player = event.getPlayer();
+        profileService.serenity().world(PlayerId.of(player.getUniqueId()), player.getWorld().getName());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

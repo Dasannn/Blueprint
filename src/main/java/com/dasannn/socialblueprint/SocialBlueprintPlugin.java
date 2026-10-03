@@ -52,6 +52,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
     private com.dasannn.socialblueprint.storage.DuelRepository duelRepository;
     private com.dasannn.socialblueprint.feature.duel.DuelService duelService;
     private ProfileService profileService;
+    private com.dasannn.socialblueprint.platform.listener.PlayerPresentationListener playerPresentation;
     private org.bukkit.scheduler.BukkitTask serenityTask;
     private com.dasannn.socialblueprint.platform.listener.MindInputListener mindInputListener;
     private HonorService honorService;
@@ -203,14 +204,21 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 playerLookup,
                 getLogger()
         );
+        this.playerPresentation = new com.dasannn.socialblueprint.platform.listener.PlayerPresentationListener(
+                this, profileService, configManager, messageRegistry);
+        getServer().getPluginManager().registerEvents(playerPresentation, this);
         var serenityActivity = new com.dasannn.socialblueprint.platform.listener.SerenityActivityListener(profileService.serenity());
         getServer().getPluginManager().registerEvents(serenityActivity, this);
         this.serenityTask = getServer().getScheduler().runTaskTimer(this, () -> {
-            for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) serenityActivity.refreshAfk(player);
+            for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
+                profileService.serenity().world(PlayerId.of(player.getUniqueId()), player.getWorld().getName());
+                serenityActivity.refreshAfk(player);
+            }
             profileService.serenity().tick();
             if (mindInputListener != null) mindInputListener.tick();
         }, 20L, 20L);
         for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
+            profileService.serenity().world(PlayerId.of(player.getUniqueId()), player.getWorld().getName());
             profileService.warmUp(com.dasannn.socialblueprint.domain.PlayerId.of(player.getUniqueId()), player.getName(), configManager.snapshot());
         }
 
@@ -328,6 +336,12 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 configManager,
                 reputationRepository
         );
+        java.util.function.Function<PlayerId, String> playerWorld = id -> {
+            org.bukkit.entity.Player player = getServer().getPlayer(id.value());
+            return player == null ? null : player.getWorld().getName();
+        };
+        duelService.bindWorldLookup(playerWorld);
+        honorService.bindWorldLookup(playerWorld);
         profileService.serenity().bindMind(profileService.mind(), duelService::isInActiveDuel);
         this.duelCombatListener.bindMind(profileService.mind());
         getServer().getPluginManager().registerEvents(
@@ -351,6 +365,15 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 ambientEffectDispatcher,
                 getServer()::getOnlinePlayers
         );
+        configManager.addSnapshotListener(snapshot -> {
+            if (isEnabled()) getServer().getScheduler().runTask(this, () -> {
+                for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
+                    if (duelService != null) duelService.handleWorldChange(PlayerId.of(player.getUniqueId()), snapshot);
+                    if (!snapshot.config().worldRules().allowsWorld(player.getWorld().getName()))
+                        ambientEffectDispatcher.cancelPending(player.getUniqueId());
+                }
+            });
+        });
         this.ambientEffectScheduler.start();
 
         getServer().getPluginManager().registerEvents(
@@ -429,6 +452,7 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (playerPresentation != null) playerPresentation.stop();
         if (serenityTask != null) serenityTask.cancel();
         if (mindInputListener != null) mindInputListener.clear();
         if (profileService != null) profileService.serenity().shutdown();

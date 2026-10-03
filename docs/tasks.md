@@ -31,6 +31,7 @@ second place where progress is recorded.
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
 | P13 Psychosis effects and chat | `feat/p13-tuning` | **done** — released in v1.0; T-169/T-174 two-client walks move to T-207 |
 | P14 Release 2 | `integration/r2` | **done** — 882 tests green, Codex review closed, owner and bot acceptance passed; ready to release as v2.0 |
+| P15 Release 2.0.1 | `integration/r2.0.1` | **review** — implementation and tests ready; Claude build and live acceptance pending |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -355,3 +356,17 @@ T-201 and T-205 follow T-200; T-206 follows everything else.
 | T-214 | Revoke by rating id alone. | SB-152, SB-159 | done |
 | T-215 | Test fixtures no longer decay against the wall clock. | — | done |
 | T-216 | Private sky storms at High, night and storm together at Extreme. | SB-102 | done — 882 tests green |
+
+
+## P15 — Release 2.0.1
+
+Owner decisions, 2026-10-03, decision 0008. Claude runs the build and live
+acceptance; this worktree does not run Maven.
+
+| id | task | spec | status |
+|---|---|---|---|
+| T-217 | Balance-based honor quote and exact confirmation charge, removal of progressive pricing, legacy config adoption and validation tests. | SB-050, SB-052, decision 0008 | review |
+| T-218 | Shared chat/tab tier prefix and name, join/status/reload updates, toggle and disable restoration, plain-data formatting tests. | SB-160 | review |
+| T-219 | Session Psychosis/Serenity notice baselines at the shared rebuild, translated rises/falls, validated settings and decision tests. | SB-161 | review |
+| T-220 | Plugin-wide disabled worlds: migrate old lists, suppress every mental input and active-time credit, both-sided kill/status rules, effects/chat corruption, duels and actor honor/confirm; preserve prefixes/profiles/admin, entry/reload cleanup and regression tests. | SB-162 | review |
+| T-221 | Console/online/offline percentage Psychosis reduction, serialized immutable event/audit write, permission/completion/messages and math/storage tests. | SB-163 | review |

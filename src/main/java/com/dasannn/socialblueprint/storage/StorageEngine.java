@@ -233,6 +233,9 @@ public final class StorageEngine implements Closeable {
         return CompletableFuture.runAsync(task, executor);
     }
 
+    /** Thread identity only; does not touch the connection. */
+    public boolean isStorageThread() { return Thread.currentThread() == dbThread; }
+
     /**
      * Submits a supplier to be executed asynchronously on the database executor thread.
      */

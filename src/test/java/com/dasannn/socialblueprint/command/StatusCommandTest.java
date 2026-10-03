@@ -197,7 +197,7 @@ class StatusCommandTest {
         Player admin = mockPlayer("MindAdmin", "socialblueprint.admin.mind", "socialblueprint.admin.config");
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"a"})).contains("admin");
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "m"})).contains("mind");
-        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "r"})).containsExactly("reset", "reset-all");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "r"})).containsExactly("reset", "reset-all", "reduce");
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "reset-all", "c"})).containsExactly("confirm");
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "reset", "Online"})).contains("OnlineAlice", "OnlineBob");
         assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"config", "set", "psychosis.inputs.kill."}))

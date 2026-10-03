@@ -421,6 +421,61 @@ class P4CommandsPermissionsTest {
     // DoD 2 & T-050: Console execution & Sender resolution
     // =========================================================================
 
+    @Test void reduceCompletesPlayersAndPercentagesLikeSet() {
+        var admin = mockPlayer("MindAdmin", "socialblueprint.admin.mind");
+        mockPlayer("PotionTarget");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "re"})).contains("reduce");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "reduce", "Potion"})).contains("PotionTarget");
+        assertThat(commandExecutor.onTabComplete(admin, null, "status", new String[]{"admin", "mind", "reduce", "PotionTarget", ""})).contains("40", "50", "100");
+    }
+
+    @Test void consoleReducesOnlineAndOfflinePsychosisAndLeavesSerenityUntouched() {
+        var console = mockConsole(new ArrayList<>());
+        var target = mockPlayer("PotionTarget");
+        var id = PlayerId.of(target.getUniqueId());
+        runCommandSync(console, "status", "admin", "mind", "set", "PotionTarget", "-50");
+        runCommandSync(console, "status", "admin", "mind", "reduce", "PotionTarget", "40");
+        assertThat(profileService.mind().value(id)).isEqualTo(-30);
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("mind-admin.reduced");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("value", "30.0");
+        onlineLookupMap.remove("potiontarget");
+        runCommandSync(console, "status", "admin", "mind", "reduce", id.toString(), "100");
+        assertThat(profileService.mind().value(id)).isZero();
+        assertThat(profileService.mind().events(id).getLast().kind()).isEqualTo("admin-reduce");
+        assertThat(profileService.mind().events(id).getLast().actor()).isEqualTo(PlayerId.CONSOLE);
+        runCommandSync(console, "status", "admin", "mind", "set", id.toString(), "50");
+        int events = profileService.mind().events(id).size();
+        runCommandSync(console, "status", "admin", "mind", "reduce", id.toString(), "12.5");
+        assertThat(profileService.mind().value(id)).isEqualTo(50);
+        assertThat(profileService.mind().events(id)).hasSize(events);
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("mind-admin.reduce-unchanged");
+        for (String invalid : List.of("0", "101", "NaN", "abc")) {
+            runCommandSync(console, "status", "admin", "mind", "reduce", id.toString(), invalid);
+            assertThat(messageRegistry.lastCall().key()).isEqualTo("mind-admin.invalid-percent");
+        }
+        var denied = mockPlayer("NoMindPermission");
+        runCommandSync(denied, "status", "admin", "mind", "reduce", id.toString(), "100");
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.no-permission");
+        assertThat(profileService.mind().value(id)).isEqualTo(50);
+    }
+
+    @Test void quotedCommandChargeIsKeptForGiveAndTakeAfterBalanceAndConfigChanges() {
+        for (String action : List.of("give", "take")) {
+            var actor = mockPlayer("Quote" + action, "socialblueprint.give", "socialblueprint.take");
+            var target = mockPlayer("Target" + action);
+            configManager.set("honor.cost", "30");
+            economyBalances.put(actor.getUniqueId(), 10000.0);
+            runCommandSync(actor, "status", action, target.getName(), "Helpful neighbor");
+            assertThat(messageRegistry.lastCall().placeholders()).containsEntry("cost", "830.00");
+            economyBalances.put(actor.getUniqueId(), 20000.0);
+            configManager.set("honor.cost", "100");
+            runCommandSync(actor, "status", "confirm");
+            assertThat(lastWithdrawnAmount.get()).isEqualTo(830);
+            assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(19170);
+            assertThat(reputationRepo.findByTargetAsync(PlayerId.of(target.getUniqueId())).join().getFirst().cost()).isEqualTo(830);
+        }
+    }
+
     @Test
     @DisplayName("DoD 2 / T-050: Console runs /status without exception and receives player-only message")
     void consoleRunsStatusWithoutException() {
@@ -785,8 +840,8 @@ class P4CommandsPermissionsTest {
             // Stage 2: Confirm honor. Withdrawal succeeds, reputation write fails, immediate refund deposit fails.
             runCommandSync(actor, "status", "confirm");
 
-            // Player was charged 500.0 and deposit failed, so balance is 500.0
-            assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(500.0);
+            // Quoted cost is 110; failed refund leaves 890 until compensation.
+            assertThat(economyBalances.get(actor.getUniqueId())).isEqualTo(890.0);
 
             // Reputation event was NOT saved
             List<ReputationEvent> events = reputationRepo.findByTargetAsync(PlayerId.of(target.getUniqueId())).join();
@@ -796,7 +851,7 @@ class P4CommandsPermissionsTest {
             var pendingRecords = compensationRepo.findAllAsync().join();
             assertThat(pendingRecords).hasSize(1);
             assertThat(pendingRecords.getFirst().playerUuid()).isEqualTo(actor.getUniqueId());
-            assertThat(pendingRecords.getFirst().amount()).isEqualTo(500.0);
+            assertThat(pendingRecords.getFirst().amount()).isEqualTo(110.0);
 
             // Now remove SQLite trigger and permit deposit
             StorageTestSupport.dropFailReputationTrigger(storage);
@@ -832,7 +887,7 @@ class P4CommandsPermissionsTest {
         assertThat(audit.actor()).isEqualTo(PlayerId.of(admin.getUniqueId()));
         assertThat(audit.operation()).isEqualTo("config_set");
         assertThat(audit.target()).isEqualTo("honor.cost");
-        assertThat(audit.before()).isEqualTo("500.0");
+        assertThat(audit.before()).isEqualTo("30.0");
         assertThat(audit.after()).isEqualTo("750.0");
     }
 
@@ -1009,34 +1064,34 @@ class P4CommandsPermissionsTest {
     }
 
     @Test
-    @DisplayName("Finding 5 / Decision 0003: Multiplier window (1h) and cap window (7d) operate independently")
-    void twoWindowsOperateIndependently() {
+    @DisplayName("Finding 5 / Decision 0003: Balance quotes preserve the independent pair cap window")
+    void balancePricingPreservesPairCaps() {
         Player actor = mockPlayer("WindowTester", "socialblueprint.give");
         Player targetA = mockPlayer("TargetA");
         Player targetB = mockPlayer("TargetB");
         Player targetC = mockPlayer("TargetC");
         economyBalances.put(actor.getUniqueId(), 10000.0);
 
-        // Rating 1 for TargetA at T=0 (cost: 500.0)
+        // Balance 10,000 quotes 830.
         runCommandSync(actor, "status", "give", "TargetA", "Helpful neighbor");
         runCommandSync(actor, "status", "confirm");
-        assertThat(lastWithdrawnAmount.get()).isEqualTo(500.0);
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(830.0);
 
-        // At T=30m: within 1h multiplier window -> next rating cost is 750.0 (multiplier 1.5)
+        // The next quote uses balance 9,170.
         testClock.advance(Duration.ofMinutes(30));
         runCommandSync(actor, "status", "give", "TargetB", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
-        assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("750.00");
+        assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("763.60");
         runCommandSync(actor, "status", "confirm");
-        assertThat(lastWithdrawnAmount.get()).isEqualTo(750.0);
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(763.60);
 
-        // At T=2h (past both previous 1h windows): ratings in 1h window = 0 -> multiplier reset to 1.0 -> cost 500.0
+        // Elapsed time does not alter the formula; balance is now 8,406.40.
         testClock.advance(Duration.ofHours(2));
         runCommandSync(actor, "status", "give", "TargetC", "Helpful neighbor");
         assertThat(messageRegistry.lastCall().key()).isEqualTo("honor.cost-preview");
-        assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("500.00");
+        assertThat(messageRegistry.lastCall().placeholders().get("cost")).contains("702.51");
         runCommandSync(actor, "status", "confirm");
-        assertThat(lastWithdrawnAmount.get()).isEqualTo(500.0);
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(702.51);
 
         // Meanwhile, TargetA is past 24h cooldown, but STILL inside the 7d cap window!
         // Issue ratings 2 and 3 for TargetA
@@ -1064,14 +1119,14 @@ class P4CommandsPermissionsTest {
         // Preview
         runCommandSync(actor, "status", "give", "RoundTarget", "Helpful neighbor");
         String previewCost = messageRegistry.lastCall().placeholders().get("cost");
-        assertThat(previewCost).isEqualTo("500.00");
+        assertThat(previewCost).isEqualTo("110.00");
 
         // Confirm
         runCommandSync(actor, "status", "confirm");
-        assertThat(lastWithdrawnAmount.get()).isEqualTo(500.0);
+        assertThat(lastWithdrawnAmount.get()).isEqualTo(110.0);
 
         List<ReputationEvent> events = reputationRepo.findByActor(PlayerId.of(actor.getUniqueId()));
-        assertThat(events.getFirst().cost()).isEqualTo(500.0);
+        assertThat(events.getFirst().cost()).isEqualTo(110.0);
     }
 
     @Test

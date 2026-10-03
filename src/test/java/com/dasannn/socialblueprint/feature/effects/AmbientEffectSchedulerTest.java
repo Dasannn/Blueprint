@@ -61,6 +61,52 @@ class AmbientEffectSchedulerTest {
 
     private record DispatchedRecord(Player player, AmbientEffectType type, long timestamp) {}
 
+    @Test void excludedWorldStopsBothDirectionsWithoutChangingMindOrConsumingEpisodes() {
+        UUID uuid = UUID.randomUUID();
+        PlayerId id = PlayerId.of(uuid);
+        Player base = createMockPlayer(uuid, "WorldGate");
+        var worldName = new java.util.concurrent.atomic.AtomicReference<>("minigames");
+        var world = (org.bukkit.World) Proxy.newProxyInstance(org.bukkit.World.class.getClassLoader(), new Class<?>[]{org.bukkit.World.class},
+                (proxy, method, args) -> method.getName().equals("getName") ? worldName.get() : null);
+        Player player = (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+                (proxy, method, args) -> method.getName().equals("getWorld") ? world : method.invoke(base, args));
+        var delivered = new ArrayList<String>();
+        var cancelled = new java.util.concurrent.atomic.AtomicInteger();
+        var dispatcher = new AmbientEffectDispatcher(null, messageRegistry, configManager,
+                new FakeSilverfishService(null, new AmbientEntityRegistry(), null)) {
+            @Override public boolean dispatch(Player subject, AmbientEffectType type, EffectsConfigSection config, RuntimeSnapshot snapshot, PsychosisLevel level) {
+                delivered.add("madness"); return true;
+            }
+            @Override public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot, java.util.function.BooleanSupplier eligible) {
+                delivered.add("serenity"); return true;
+            }
+            @Override public void cancelPending(UUID owner) { cancelled.incrementAndGet(); super.cancelPending(owner); }
+        };
+        for (double value : new double[]{-50, 50}) {
+            profilesValue(id, value);
+            var local = new AmbientEffectScheduler(null, configManager, profileService, dispatcher, () -> List.of(player));
+            worldName.set("minigames");
+            int count = delivered.size();
+            local.tickAt(1_000_000);
+            assertThat(delivered).hasSize(count);
+            assertThat(local.getOrCreateState(uuid).canStartEpisode(1_000_000)).isTrue();
+            assertThat(profileService.mind().value(id)).isEqualTo(value);
+            worldName.set("Minigames");
+            local.tickAt(2_000_000);
+            assertThat(delivered.size()).isGreaterThan(count);
+            worldName.set("minigames");
+            count = delivered.size();
+            int cancellations = cancelled.get();
+            local.tickAt(2_000_001);
+            assertThat(delivered).hasSize(count);
+            assertThat(cancelled.get()).isGreaterThan(cancellations);
+        }
+    }
+    private void profilesValue(PlayerId id, double value) {
+        profileService.mind().setAsync(id, value, PlayerId.CONSOLE, "Owner", Instant.now()).join();
+        profileService.loadViewAsync(id, "WorldGate", configManager.snapshot()).join();
+    }
+
     @Test void serenityUsesItsOwnMagnitudeAndSubjectBudgetWithoutMadnessDispatch() {
         UUID uuid = UUID.randomUUID();
         Player player = createMockPlayer(uuid, "Serene");
@@ -388,6 +434,7 @@ class AmbientEffectSchedulerTest {
         Player base = createMockPlayer(id, "Peaceful");
         org.bukkit.World world = (org.bukkit.World) Proxy.newProxyInstance(org.bukkit.World.class.getClassLoader(),
                 new Class<?>[]{org.bukkit.World.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("getName")) return "world";
                     if (method.getName().equals("getDifficulty")) return org.bukkit.Difficulty.PEACEFUL;
                     throw new AssertionError("Unexpected world access: " + method.getName());
                 });

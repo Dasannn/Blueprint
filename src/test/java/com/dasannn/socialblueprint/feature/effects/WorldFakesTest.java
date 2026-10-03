@@ -127,6 +127,12 @@ class WorldFakesTest {
         org.bukkit.entity.Player viewer = (org.bukkit.entity.Player) java.lang.reflect.Proxy.newProxyInstance(
                 org.bukkit.entity.Player.class.getClassLoader(), new Class<?>[]{org.bukkit.entity.Player.class}, (proxy, method, args) -> {
                     return switch (method.getName()) {
+                        case "getWorld" -> java.lang.reflect.Proxy.newProxyInstance(
+                                org.bukkit.World.class.getClassLoader(), new Class<?>[]{org.bukkit.World.class},
+                                (world, call, values) -> {
+                                    if (call.getName().equals("getName")) return "world";
+                                    throw new AssertionError("Unexpected world API: " + call.getName());
+                                });
                         case "getUniqueId" -> id;
                         case "isOnline" -> true;
                         case "sendHurtAnimation" -> { animations.incrementAndGet(); yield null; }

@@ -387,6 +387,7 @@ public class ConfigManager {
                 }
             }
             ConfigMerger.mergeMissingDefaults(configFile, dataFolder, versionSupplier.get(), logger);
+            migrateDisabledWorlds(beforeMerge);
             adoptPrivateTextMessages(messagesBeforeMerge);
             repairQuotedConnectionTemplates();
             adoptMentalStateMessages(messagesBeforeMerge);
@@ -397,6 +398,11 @@ public class ConfigManager {
             adoptApparitionDuration(beforeMerge);
             adoptPrivateTextLimits(beforeMerge);
             adoptChatExtents(beforeMerge);
+            if (!beforeMerge.contains("honor.cost-percent") && beforeMerge.getDouble("honor.cost") == 500.0) {
+                try { YamlFileUpdater.updateLeafAndSave(configFile, "honor.cost", "30.0"); }
+                catch (IOException error) { throw new ConfigValidationException("honor.cost", error.getMessage()); }
+            }
+            removeObsoleteKeys(configFile, List.of("honor.multipliers", "honor.multiplier-window"));
             retireEffectsKeys();
             retireMindKeys(beforeMerge);
 
@@ -615,52 +621,39 @@ public class ConfigManager {
     }
 
     public static void migrateLegacyHonorWindowIfNeeded(File configFile, Logger logger) {
-        if (configFile == null || !configFile.exists()) {
-            return;
-        }
+        if (configFile == null || !configFile.exists()) return;
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
+        if (!yaml.contains("honor.window")) return;
         try {
-            YamlConfiguration yaml = YamlConfiguration.loadConfiguration(configFile);
-            if (yaml.contains("honor.window") && !yaml.contains("honor.multiplier-window") && !yaml.contains("honor.cap-window")) {
-                String oldWindow = yaml.getString("honor.window");
-                String defaultMult = "1h";
-                String content = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
-                // Anchor to the honor section. psychosis also has a window key
-                // and appears first in the shipped file, so an unanchored search
-                // rewrites psychosis and leaves honor in place, destroying a
-                // working configuration on upgrade.
-                Matcher honorSection = Pattern.compile("(?m)^honor:[ \t]*$").matcher(content);
-                int searchFrom = honorSection.find() ? honorSection.end() : 0;
-                Pattern pattern = Pattern.compile("(?m)^([ \t]+)window:[ \t]*(.*)$");
-                Matcher matcher = pattern.matcher(content);
-                if (matcher.find(searchFrom)) {
-                    String indent = matcher.group(1);
-                    String lineSep = content.contains("\r\n") ? "\r\n" : "\n";
-                    String replacement = indent + "multiplier-window: " + defaultMult + lineSep + indent + "cap-window: " + matcher.group(2).trim();
-                    String updated = content.substring(0, matcher.start()) + replacement + content.substring(matcher.end());
-                    Path targetPath = configFile.toPath();
-                    Path tempPath = targetPath.resolveSibling(configFile.getName() + ".tmp." + UUID.randomUUID());
-                    Files.writeString(tempPath, updated, StandardCharsets.UTF_8);
-                    try {
-                        Files.move(tempPath, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-                    } catch (IOException e) {
-                        Files.move(tempPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                    } finally {
-                        Files.deleteIfExists(tempPath);
-                    }
-                } else {
-                    yaml.set("honor.multiplier-window", defaultMult);
-                    yaml.set("honor.cap-window", oldWindow);
-                    yaml.set("honor.window", null);
-                    yaml.save(configFile);
-                }
-                if (logger != null) {
-                    logger.info("[SocialBlueprint] Migrated legacy 'honor.window: " + oldWindow + "' to 'honor.cap-window: " + oldWindow + "' and 'honor.multiplier-window: " + defaultMult + "'");
-                }
+            if (!yaml.contains("honor.cap-window")) {
+                ConfigMerger.mergeFile(configFile, "honor:\n  cap-window: 7d\n", null, false, logger);
+                YamlFileUpdater.updateLeafAndSave(configFile, "honor.cap-window", yaml.getString("honor.window"));
             }
-        } catch (Exception e) {
-            if (logger != null) {
-                logger.warning("[SocialBlueprint] Failed to migrate legacy honor.window configuration: " + e.getMessage());
-            }
+            YamlFileUpdater.removeLeafAndSave(configFile, "honor.window");
+        } catch (IOException error) {
+            throw new ConfigValidationException("honor.window", "Cannot migrate legacy window: " + error.getMessage());
+        }
+    }
+
+    private void migrateDisabledWorlds(YamlConfiguration previous) {
+        var names = new java.util.LinkedHashSet<String>();
+        // Merge legacy lists only during upgrade; preserve an explicitly empty new list.
+        names.addAll(WorldRules.load(previous).disabledWorlds());
+        for (String key : List.of("exempt-worlds", "kill-penalty.exempt-worlds", "effects.excluded-worlds")) {
+            if (!previous.contains(key)) continue;
+            Object value = previous.get(key);
+            if (value instanceof List<?> list) {
+                if (list.stream().anyMatch(item -> !(item instanceof String)))
+                    throw new ConfigValidationException(key, "Must be a list of strings");
+                list.forEach(item -> names.add((String) item));
+            } else if (value instanceof String name && !key.equals("effects.excluded-worlds")) {
+                names.add(name);
+            } else throw new ConfigValidationException(key, "Must be a list of strings");
+        }
+        if (previous.contains("exempt-worlds") || previous.contains("kill-penalty.exempt-worlds") || previous.contains("effects.excluded-worlds")) {
+            try { YamlFileUpdater.updateLeafAndSave(configFile, "disabled-worlds", quotedList(List.copyOf(names))); }
+            catch (IOException error) { throw new ConfigValidationException("disabled-worlds", error.getMessage()); }
+            removeObsoleteKeys(configFile, List.of("exempt-worlds", "kill-penalty.exempt-worlds", "effects.excluded-worlds"));
         }
     }
 
@@ -720,10 +713,8 @@ public class ConfigManager {
             try { return Long.parseLong(raw.trim()); }
             catch (NumberFormatException error) { throw new ConfigValidationException(path, "Expected integer ticks"); }
         }
-        if ("honor.multipliers".equals(path)) {
-            return parseDoubleList(raw);
-        }
-        if (EFFECT_CHOICE_LISTS.contains(path)) {
+
+        if (EFFECT_CHOICE_LISTS.contains(path) || "disabled-worlds".equals(path)) {
             if (raw.contains("\n") || raw.contains("\r")) throw new ConfigValidationException(path, "Use an inline YAML list");
             YamlConfiguration parsed = new YamlConfiguration();
             try { parsed.loadFromString("value: " + raw); }
@@ -734,43 +725,21 @@ public class ConfigManager {
                 throw new ConfigValidationException(path, "Expected a YAML list");
             return parsed.getList("value");
         }
-        if ("kill-penalty.exempt-worlds".equals(path) || "effects.silverfish.mobs".equals(path)) {
+        if ("effects.silverfish.mobs".equals(path)) {
             return parseStringList(raw);
         }
         return parseValue(raw);
     }
 
     private String formatRawValueForPath(String path, String raw) {
-        if ("honor.multipliers".equals(path)) {
-            List<Double> list = parseDoubleList(raw);
-            return list.toString();
-        }
-        if (EFFECT_CHOICE_LISTS.contains(path) || path.startsWith("chat-filter.words."))
+
+        if (EFFECT_CHOICE_LISTS.contains(path) || "disabled-worlds".equals(path) || path.startsWith("chat-filter.words."))
             return quotedList(((List<?>) parseValueForPath(path, raw)).stream().map(String.class::cast).toList());
-        if ("kill-penalty.exempt-worlds".equals(path) || "effects.silverfish.mobs".equals(path)) {
+        if ("effects.silverfish.mobs".equals(path)) {
             List<String> list = parseStringList(raw);
             return "[" + String.join(", ", list) + "]";
         }
         return raw;
-    }
-
-    static List<Double> parseDoubleList(String raw) {
-        String trimmed = raw.trim();
-        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-            trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
-        }
-        if (trimmed.isEmpty()) {
-            return new ArrayList<>();
-        }
-        String[] parts = trimmed.split(",");
-        List<Double> result = new ArrayList<>();
-        for (String part : parts) {
-            String item = part.trim();
-            if (!item.isEmpty()) {
-                result.add(Double.parseDouble(item));
-            }
-        }
-        return result;
     }
 
     static List<String> parseStringList(String raw) {
@@ -897,8 +866,13 @@ public class ConfigManager {
         set.add("chat-filter.words.en");
         set.add("permissions.admin-revoke");
         set.add("honor.cost");
-        set.add("honor.multipliers");
-        set.add("honor.multiplier-window");
+        set.add("honor.cost-percent");
+        set.add("tab.enabled");
+        set.add("mind.notices.enabled");
+        set.add("mind.notices.step");
+        set.add("mind.notices.rises");
+        set.add("mind.notices.falls");
+        set.add("disabled-worlds");
         set.add("honor.cap-window");
         set.add("honor.cooldown-per-pair");
         set.add("honor.max-per-target");
@@ -976,7 +950,6 @@ public class ConfigManager {
         set.add("kill-penalty.pair-cooldown");
         set.add("kill-penalty.cap-window");
         set.add("kill-penalty.max-loss");
-        set.add("kill-penalty.exempt-worlds");
 
         set.add("sounds.creeper-fuse.key");
         set.add("sounds.creeper-fuse.volume");
@@ -1067,9 +1040,14 @@ public class ConfigManager {
         if ("psychosis.serenity.ceiling".equals(path)) return String.valueOf(config.psychosis().serenity().ceiling());
         if ("psychosis.serenity.idle-timeout-seconds".equals(path)) return String.valueOf(config.psychosis().serenity().idleTimeoutSeconds());
 
+        if ("tab.enabled".equals(path)) return String.valueOf(config.tabEnabled());
+        if ("mind.notices.enabled".equals(path)) return String.valueOf(config.mindNotices().enabled());
+        if ("mind.notices.step".equals(path)) return String.valueOf(config.mindNotices().step());
+        if ("mind.notices.rises".equals(path)) return String.valueOf(config.mindNotices().rises());
+        if ("mind.notices.falls".equals(path)) return String.valueOf(config.mindNotices().falls());
+        if ("disabled-worlds".equals(path)) return quotedList(config.worldRules().disabledWorlds());
+        if ("honor.cost-percent".equals(path)) return String.valueOf(config.honor().costPercent());
         if ("honor.cost".equals(path) && config.honor() != null) return String.valueOf(config.honor().cost());
-        if ("honor.multipliers".equals(path) && config.honor() != null) return config.honor().multipliers().toString();
-        if ("honor.multiplier-window".equals(path) && config.honor() != null) return formatDuration(config.honor().multiplierWindow());
         if ("honor.cap-window".equals(path) && config.honor() != null) return formatDuration(config.honor().capWindow());
         if ("honor.cooldown-per-pair".equals(path) && config.honor() != null) return formatDuration(config.honor().cooldownPerPair());
         if ("honor.max-per-target".equals(path) && config.honor() != null) return String.valueOf(config.honor().maxPerTarget());
@@ -1139,7 +1117,6 @@ public class ConfigManager {
             if ("kill-penalty.pair-cooldown".equals(path)) return formatDuration(config.killPenalty().pairCooldown());
             if ("kill-penalty.cap-window".equals(path)) return formatDuration(config.killPenalty().capWindow());
             if ("kill-penalty.max-loss".equals(path)) return String.valueOf(config.killPenalty().maxLoss());
-            if ("kill-penalty.exempt-worlds".equals(path)) return config.killPenalty().exemptWorlds().toString();
         }
 
         if (config.history() != null && "history.reveal-cost".equals(path)) {

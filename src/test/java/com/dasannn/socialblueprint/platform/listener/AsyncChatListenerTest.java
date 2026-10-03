@@ -388,6 +388,33 @@ class AsyncChatListenerTest {
     }
 
     @Test
+    void disabledWorldKeepsPrefixAndLeavesChatBodyUnfiltered() {
+        UUID uuid = UUID.randomUUID();
+        org.bukkit.World world = (org.bukkit.World) Proxy.newProxyInstance(
+                org.bukkit.World.class.getClassLoader(), new Class<?>[]{org.bukkit.World.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getName")) return "minigames";
+                    throw new AssertionError("Unexpected World call");
+                });
+        Player speaker = (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getWorld" -> world;
+                    case "getUniqueId" -> uuid;
+                    default -> throw new AssertionError("Unexpected Player call");
+                });
+        chatListener.registerPlayer(speaker);
+        String original = "Please idiot bring wooden supplies to the village before sunset";
+        AsyncChatEvent event = chatEvent(speaker, Component.text(original));
+        chatListener.onChat(event);
+        Component rendered = event.renderer().render(speaker, Component.text("Speaker"), event.message(), speaker);
+        assertThat(event.isCancelled()).isFalse();
+        assertThat(event.message()).isEqualTo(Component.text(original));
+        assertThat(rendered.children().getLast()).isEqualTo(Component.text(original));
+        var snapshot = configManager.snapshot();
+        assertThat(rendered.children().getFirst()).isEqualTo(ColorParser.parse(snapshot.config().tiers().prefix(Tier.PARTICULAR)));
+    }
+
+    @Test
     void asyncMessageIsComputedOnceForSeveralViewersWithoutPlayerOrStorageCalls() throws Exception {
         UUID uuid = UUID.fromString("00000000-0000-0000-0000-000000000123");
         PlayerId id = PlayerId.of(uuid);
@@ -407,6 +434,13 @@ class AsyncChatListenerTest {
                         failure.set(error);
                         throw error;
                     }
+                    if (method.getName().equals("getWorld")) return Proxy.newProxyInstance(
+                            org.bukkit.World.class.getClassLoader(), new Class<?>[]{org.bukkit.World.class},
+                            (world, call, values) -> {
+                                if (Thread.currentThread() != setupThread) throw new AssertionError("Off-thread World call");
+                                if (call.getName().equals("getName")) return "world";
+                                throw new AssertionError("Unexpected World call: " + call.getName());
+                            });
                     if (method.getName().equals("getUniqueId")) return uuid;
                     throw new AssertionError("Unexpected Player call: " + method.getName());
                 });

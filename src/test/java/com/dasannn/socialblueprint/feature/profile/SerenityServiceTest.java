@@ -21,6 +21,33 @@ class SerenityServiceTest {
         var manager=new ConfigManager(folder.resolve("config.yml").toFile(),messages,Runnable::run,null);
         manager.initialize();return manager;
     }
+    @Test void disabledWorldTimeAndActivityNeverCarryBackIntoEnabledWorld() {
+        var manager = manager(); var time = new AtomicLong();
+        try (var storage = StorageEngine.inMemory()) {
+            storage.runMigrations(); var mind = new MindRepository(storage);
+            var service = new SerenityService(storage, new PsychosisRepository(storage), manager,
+                    Clock.fixed(NOW, ZoneOffset.UTC), time::get, Logger.getAnonymousLogger());
+            var player = PlayerId.of(UUID.randomUUID());
+            service.bindMind(mind, id -> false);
+            service.world(player, "minigames"); service.join(player).join();
+            service.activity(player); time.set(1000); service.tick();
+            assertThat(service.onlineCredit(player).orElseThrow()).isZero();
+            assertThat(mind.events(player)).isEmpty();
+            service.world(player, "world"); time.set(2000); service.tick();
+            assertThat(service.onlineCredit(player).orElseThrow()).isZero();
+            service.activity(player); time.set(3000); service.tick();
+            assertThat(service.onlineCredit(player).orElseThrow()).isEqualTo(1000);
+            service.world(player, "minigames"); service.activity(player); time.set(4000); service.tick();
+            assertThat(service.onlineCredit(player).orElseThrow()).isEqualTo(1000);
+            manager.set("disabled-worlds", "[]"); time.set(5000); service.tick();
+            assertThat(service.onlineCredit(player).orElseThrow()).isEqualTo(1000);
+            service.activity(player); time.set(6000); service.tick();
+            assertThat(service.onlineCredit(player).orElseThrow()).isEqualTo(2000);
+            assertThat(mind.events(player)).isEmpty();
+            service.shutdown();
+        }
+    }
+
     @Test void boundMindCountsOnlyActiveNonDuelIntervalsAndChecksOnJoin() {
         var manager = manager(); var time = new AtomicLong();
         Clock clock = new Clock() {

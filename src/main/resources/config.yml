@@ -191,18 +191,9 @@ psychosis:
 honor:
   reason:
     min-length: 3
-  # Base monetary cost to give or remove honor (withdrawn via Vault economy).
-  cost: 500.0
-
-  # Progressive cost multiplier per rating issued by the actor within the window.
-  multipliers:
-    - 1.0
-    - 1.5
-    - 2.0
-    - 3.0
-
-  # How long an actor's own ratings keep raising the price of their next one, across all targets (Decision 0003).
-  multiplier-window: 1h
+  # Base plus percentage of the actor's current Vault balance (Decision 0008).
+  cost: 30.0
+  cost-percent: 8.0
 
   # Rolling window for the per-pair rating cap (SB-054, Decision 0003).
   # Must be longer than `cooldown-per-pair` times `max-per-target`.
@@ -510,8 +501,6 @@ kill-penalty:
   # Most status one killer can lose automatically inside this window.
   cap-window: 7d
   max-loss: 10
-  # Worlds where a kill costs nothing.
-  exempt-worlds: []
 
 # ==============================================================================
 # Configurable Sounds (SB-090, SB-091, T-135 to T-137)
@@ -570,3 +559,15 @@ chat-filter:
   words:
     es: [idiota, imbecil, estupido, mierda, puta, cabron]
     en: [idiot, asshole, bastard, shit, fuck, bitch]
+
+tab:
+  enabled: true
+mind:
+  notices:
+    enabled: true
+    step: 5
+    rises: true
+    falls: true
+
+# SocialBlueprint inputs, effects, duels and honor are disabled in these exact world names.
+disabled-worlds: [minigames]

@@ -28,15 +28,28 @@ public final class SerenityService {
     private com.dasannn.socialblueprint.storage.MindRepository mind;
     private java.util.function.Predicate<PlayerId> inDuel = id -> false;
     private final Logger logger;
+    private final Map<PlayerId, String> worlds = new HashMap<>();
+    private com.dasannn.socialblueprint.config.WorldRules worldRules;
+
+    public synchronized void world(PlayerId id, String world) {
+        Online entry = online.get(id);
+        if (entry != null) advance(id, entry);
+        worlds.put(id, world);
+        if (entry != null && entry.session != null)
+            entry.session.afk(entry.explicitAfk || entry.metadataAfk || worldRules.isDisabled(world));
+    }
+
 
     public SerenityService(StorageEngine storage, PsychosisRepository repository, ConfigManager manager,
                            Clock clock, LongSupplier ticker, Logger logger) {
         this.clock = clock;
         this.logger = logger;
         this.ticker = ticker;
-        this.config = manager.snapshot().config().psychosis();
+        var snapshot = manager.snapshot();
+        this.config = snapshot.config().psychosis();
+        this.worldRules = snapshot.config().worldRules();
 
-        manager.addSnapshotListener(snapshot -> reconfigure(snapshot.config().psychosis()));
+        manager.addSnapshotListener(next -> reconfigure(next.config().psychosis(), next.config().worldRules()));
     }
 
     public synchronized CompletableFuture<Void> join(PlayerId id) {
@@ -44,6 +57,7 @@ public final class SerenityService {
         Online entry = new Online();
         online.put(id, entry);
         entry.session = new SerenitySession(0, null, 0, ticker.getAsLong());
+        entry.session.afk(worldRules.isDisabled(worlds.get(id)));
         account(id, 0);
         return CompletableFuture.completedFuture(null);
     }
@@ -58,7 +72,7 @@ public final class SerenityService {
         account(id, millis, clock.instant());
     }
     private void account(PlayerId id, double millis, java.time.Instant activeEnd) {
-        if (mind == null || inDuel.test(id)) return;
+        if (mind == null || inDuel.test(id) || worldRules.isDisabled(worlds.get(id))) return;
         // ponytail: persist observed intervals directly; batch at heartbeat if the storage queue grows.
         mind.accountActiveAsync(id, millis, activeEnd, config.cleanDayActiveMinutes(),
                 config.input(com.dasannn.socialblueprint.domain.MindInput.CLEAN_DAY), clock.instant())
@@ -97,7 +111,7 @@ public final class SerenityService {
         if (entry == null) return;
         if (entry.session != null) advance(id, entry);
         entry.explicitAfk = afk;
-        if (entry.session != null) entry.session.afk(entry.explicitAfk || entry.metadataAfk);
+        if (entry.session != null) entry.session.afk(entry.explicitAfk || entry.metadataAfk || worldRules.isDisabled(worlds.get(id)));
     }
 
     public synchronized void setMetadataAfk(PlayerId id, boolean afk) {
@@ -105,7 +119,7 @@ public final class SerenityService {
         if (entry == null) return;
         if (entry.session != null) advance(id, entry);
         entry.metadataAfk = afk;
-        if (entry.session != null) entry.session.afk(entry.explicitAfk || entry.metadataAfk);
+        if (entry.session != null) entry.session.afk(entry.explicitAfk || entry.metadataAfk || worldRules.isDisabled(worlds.get(id)));
     }
 
     public synchronized java.util.OptionalDouble onlineCredit(PlayerId id) {
@@ -129,8 +143,9 @@ public final class SerenityService {
 
     public synchronized CompletableFuture<Void> leave(PlayerId id) {
         Online entry = online.remove(id);
-        if (entry == null) return CompletableFuture.completedFuture(null);
+        if (entry == null) { worlds.remove(id); return CompletableFuture.completedFuture(null); }
         advance(id, entry);
+        worlds.remove(id);
         return CompletableFuture.completedFuture(null);
     }
 
@@ -138,11 +153,14 @@ public final class SerenityService {
         online.forEach(this::advance);
         flush();
         online.clear();
+        worlds.clear();
     }
 
-    private synchronized void reconfigure(PsychosisConfigSection next) {
-        if (config.equals(next)) return;
+    private synchronized void reconfigure(PsychosisConfigSection next, com.dasannn.socialblueprint.config.WorldRules rules) {
+        if (config.equals(next) && worldRules.equals(rules)) return;
         online.forEach(this::advance);
         config = next;
+        worldRules = rules;
+        online.forEach((id, entry) -> entry.session.afk(entry.explicitAfk || entry.metadataAfk || rules.isDisabled(worlds.get(id))));
     }
 }

@@ -1,6 +1,6 @@
 # 0001 — Honor cost is a fixed YAML amount, not a percentage of balance
 
-- Status: accepted
+- Status: amended by decision 0008 (2026-10-03); the cost formula is superseded
 - Date: 2026-09-29
 - Supersedes: §6 of `docs/reference/playerstatus-sistema-reputacion.md`
 

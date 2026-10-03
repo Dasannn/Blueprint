@@ -123,6 +123,7 @@ public class AmbientEffectDispatcher {
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(config, "config must not be null");
 
+        if (player.getWorld() != null && !snapshot.config().worldRules().allowsWorld(player.getWorld().getName())) return false;
         return attempt(player.getUniqueId(), () -> switch (type) {
             case ADVANCEMENT_TOAST -> {
                 List<String> keys = snapshot.messages().lineKeys("effects.advancement-toast.lines");
@@ -167,6 +168,7 @@ public class AmbientEffectDispatcher {
 
     public boolean dispatchSerene(Player subject, String effect, RuntimeSnapshot snapshot,
                                   java.util.function.BooleanSupplier stillSerene) {
+        if (subject.getWorld() != null && !snapshot.config().worldRules().allowsWorld(subject.getWorld().getName())) return false;
         var config = snapshot.config().effects().serenity();
         String animalKind = config.animals().get(random.nextInt(config.animals().size()));
         UUID owner = subject.getUniqueId();
@@ -549,6 +551,7 @@ public class AmbientEffectDispatcher {
     }
 
     public boolean dispatchVictimGhost(Player player, PresentationConfig.Ghost config, RuntimeSnapshot snapshot, String name) {
+        if (player.getWorld() != null && !snapshot.config().worldRules().allowsWorld(player.getWorld().getName())) return false;
         return attempt(player.getUniqueId(), () -> renderVictimGhost(player, config, snapshot, name));
     }
 

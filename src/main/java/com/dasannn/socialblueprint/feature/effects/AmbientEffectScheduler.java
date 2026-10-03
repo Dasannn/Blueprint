@@ -118,6 +118,11 @@ public class AmbientEffectScheduler {
             if (!player.isOnline()) {
                 continue;
             }
+            if (player.getWorld() != null && !snapshot.config().worldRules().allowsWorld(player.getWorld().getName())) {
+                victimReads.remove(player.getUniqueId());
+                dispatcher.cancelPending(player.getUniqueId());
+                continue;
+            }
             PlayerId id = PlayerId.of(player.getUniqueId());
 
             var known = profileService.findViewCached(id, snapshot);
@@ -249,7 +254,8 @@ public class AmbientEffectScheduler {
                         // Reacquire the viewer here; the storage continuation captured only plain identity/config values.
                         Player viewer = onlinePlayersSupplier.get().stream().filter(p -> p.getUniqueId().equals(id) && p.isOnline())
                                 .findFirst().orElse(null);
-                        if (viewer == null || playerStates.get(id) != state) return;
+                        if (viewer == null || playerStates.get(id) != state
+                                || viewer.getWorld() != null && !snapshot.config().worldRules().allowsWorld(viewer.getWorld().getName())) return;
                         long deliveredAt = now + java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
                         PsychosisLevel level = profileService.getViewQuick(PlayerId.of(id), snapshot).psychosis();
                         if (!level.hasMadnessEffects() || !state.canStartEpisode(deliveredAt) || dispatcher.hasPending(id)) {

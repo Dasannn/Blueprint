@@ -610,6 +610,30 @@ class DuelServiceTest {
         assertThat(acceptResult).isInstanceOf(DuelService.AcceptResult.DuelStarted.class);
     }
 
+    @Test void disabledParticipantBlocksChallengeAcceptanceAndEndsExistingDuel() {
+        PlayerId first = registerPlayer("WorldA"), second = registerPlayer("WorldB");
+        var worlds = new HashMap<PlayerId, String>();
+        duelService.bindWorldLookup(worlds::get);
+        var sides = Map.of("a", Set.of(first), "b", Set.of(second));
+        var snapshot = configManager.snapshot();
+        worlds.put(second, "minigames");
+        assertThat(duelService.challenge(first, sides, snapshot)).isInstanceOf(DuelService.ChallengeResult.DisabledWorld.class);
+        assertThat(duelService.pendingChallengeCount()).isZero();
+        worlds.put(second, "Minigames");
+        assertThat(duelService.challenge(first, sides, snapshot)).isInstanceOf(DuelService.ChallengeResult.Success.class);
+        worlds.put(first, "minigames");
+        assertThat(duelService.accept(second, null, snapshot)).isInstanceOf(DuelService.AcceptResult.DisabledWorld.class);
+        assertThat(duelService.activeDuelCount()).isZero();
+        worlds.put(first, "world");
+        assertThat(duelService.accept(second, null, snapshot)).isInstanceOf(DuelService.AcceptResult.DuelStarted.class);
+        worlds.put(second, "minigames");
+        duelService.handleWorldChange(second, snapshot);
+        assertThat(duelService.activeDuelCount()).isZero();
+        assertThat(duelService.isInActiveDuel(first)).isFalse();
+        assertThat(duelService.isInActiveDuel(second)).isFalse();
+        assertThat(broadcastMessages).isEmpty();
+    }
+
     private void copyResource(String resourceName, File destination) throws Exception {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourceName)) {
             if (in == null) {

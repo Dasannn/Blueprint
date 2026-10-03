@@ -31,7 +31,10 @@ public record PluginConfig(
         KillPenaltyConfigSection killPenalty,
         SoundsConfigSection sounds,
         HistoryConfig history,
-        ChatFilterConfig chatFilter
+        ChatFilterConfig chatFilter,
+        boolean tabEnabled,
+        MindNoticeConfig mindNotices,
+        WorldRules worldRules
 ) {
     public static final Set<String> SUPPORTED_LANGUAGES = Set.of("en", "es");
 
@@ -65,6 +68,26 @@ public record PluginConfig(
                 effects, update, legacyImport, decay, killPenalty, sounds, history, ChatFilterConfig.defaults());
     }
 
+    public PluginConfig(String language, String chatPrefix, TiersConfig tiers,
+            ConfidenceConfigSection confidence, PsychosisConfigSection psychosis, HonorConfigSection honor,
+            PermissionsConfig permissions, DuelConfigSection duel, EffectsConfigSection effects,
+            UpdateConfig update, LegacyImportConfig legacyImport, DecayConfigSection decay,
+            KillPenaltyConfigSection killPenalty, SoundsConfigSection sounds, HistoryConfig history, ChatFilterConfig chatFilter) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel,
+                effects, update, legacyImport, decay, killPenalty, sounds, history, chatFilter, true, MindNoticeConfig.defaults());
+    }
+
+    public PluginConfig(String language, String chatPrefix, TiersConfig tiers,
+            ConfidenceConfigSection confidence, PsychosisConfigSection psychosis, HonorConfigSection honor,
+            PermissionsConfig permissions, DuelConfigSection duel, EffectsConfigSection effects,
+            UpdateConfig update, LegacyImportConfig legacyImport, DecayConfigSection decay,
+            KillPenaltyConfigSection killPenalty, SoundsConfigSection sounds, HistoryConfig history,
+            ChatFilterConfig chatFilter, boolean tabEnabled, MindNoticeConfig mindNotices) {
+        this(language, chatPrefix, tiers, confidence, psychosis, honor, permissions, duel, effects,
+                update, legacyImport, decay, killPenalty, sounds, history, chatFilter, tabEnabled,
+                mindNotices, WorldRules.defaults());
+    }
+
     public PluginConfig {
         Objects.requireNonNull(language, "language must not be null");
         Objects.requireNonNull(chatPrefix, "chatPrefix must not be null");
@@ -83,6 +106,8 @@ public record PluginConfig(
         if (effects.presentation().rules().get(com.dasannn.socialblueprint.feature.effects.AmbientEffectType.SOURCE_LESS_SOUNDS).enabled())
             effects.presentation().validateSounds(sounds);
         Objects.requireNonNull(history, "history must not be null");
+        Objects.requireNonNull(mindNotices, "mindNotices must not be null");
+        Objects.requireNonNull(worldRules, "worldRules must not be null");
         Objects.requireNonNull(chatFilter, "chatFilter must not be null");
     }
 
@@ -139,7 +164,7 @@ public record PluginConfig(
         if (root.contains("effects.serenity")) effects.serenity().validateSounds(sounds);
 
         return new PluginConfig(language, chatPrefix, tiers, confidence, psychosis, honor, permissions,
-                duel, effects, update, legacyImport, decay, killPenalty, sounds, history, ChatFilterConfig.load(root));
+                duel, effects, update, legacyImport, decay, killPenalty, sounds, history, ChatFilterConfig.load(root), MindNoticeConfig.bool(root, "tab.enabled", true), MindNoticeConfig.load(root), WorldRules.load(root));
     }
 
     public PluginConfig withLanguage(String newLanguage) {
@@ -159,7 +184,7 @@ public record PluginConfig(
                 killPenalty,
                 sounds,
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -180,7 +205,7 @@ public record PluginConfig(
                 killPenalty,
                 sounds,
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -201,7 +226,7 @@ public record PluginConfig(
                 killPenalty,
                 sounds,
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -222,7 +247,7 @@ public record PluginConfig(
                 killPenalty,
                 sounds,
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -243,7 +268,7 @@ public record PluginConfig(
                 killPenalty,
                 sounds,
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -264,7 +289,7 @@ public record PluginConfig(
                 killPenalty,
                 sounds,
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -285,7 +310,7 @@ public record PluginConfig(
                 Objects.requireNonNull(newKillPenalty, "killPenalty must not be null"),
                 sounds,
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -306,7 +331,7 @@ public record PluginConfig(
                 killPenalty,
                 Objects.requireNonNull(newSounds, "sounds must not be null"),
                 history,
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 
@@ -327,7 +352,7 @@ public record PluginConfig(
                 killPenalty,
                 sounds,
                 Objects.requireNonNull(newHistory, "history must not be null"),
-                chatFilter
+                chatFilter, tabEnabled, mindNotices, worldRules
         );
     }
 }

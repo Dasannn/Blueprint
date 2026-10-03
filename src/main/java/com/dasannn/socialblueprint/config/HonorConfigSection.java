@@ -5,40 +5,33 @@ import com.dasannn.socialblueprint.domain.HonorCostConfig;
 import org.bukkit.configuration.ConfigurationSection;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.Objects;
 
 /**
- * Immutable configuration section for the Honor economy per T-030, T-031, and Decision 0001.
+ * Immutable configuration section for the Honor economy per T-030, T-031, and Decision 0008.
  */
 public record HonorConfigSection(
         double cost,
-        List<Double> multipliers,
-        Duration multiplierWindow,
+        double costPercent,
         Duration capWindow,
         Duration cooldownPerPair,
         int maxPerTarget,
         int reasonMinLength
 ) {
-    public HonorConfigSection(double cost, List<Double> multipliers, Duration multiplierWindow,
+    public HonorConfigSection(double cost, double costPercent,
                               Duration capWindow, Duration cooldownPerPair, int maxPerTarget) {
-        this(cost, multipliers, multiplierWindow, capWindow, cooldownPerPair, maxPerTarget, 3);
+        this(cost, costPercent, capWindow, cooldownPerPair, maxPerTarget, 3);
     }
 
     public HonorConfigSection {
         if (reasonMinLength < 1 || reasonMinLength > com.dasannn.socialblueprint.domain.ReputationEvent.MAX_REASON_LENGTH)
             throw new ConfigValidationException("honor.reason.min-length", "Must be between 1 and 100");
-        Objects.requireNonNull(multipliers, "Multipliers list must not be null");
-        Objects.requireNonNull(multiplierWindow, "Multiplier window duration must not be null");
         Objects.requireNonNull(capWindow, "Cap window duration must not be null");
         Objects.requireNonNull(cooldownPerPair, "Cooldown duration must not be null");
-        multipliers = Collections.unmodifiableList(new ArrayList<>(multipliers));
     }
 
     public HonorCostConfig toCostConfig() {
-        return new HonorCostConfig(cost, multipliers, multiplierWindow);
+        return new HonorCostConfig(cost, costPercent);
     }
 
     public HonorAllowanceConfig toAllowanceConfig() {
@@ -57,55 +50,15 @@ public record HonorConfigSection(
             throw new ConfigValidationException(costKey, "Missing required key: " + costKey);
         }
         double cost = parseDouble(section, "cost", costKey);
-        if (cost <= 0.0) {
-            throw new ConfigValidationException(costKey, "Base cost must be strictly positive (> 0), got: " + cost);
-        }
-
-        String multKey = "honor.multipliers";
-        if (!section.contains("multipliers")) {
-            throw new ConfigValidationException(multKey, "Missing required key: " + multKey);
-        }
-        List<?> rawMultipliers = section.getList("multipliers");
-        if (rawMultipliers == null || rawMultipliers.isEmpty()) {
-            throw new ConfigValidationException(multKey, "Multipliers list must not be empty");
-        }
-        List<Double> multipliers = new ArrayList<>(rawMultipliers.size());
-        for (int i = 0; i < rawMultipliers.size(); i++) {
-            Object obj = rawMultipliers.get(i);
-            String itemKey = multKey + "[" + i + "]";
-            double m;
-            if (obj instanceof Number num) {
-                m = num.doubleValue();
-            } else {
-                try {
-                    m = Double.parseDouble(String.valueOf(obj));
-                } catch (NumberFormatException e) {
-                    throw new ConfigValidationException(itemKey, "Multiplier must be a valid number, got: " + obj);
-                }
-            }
-            if (!Double.isFinite(m) || m <= 0.0) {
-                throw new ConfigValidationException(itemKey, "Multiplier must be finite and strictly positive (> 0), got: " + m);
-            }
-            if (i > 0 && m < multipliers.get(i - 1)) {
-                throw new ConfigValidationException(itemKey, "Multipliers must be non-decreasing: " + m
-                        + " < previous " + multipliers.get(i - 1));
-            }
-            multipliers.add(m);
-        }
-
-        String multWindowKey = "honor.multiplier-window";
+        if (cost < 0.0) throw new ConfigValidationException(costKey, "Base cost must be non-negative");
+        String percentKey = "honor.cost-percent";
+        double costPercent = section.contains("cost-percent") ? parseDouble(section, "cost-percent", percentKey) : 8;
+        if (costPercent < 0 || costPercent > 100)
+            throw new ConfigValidationException(percentKey, "Must be between 0 and 100");
+        if (cost == 0 && costPercent == 0)
+            throw new ConfigValidationException(percentKey, "Cost and percent cannot both be zero");
         String capWindowKey = "honor.cap-window";
-
-        // Migrate in-memory if legacy 'honor.window' is present and new keys are not
-        if (!section.contains("multiplier-window") && !section.contains("cap-window") && section.contains("window")) {
-            section.set("cap-window", section.getString("window"));
-            section.set("multiplier-window", "1h");
-        }
-
-        if (!section.contains("multiplier-window")) {
-            throw new ConfigValidationException(multWindowKey, "Missing required key: " + multWindowKey);
-        }
-        Duration multiplierWindow = DurationParser.parsePositive(section.getString("multiplier-window"), multWindowKey);
+        if (!section.contains("cap-window") && section.contains("window")) section.set("cap-window", section.getString("window"));
 
         if (!section.contains("cap-window")) {
             throw new ConfigValidationException(capWindowKey, "Missing required key: " + capWindowKey);
@@ -136,7 +89,7 @@ public record HonorConfigSection(
 
         int reasonMinLength = section.contains("reason.min-length")
                 ? parseInt(section, "reason.min-length", "honor.reason.min-length") : 3;
-        return new HonorConfigSection(cost, multipliers, multiplierWindow, capWindow, cooldown, maxPerTarget, reasonMinLength);
+        return new HonorConfigSection(cost, costPercent, capWindow, cooldown, maxPerTarget, reasonMinLength);
     }
 
     private static double parseDouble(ConfigurationSection section, String subKey, String fullKey) {

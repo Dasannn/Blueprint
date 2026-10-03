@@ -105,7 +105,9 @@ public class StatusDuelCommand {
         String target = args.length > 0 ? args[0] : null;
         DuelService.AcceptResult result = duelService.accept(PlayerId.of(player.getUniqueId()), target, snapshot);
 
-        if (result instanceof DuelService.AcceptResult.AlreadyInDuel) {
+        if (result instanceof DuelService.AcceptResult.DisabledWorld) {
+            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "worlds.disabled"));
+        } else if (result instanceof DuelService.AcceptResult.AlreadyInDuel) {
             player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "duel.already-in-duel"));
         } else if (result instanceof DuelService.AcceptResult.NoPendingChallenge) {
             player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "duel.no-pending-challenge"));
@@ -222,7 +224,9 @@ public class StatusDuelCommand {
 
         DuelService.ChallengeResult result = duelService.challenge(challengerId, sides, snapshot);
 
-        if (result instanceof DuelService.ChallengeResult.AlreadyInDuel) {
+        if (result instanceof DuelService.ChallengeResult.DisabledWorld) {
+            player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "worlds.disabled"));
+        } else if (result instanceof DuelService.ChallengeResult.AlreadyInDuel) {
             player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "duel.already-in-duel"));
         } else if (result instanceof DuelService.ChallengeResult.AlreadyChallenging) {
             player.sendMessage(messageRegistry.renderWithPrefix(snapshot, "duel.already-in-duel"));

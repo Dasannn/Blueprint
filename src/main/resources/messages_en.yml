@@ -245,9 +245,12 @@ chat-filter:
   replacement: 'bobba'
 # Administrative mental-state resets (SB-137).
 mind-admin:
+  reduced: '&aReduced {player} psychosis by {percent}% (now {value}).'
+  reduce-unchanged: '&7{player} is Neutral or Serene; mental state unchanged.'
+  invalid-percent: '&cUse a finite percentage greater than 0 and at most 100: {percent}'
   set: '&aMental state set to {value} for {player}.'
   invalid-value: '&cUse a finite value between -100 and 100: {value}'
-  usage: '&eUsage: /status admin mind set <player> <value> | reset <player> | reset-all [confirm]'
+  usage: '&eUsage: /status admin mind set <player> <value> | reduce <player> <percent> | reset <player> | reset-all [confirm]'
   reset: '&aMental state reset to Neutral for {player}.'
   confirm: '&eRepeat /status admin mind reset-all confirm within 30 seconds to reset every stored player.'
   confirm-expired: '&cNo active confirmation. Run /status admin mind reset-all again.'
@@ -315,3 +318,12 @@ rating-wait:
   blocked: '&eYou can rate again in {time}'
 config-suffix:
   ambiguous: '&eAmbiguous key {key}. Matches: {keys}'
+
+mind-notices:
+  psychosis-rose: '&7Your psychosis rose {change} points (now {now}).'
+  psychosis-fell: '&7Your psychosis fell {change} points (now {now}).'
+  serenity-rose: '&7Your serenity rose {change} points (now {now}).'
+  serenity-fell: '&7Your serenity fell {change} points (now {now}).'
+
+worlds:
+  disabled: '&eSocialBlueprint honor and duels are disabled in this world.'

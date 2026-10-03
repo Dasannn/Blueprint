@@ -47,6 +47,26 @@ public final class StatusMindCommand {
                         .thenRun(() -> reply(sender, snapshot, "mind-admin.set",
                                 Map.of("player", target.get().name(), "value", Double.toString(value.getAsDouble()))));
             });
+        } else if (args.length == 3 && "reduce".equalsIgnoreCase(args[0])) {
+            double percent;
+            try { percent = Double.parseDouble(args[2]); }
+            catch (NumberFormatException error) { percent = Double.NaN; }
+            if (!Double.isFinite(percent) || percent <= 0 || percent > 100) {
+                reply(sender, snapshot, "mind-admin.invalid-percent", Map.of("percent", args[2]));
+                return CompletableFuture.completedFuture(null);
+            }
+            double reduction = percent;
+            String adminName = sender.getName();
+            operation = profiles.resolveTargetIdentityAsync(args[1]).thenCompose(target -> {
+                if (target.isEmpty()) {
+                    reply(sender, snapshot, "status.not-found", Map.of("player", args[1]));
+                    return CompletableFuture.completedFuture(null);
+                }
+                return profiles.mind().reduceAsync(target.get().id(), reduction, actor, adminName, now).thenAccept(result ->
+                        reply(sender, snapshot, result.enabled() ? "mind-admin.reduced" : "mind-admin.reduce-unchanged",
+                                Map.of("player", target.get().name(), "percent", Double.toString(reduction),
+                                       "value", String.format(Locale.ROOT, "%.1f", Math.max(0, -result.after())))));
+            });
         } else if (args.length == 2 && "reset".equalsIgnoreCase(args[0])) {
             String input = args[1];
             operation = profiles.resolveTargetIdentityAsync(input).thenCompose(target -> {
@@ -87,10 +107,12 @@ public final class StatusMindCommand {
     }
     public List<String> tabComplete(CommandSender sender, String[] args, RuntimeSnapshot snapshot) {
         if (!PermissionChecker.hasPermission(sender, "admin-mind", snapshot)) return List.of();
-        if (args.length == 1) return List.of("reset", "reset-all", "set").stream()
+        if (args.length == 1) return List.of("reset", "reset-all", "set", "reduce").stream()
                 .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT))).toList();
         if (args.length == 2 && "reset-all".equalsIgnoreCase(args[0]) && "confirm".startsWith(args[1].toLowerCase(Locale.ROOT)))
             return List.of("confirm");
+        if (args.length == 3 && "reduce".equalsIgnoreCase(args[0])) return List.of("40", "50", "100").stream()
+                .filter(value -> value.startsWith(args[2])).toList();
         if (args.length == 3 && "set".equalsIgnoreCase(args[0])) return List.of("-100", "0", "100").stream()
                 .filter(value -> value.startsWith(args[2])).toList();
         return List.of();

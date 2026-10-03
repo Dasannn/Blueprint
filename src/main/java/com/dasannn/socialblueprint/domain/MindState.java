@@ -21,6 +21,13 @@ public final class MindState {
         return new Result(current, requested, after - current, after, true);
     }
 
+    public static double reducePsychosis(double value, double percent) {
+        requireValue(value);
+        if (!Double.isFinite(percent) || percent <= 0 || percent > 100)
+            throw new IllegalArgumentException("Percent must be in (0, 100]");
+        return value >= 0 ? value : percent == 100 ? 0 : value * (1 - percent / 100);
+    }
+
     public static void requireValue(double value) {
         if (!Double.isFinite(value) || value < -100 || value > 100)
             throw new IllegalArgumentException("Mind value must be finite and in [-100, 100]");

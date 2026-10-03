@@ -91,9 +91,8 @@ class ConfigValidationTest {
         assertThat(config.psychosis().extremeThreshold()).isEqualTo(80);
 
         // Verify Honor settings
-        assertThat(config.honor().cost()).isEqualTo(500.0);
-        assertThat(config.honor().multipliers()).containsExactly(1.0, 1.5, 2.0, 3.0);
-        assertThat(config.honor().multiplierWindow()).isEqualTo(Duration.ofHours(1));
+        assertThat(config.honor().cost()).isEqualTo(30.0);
+        assertThat(config.honor().costPercent()).isEqualTo(8.0);
         assertThat(config.honor().capWindow()).isEqualTo(Duration.ofDays(7));
         assertThat(config.honor().cooldownPerPair()).isEqualTo(Duration.ofHours(24));
         assertThat(config.honor().maxPerTarget()).isEqualTo(3);
@@ -445,14 +444,8 @@ class ConfigValidationTest {
     }
 
     @Test
-    @DisplayName("Finding 5: Missing multiplier-window or cap-window fails naming the key")
+    @DisplayName("Finding 5: Missing cap-window fails naming the key")
     void missingHonorWindowsFail() {
-        YamlConfiguration yaml1 = loadValidYaml();
-        yaml1.set("honor.multiplier-window", null);
-        assertThatThrownBy(() -> PluginConfig.load(yaml1))
-                .isInstanceOf(ConfigValidationException.class)
-                .matches(e -> ((ConfigValidationException) e).key().equals("honor.multiplier-window"));
-
         YamlConfiguration yaml2 = loadValidYaml();
         yaml2.set("honor.cap-window", null);
         assertThatThrownBy(() -> PluginConfig.load(yaml2))

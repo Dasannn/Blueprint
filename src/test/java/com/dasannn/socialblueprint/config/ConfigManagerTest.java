@@ -103,7 +103,7 @@ class ConfigManagerTest {
     void inGameReadConfig() {
         assertThat(configManager.get("language")).isEqualTo(configManager.config().language());
         assertThat(configManager.get("language")).isIn("en", "es");
-        assertThat(configManager.get("honor.cost")).isEqualTo("500.0");
+        assertThat(configManager.get("honor.cost")).isEqualTo("30.0");
         assertThat(configManager.get("psychosis.levels.medium")).isEqualTo("20");
         assertThat(configManager.get("tiers.tier-4.threshold")).isEqualTo("-50");
         assertThat(configManager.get("tier-4.threshold")).isEqualTo("-50");
@@ -321,27 +321,85 @@ class ConfigManagerTest {
     }
 
     @Test
-    @DisplayName("T-100 Preflight Finding 6: duel.attack-context-window and honor.multipliers can be read and edited in game")
+    @DisplayName("T-100 Preflight Finding 6: duel.attack-context-window and honor.cost-percent can be read and edited in game")
     void duelAttackContextWindowAndHonorMultipliersEditableInGame() {
         // Read
         assertThat(configManager.get("duel.attack-context-window")).isEqualTo("30s");
-        assertThat(configManager.get("honor.multipliers")).isEqualTo("[1.0, 1.5, 2.0, 3.0]");
+        assertThat(configManager.get("honor.cost-percent")).isEqualTo("8.0");
 
         // Edit duel.attack-context-window
         configManager.set("duel.attack-context-window", "45s");
         assertThat(configManager.config().duel().attackContextWindow()).isEqualTo(java.time.Duration.ofSeconds(45));
         assertThat(configManager.get("duel.attack-context-window")).isEqualTo("45s");
 
-        // Edit honor.multipliers
-        configManager.set("honor.multipliers", "[1.0, 2.0, 4.0]");
-        assertThat(configManager.config().honor().multipliers()).containsExactly(1.0, 2.0, 4.0);
-        assertThat(configManager.get("honor.multipliers")).isEqualTo("[1.0, 2.0, 4.0]");
+        // Edit honor.cost-percent
+        configManager.set("honor.cost-percent", "12.0");
+        assertThat(configManager.config().honor().costPercent()).isEqualTo(12.0);
+        assertThat(configManager.get("honor.cost-percent")).isEqualTo("12.0");
 
         // Verify disk file reloads cleanly
         ConfigManager freshManager = new ConfigManager(configFile, messageRegistry, Runnable::run, logger);
         freshManager.initialize();
         assertThat(freshManager.config().duel().attackContextWindow()).isEqualTo(java.time.Duration.ofSeconds(45));
-        assertThat(freshManager.config().honor().multipliers()).containsExactly(1.0, 2.0, 4.0);
+        assertThat(freshManager.config().honor().costPercent()).isEqualTo(12.0);
+    }
+
+    @Test void oldHonorPricingIsPrunedAndUntouchedBaseAdoptsThirty() throws Exception {
+        YamlFileUpdater.removeLeafAndSave(configFile, "honor.cost-percent");
+        YamlFileUpdater.updateLeafAndSave(configFile, "honor.cost", "500.0");
+        ConfigMerger.mergeFile(configFile, "honor:\n  multipliers: [1.0, 1.5, 2.0, 3.0]\n  multiplier-window: 1h\n", null, false, logger);
+        configManager.reload();
+        assertThat(configManager.config().honor().cost()).isEqualTo(30);
+        assertThat(configManager.config().honor().costPercent()).isEqualTo(8);
+        assertThat(configManager.config().honor().capWindow()).isEqualTo(java.time.Duration.ofDays(7));
+        assertThat(configManager.config().honor().cooldownPerPair()).isEqualTo(java.time.Duration.ofDays(1));
+        assertThat(readConfigFile()).doesNotContain("multipliers:").doesNotContain("multiplier-window:");
+        assertThat(configManager.editableKeys(configManager.snapshot())).doesNotContain("honor.multipliers", "honor.multiplier-window");
+        configManager.set("honor.cost", "500.0");
+        configManager.reload();
+        assertThat(configManager.config().honor().cost()).isEqualTo(500);
+    }
+
+    @Test void disabledWorldUpgradeMergesAndPrunesBothLegacyLists() throws Exception {
+        configManager.set("disabled-worlds", "[custom]");
+        ConfigMerger.mergeFile(configFile, "effects:\n  excluded-worlds: [arena, custom]\nkill-penalty:\n  exempt-worlds: [duel, arena]\nexempt-worlds: [legacy]\n", null, false, logger);
+        configManager.reload();
+        assertThat(configManager.config().worldRules().disabledWorlds()).containsExactly("custom", "legacy", "duel", "arena");
+        assertThat(readConfigFile()).doesNotContain("excluded-worlds:", "exempt-worlds:");
+        assertThat(configManager.editableKeys(configManager.snapshot())).contains("disabled-worlds")
+                .doesNotContain("effects.excluded-worlds", "kill-penalty.exempt-worlds", "exempt-worlds");
+        configManager.reload();
+        assertThat(configManager.config().worldRules().disabledWorlds()).containsExactly("custom", "legacy", "duel", "arena");
+        configManager.set("disabled-worlds", "[]");
+        configManager.reload();
+        assertThat(configManager.config().worldRules().disabledWorlds()).isEmpty();
+    }
+
+    @Test void newReleaseKeysAreLiveEditableAndValidated() {
+        configManager.set("honor.cost", "0");
+        assertThat(configManager.config().honor().cost()).isZero();
+        assertThatThrownBy(() -> configManager.set("honor.cost-percent", "0")).hasMessageContaining("honor.cost-percent");
+        for (String invalid : List.of("-1", "101", "NaN"))
+            assertThatThrownBy(() -> configManager.set("honor.cost-percent", invalid)).hasMessageContaining("honor.cost-percent");
+        assertThatThrownBy(() -> configManager.set("honor.cost", "-1")).hasMessageContaining("honor.cost");
+        assertThatThrownBy(() -> configManager.set("mind.notices.step", "0")).hasMessageContaining("mind.notices.step");
+        assertThatThrownBy(() -> configManager.set("mind.notices.step", "NaN")).hasMessageContaining("mind.notices.step");
+        assertThatThrownBy(() -> configManager.set("tab.enabled", "yes")).hasMessageContaining("tab.enabled");
+        assertThatThrownBy(() -> configManager.set("mind.notices.rises", "yes")).hasMessageContaining("mind.notices.rises");
+        configManager.set("tab.enabled", "false");
+        configManager.set("mind.notices.step", "2.5");
+        configManager.set("mind.notices.falls", "false");
+        assertThat(configManager.config().tabEnabled()).isFalse();
+        assertThat(configManager.config().mindNotices().step()).isEqualTo(2.5);
+        assertThat(configManager.config().mindNotices().falls()).isFalse();
+        assertThat(configManager.config().worldRules().allowsWorld("minigames")).isFalse();
+        assertThat(configManager.config().worldRules().allowsWorld("Minigames")).isTrue();
+        configManager.set("disabled-worlds", "[arena, 'world with spaces']");
+        assertThat(configManager.config().worldRules().allowsWorld("arena")).isFalse();
+        assertThat(configManager.config().worldRules().allowsWorld("arena")).isFalse();
+        assertThatThrownBy(() -> configManager.set("disabled-worlds", "[arena, 1]")).hasMessageContaining("disabled-worlds");
+        configManager.set("disabled-worlds", "[]");
+        assertThat(configManager.config().worldRules().allowsWorld("arena")).isTrue();
     }
 
     private String readConfigFile() {

@@ -66,8 +66,6 @@ class HonorRevocationStorageTest {
                 if (kind.isPlayerHonor()) {
                     var tracker = new HonorAllowanceTracker(HonorAllowanceConfig.defaults());
                     assertThat(tracker.countInWindow(actor, target, kind, events, now)).isEqualTo(1);
-                    var costs = new HonorCostCalculator(HonorCostConfig.defaults());
-                    assertThat(costs.countActorRatingsInWindow(actor, events, now)).isGreaterThanOrEqualTo(1);
                 }
                 assertThat(original.revokedBy()).isEqualTo("Admin");
                 assertThat(revoke.revokedRatingId()).isEqualTo(rating.id());

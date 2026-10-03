@@ -62,6 +62,7 @@ public class DuelService {
         record AlreadyChallenging() implements ChallengeResult {}
         record TargetAlreadyInDuel(PlayerId target) implements ChallengeResult {}
         record CannotDuelSelf() implements ChallengeResult {}
+        record DisabledWorld() implements ChallengeResult {}
     }
 
     public sealed interface AcceptResult {
@@ -69,6 +70,7 @@ public class DuelService {
         record ConsentRecorded(DuelChallenge challenge, int acceptedCount, int totalCount) implements AcceptResult {}
         record AlreadyInDuel() implements AcceptResult {}
         record NoPendingChallenge() implements AcceptResult {}
+        record DisabledWorld() implements AcceptResult {}
         record ChallengeCancelled(DuelChallenge challenge) implements AcceptResult {}
     }
 
@@ -95,6 +97,19 @@ public class DuelService {
     private final TimerScheduler timerScheduler;
     private final BiConsumer<PlayerId, Component> messageSender;
     private final Consumer<Component> broadcastConsumer;
+
+    private java.util.function.Function<PlayerId, String> worldLookup = id -> null;
+    public void bindWorldLookup(java.util.function.Function<PlayerId, String> lookup) { worldLookup = Objects.requireNonNull(lookup); }
+    private boolean disabled(PlayerId id, RuntimeSnapshot snapshot) {
+        return snapshot.config().worldRules().isDisabled(worldLookup.apply(id));
+    }
+    public void handleWorldChange(PlayerId id, RuntimeSnapshot snapshot) {
+        if (!disabled(id, snapshot)) return;
+        cancelAllInvitationsInvolving(id, snapshot);
+        ActiveDuelSession session = getActiveDuel(id);
+        if (session != null) endDuel(session, DuelState.ENDED, snapshot);
+        recentDamageTime.remove(id); recentDamagers.remove(id);
+    }
 
     // In-memory active duel tracking
     private final Map<String, ActiveDuelSession> activeDuels = new ConcurrentHashMap<>();
@@ -152,6 +167,9 @@ public class DuelService {
         if (playerOutgoingChallenge.containsKey(challenger)) {
             return new ChallengeResult.AlreadyChallenging();
         }
+
+        if (disabled(challenger, snapshot) || sides.values().stream().flatMap(Set::stream).anyMatch(id -> disabled(id, snapshot)))
+            return new ChallengeResult.DisabledWorld();
 
         // Validate participants
         Set<PlayerId> allParticipants = new HashSet<>();
@@ -222,6 +240,8 @@ public class DuelService {
             return new AcceptResult.NoPendingChallenge();
         }
 
+        if (disabled(player, snapshot) || challenge.allParticipants().stream().anyMatch(id -> disabled(id, snapshot)))
+            return new AcceptResult.DisabledWorld();
         challenge.accept(player);
         String playerName = resolveName(player);
 

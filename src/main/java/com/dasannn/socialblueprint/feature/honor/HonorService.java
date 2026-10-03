@@ -46,7 +46,7 @@ import java.util.logging.Logger;
 
 /**
  * Service managing the honor economy per SB-050 to SB-058 and Decision 0001:
- * - Cost is a fixed YAML amount times progressive multiplier.
+ * - Cost is a base amount plus a percentage of the quoted actor balance.
  * - Cooldown per actor-target pair.
  * - Allowance cap of 3 positive and 3 negative ratings per pair inside the window.
  * - Pre-confirmation before money moves or events are written.
@@ -67,6 +67,8 @@ public class HonorService {
     private final Function<UUID, org.bukkit.OfflinePlayer> offlinePlayerResolver;
     private final Logger logger;
     private volatile Economy economy;
+    private Function<PlayerId, String> worldLookup = id -> null;
+    public void bindWorldLookup(Function<PlayerId, String> lookup) { worldLookup = Objects.requireNonNull(lookup); }
 
     private final ConcurrentMap<UUID, PendingConfirmation> pendingConfirmations = new ConcurrentHashMap<>();
     private final Set<UUID> busyActors = ConcurrentHashMap.newKeySet();
@@ -180,7 +182,7 @@ public class HonorService {
 
     /**
      * Prepares player honor issuance (trust or distrust):
-     * validates constraints, checks cooldown, checks allowance cap, computes progressive cost,
+     * validates constraints, checks cooldown, checks allowance cap, quotes balance-based cost,
      * verifies balance, registers pending confirmation, and sends cost preview per SB-052.
      */
     private CompletableFuture<Void> actorOperation(UUID actorId, java.util.function.Supplier<CompletableFuture<Void>> operation) {
@@ -232,6 +234,8 @@ public class HonorService {
             return CompletableFuture.completedFuture(null);
         }
 
+        if (disabledWorld(actor, snapshot)) return CompletableFuture.completedFuture(null);
+
         // Every player honor rating requires a visible written reason (SB-150)
         if (reason == null || reason.isBlank()) {
             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.reason-required"));
@@ -274,13 +278,9 @@ public class HonorService {
                     }
 
                     // Query actor's ratings in rolling window on storage executor
-                    Duration multWindow = snapshot.config().honor().multiplierWindow();
                     Duration capWindow = snapshot.config().honor().capWindow();
                     Duration cooldown = snapshot.config().honor().cooldownPerPair();
-                    Duration maxDuration = multWindow;
-                    if (capWindow.compareTo(maxDuration) > 0) {
-                        maxDuration = capWindow;
-                    }
+                    Duration maxDuration = capWindow;
                     if (cooldown.compareTo(maxDuration) > 0) {
                         maxDuration = cooldown;
                     }
@@ -315,6 +315,7 @@ public class HonorService {
             RuntimeSnapshot snapshot,
             Instant now
     ) {
+        if (disabledWorld(actor, snapshot)) return null;
         HonorAllowanceTracker tracker = new HonorAllowanceTracker(snapshot.config().honor().toAllowanceConfig());
         var wait = tracker.waitFor(PlayerId.of(actor.getUniqueId()), target.id(), kind, actorEvents, now,
                 snapshot.config().honor().cooldownPerPair());
@@ -325,9 +326,9 @@ public class HonorService {
             return null;
         }
 
-        // 3. Progressive cost calculation (SB-050, Decision 0001)
+        // 3. Quote balance-based cost on the main thread (SB-050, Decision 0008)
         HonorCostCalculator costCalc = new HonorCostCalculator(snapshot.config().honor().toCostConfig());
-        double cost = costCalc.calculateCost(PlayerId.of(actor.getUniqueId()), actorEvents, now);
+        double cost = costCalc.calculateCost(economy != null ? economy.getBalance(actor) : 0);
 
         // 4. Balance check
         if (economy != null && !economy.has(actor, cost)) {
@@ -399,6 +400,7 @@ public class HonorService {
 
         PendingConfirmation pending = pendingConfirmations.remove(actor.getUniqueId());
         Instant now = clock.instant();
+        if (disabledWorld(actor, snapshot)) return CompletableFuture.completedFuture(null);
 
         if (pending == null || pending.isExpired(now)) {
             actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "honor.no-pending"));
@@ -417,8 +419,7 @@ public class HonorService {
                     Map.of("min", String.valueOf(snapshot.config().honor().reasonMinLength()))));
             return CompletableFuture.completedFuture(null);
         }
-        Duration window = snapshot.config().honor().multiplierWindow();
-        if (snapshot.config().honor().capWindow().compareTo(window) > 0) window = snapshot.config().honor().capWindow();
+        Duration window = snapshot.config().honor().capWindow();
         if (snapshot.config().honor().cooldownPerPair().compareTo(window) > 0) window = snapshot.config().honor().cooldownPerPair();
         CompletableFuture<List<ReputationEvent>> history;
         try {
@@ -444,12 +445,13 @@ public class HonorService {
                         result.complete(null);
                         return;
                     }
-                    PendingConfirmation refreshed = evaluate(actor, new TargetIdentity(pending.targetId(), pending.targetName()),
-                            pending.kind(), pending.reason(), events, snapshot, checkedAt);
-                    if (refreshed == null) {
-                        result.complete(null);
-                    } else if (Double.compare(refreshed.cost(), pending.cost()) != 0) {
-                        showPreview(actor, refreshed, snapshot, presenter);
+                    var allowance = new HonorAllowanceTracker(snapshot.config().honor().toAllowanceConfig())
+                            .waitFor(pending.actorId(), pending.targetId(), pending.kind(), events, checkedAt,
+                                    snapshot.config().honor().cooldownPerPair());
+                    if (!allowance.remaining().isZero()) {
+                        actor.sendMessage(messageRegistry.renderWithPrefix(snapshot,
+                                allowance.cooldown().isZero() ? "honor.cap-reached" : "honor.cooldown",
+                                Map.of("time", ratingWaitText(allowance.remaining(), snapshot, messageRegistry))));
                         result.complete(null);
                     } else {
                         chargePlayerHonor(actor, pending, snapshot, checkedAt).whenComplete((v, ex) -> {
@@ -465,8 +467,16 @@ public class HonorService {
         });
     }
 
+    private boolean disabledWorld(Player actor, RuntimeSnapshot snapshot) {
+        if (actor.getWorld() == null || !snapshot.config().worldRules().isDisabled(actor.getWorld().getName())) return false;
+        clearPendingConfirmation(actor.getUniqueId());
+        actor.sendMessage(messageRegistry.renderWithPrefix(snapshot, "worlds.disabled"));
+        return true;
+    }
+
     private CompletableFuture<Void> chargePlayerHonor(Player actor, PendingConfirmation pending,
                                                       RuntimeSnapshot snapshot, Instant now) {
+        if (disabledWorld(actor, snapshot)) return CompletableFuture.completedFuture(null);
         UUID actorUuid = pending.actorId().uuid();
         double exactCost = HonorCostCalculator.roundCurrency(pending.cost());
 
@@ -492,6 +502,18 @@ public class HonorService {
         return intentFuture.thenCompose(compId -> {
             CompletableFuture<Void> resultFuture = new CompletableFuture<>();
             mainThreadRunner.accept(() -> {
+                if (disabledWorld(actor, snapshot)) {
+                    deleteCompensationWithLogging(compId, "disabled world before withdrawal");
+                    resultFuture.complete(null);
+                    return;
+                }
+                var mindInput = pending.kind() == HonorKind.NEGATIVE
+                        ? com.dasannn.socialblueprint.domain.MindInput.HONOR_REVIEW_NEGATIVE
+                        : com.dasannn.socialblueprint.domain.MindInput.HONOR_REVIEW;
+                var targetMindConfig = snapshot.config().psychosis().input(mindInput);
+                boolean targetDisabled = snapshot.config().worldRules().isDisabled(worldLookup.apply(pending.targetId()));
+                var mindConfig = targetDisabled ? new com.dasannn.socialblueprint.domain.MindInputConfig(false,
+                        targetMindConfig.sereneAmount(), targetMindConfig.psychosisAmount(), targetMindConfig.cap()) : targetMindConfig;
                 EconomyResponse response;
                 try {
                     response = (economy != null) ? economy.withdrawPlayer(actor, exactCost) : null;
@@ -550,11 +572,7 @@ public class HonorService {
                             pending.reason(),
                             now
                     );
-                    var mindInput = pending.kind() == HonorKind.NEGATIVE
-                            ? com.dasannn.socialblueprint.domain.MindInput.HONOR_REVIEW_NEGATIVE
-                            : com.dasannn.socialblueprint.domain.MindInput.HONOR_REVIEW;
-                    return reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository,
-                            snapshot.config().psychosis().input(mindInput));
+                    return reputationRepository.commitPlayerHonorAsync(event, compId, compensationRepository, mindConfig);
                 }).handle((saved, error) -> {
                     mainThreadRunner.accept(() -> {
                         if (error == null) {

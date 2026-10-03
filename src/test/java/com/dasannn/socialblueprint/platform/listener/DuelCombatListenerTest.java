@@ -761,6 +761,28 @@ class DuelCombatListenerTest {
         assertThat(mind.events(victim).stream().map(com.dasannn.socialblueprint.domain.MindEvent::kind)).containsExactly("near-death", "death");
     }
 
+    @Test void disabledWorldOnEitherSideSuppressesAllDeathAndKillWrites() {
+        var mind = new com.dasannn.socialblueprint.storage.MindRepository(storage);
+        listener.bindMind(mind);
+        var killer = PlayerId.of(UUID.randomUUID()); var victim = PlayerId.of(UUID.randomUUID());
+        var snapshot = configManager.snapshot();
+        for (String[] worlds : List.of(new String[]{"minigames", "world"}, new String[]{"world", "minigames"})) {
+            var result = listener.handleDeath(victim, killer, worlds[0], worlds[1], baseTime, snapshot).join();
+            assertThat(result.wasPenaltyCharged()).isFalse();
+            assertThat(result.psychosisEvent()).isNull();
+            assertThat(mind.events(killer)).isEmpty();
+            assertThat(mind.events(victim)).isEmpty();
+            assertThat(reputationRepo.findByTargetAsync(killer).join()).isEmpty();
+            assertThat(psychosisRepo.findKillsByKillerSince(killer, baseTime.minusSeconds(1))).isEmpty();
+        }
+        listener.handleDeath(victim, null, "minigames", baseTime, snapshot).join();
+        assertThat(mind.events(victim)).isEmpty();
+        listener.handleDeath(victim, killer, "Minigames", "world", baseTime.plusSeconds(1), snapshot).join();
+        assertThat(mind.events(victim)).hasSize(1);
+        assertThat(mind.events(killer)).hasSize(1);
+        assertThat(reputationRepo.findByTargetAsync(killer).join()).hasSize(1);
+    }
+
     private static Object defaultValue(Class<?> returnType) {
         if (returnType == boolean.class) return false;
         if (returnType == int.class) return 0;

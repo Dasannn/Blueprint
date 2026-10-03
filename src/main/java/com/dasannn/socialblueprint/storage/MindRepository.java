@@ -159,6 +159,28 @@ public final class MindRepository {
         }).thenApply(result -> { invalidate(player); return result; });
     }
 
+    public CompletableFuture<MindState.Result> reduceAsync(PlayerId player, double percent, PlayerId actor, String adminName, Instant now) {
+        MindState.reducePsychosis(0, percent);
+        Objects.requireNonNull(player); Objects.requireNonNull(actor); Objects.requireNonNull(adminName); Objects.requireNonNull(now);
+        return engine.executeAsync(conn -> {
+            boolean auto = conn.getAutoCommit();
+            try {
+                conn.setAutoCommit(false);
+                double before = valueInternal(conn, player);
+                double after = MindState.reducePsychosis(before, percent);
+                if (before < 0) {
+                    writeInternal(conn, new MindEvent(0, player, "admin-reduce", adminName, after - before, after - before,
+                            before, after, now, actor), true);
+                    new AuditRepository(engine).saveInternal(conn, AuditEvent.forPlayer(actor, "mind-reduce", player,
+                            Double.toString(before), Double.toString(after), now));
+                }
+                conn.commit();
+                return new MindState.Result(before, after - before, after - before, after, before < 0);
+            } catch (SQLException | RuntimeException ex) { conn.rollback(); throw ex; }
+            finally { conn.setAutoCommit(auto); }
+        }).thenApply(result -> { if (result.enabled()) invalidate(player); return result; });
+    }
+
     public CompletableFuture<Integer> resetAsync(PlayerId player, PlayerId actor, Instant now) {
         return resetPlayersAsync(player, actor, now);
     }

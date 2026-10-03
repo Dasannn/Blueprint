@@ -124,6 +124,7 @@ public class StatusConfigCommand {
             rawValue = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
         }
 
+        if ("honor.percent".equals(key)) key = "honor.cost-percent";
         if (!configManager.isEditableKey(snapshot, key)) {
             List<String> matches = suffixMatches(configManager.editableKeys(snapshot), key);
             if (matches.size() > 1) {
@@ -289,6 +290,7 @@ public class StatusConfigCommand {
         var suggestions = new java.util.LinkedHashSet<String>();
         keys.forEach(key -> suggestions.add(shortestSuffix(keys, key)));
         suggestions.addAll(keys);
+        suggestions.add("honor.percent");
         return List.copyOf(suggestions);
     }
 

@@ -18,6 +18,20 @@ class FeatureSwitchEffectsTest {
         return manager;
     }
 
+    @Test void excludedWorldLeavesSpeakerTextAndColourIntact() {
+        var config = manager().config();
+        String text = "These several readable words should change during an episode";
+        var chat = config.psychosis().chat();
+        long sequence = java.util.stream.LongStream.range(0, 1000).map(i -> i * 2)
+                .filter(i -> ChatCorruption.isEpisode(text, PsychosisLevel.EXTREME, 42, i, chat)).findFirst().orElseThrow();
+        var excluded = AsyncChatListener.messageBodyInWorld(text, PsychosisLevel.EXTREME, 42, sequence, chat, config.worldRules(), "minigames");
+        assertThat(AsyncChatListener.extractPlainText(excluded)).isEqualTo(text);
+        assertThat(excluded.color()).isNull();
+        var allowed = AsyncChatListener.messageBodyInWorld(text, PsychosisLevel.EXTREME, 42, sequence, chat, config.worldRules(), "Minigames");
+        assertThat(AsyncChatListener.extractPlainText(allowed)).isNotEqualTo(text);
+        assertThat(allowed.color()).isNotNull();
+    }
+
     @Test void liveSwitchStopsNextSelectionIncludingPhantomsAndCanReenableWithoutRestart() {
         var manager = manager();
         var state = new PlayerEffectState();

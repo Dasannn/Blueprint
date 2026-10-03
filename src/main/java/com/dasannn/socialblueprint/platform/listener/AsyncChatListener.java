@@ -60,7 +60,7 @@ public class AsyncChatListener implements Listener {
             warnForeignRenderer();
     }
 
-    private record ChatIdentity(PlayerId id, AtomicLong sequence) {}
+    private record ChatIdentity(PlayerId id, AtomicLong sequence, String world) {}
     // Identity keys never invoke a Player method (including hashCode) on the chat thread.
     private final Map<Player, ChatIdentity> identities = Collections.synchronizedMap(new IdentityHashMap<>());
     private final ProfileService profileService;
@@ -120,11 +120,19 @@ public class AsyncChatListener implements Listener {
 
     /** Called on the main thread, including online players during enable. */
     public void registerPlayer(Player player) {
-        identities.put(player, new ChatIdentity(PlayerId.of(player.getUniqueId()), new AtomicLong()));
+        identities.put(player, new ChatIdentity(PlayerId.of(player.getUniqueId()), new AtomicLong(), player.getWorld() != null ? player.getWorld().getName() : ""));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) { registerPlayer(event.getPlayer()); }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onWorldChange(org.bukkit.event.player.PlayerChangedWorldEvent event) {
+        Player player = event.getPlayer();
+        ChatIdentity previous = identities.get(player);
+        identities.put(player, new ChatIdentity(PlayerId.of(player.getUniqueId()),
+                previous != null ? previous.sequence() : new AtomicLong(), player.getWorld().getName()));
+    }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) { identities.remove(event.getPlayer()); }
@@ -135,7 +143,11 @@ public class AsyncChatListener implements Listener {
             // Hook GUI pending written reason prompt before normal chat formatting (Finding 3 / Finding 6)
             ChatIdentity identity = identities.get(event.getPlayer());
             UUID playerUuid = identity != null ? identity.id().uuid() : null;
-            if (playerUuid != null && statusGuiService != null && statusGuiService.hasPendingReason(playerUuid)) {
+            RuntimeSnapshot snapshot = configManager.snapshot();
+            boolean disabled = snapshot.config().worldRules().isDisabled(identity != null ? identity.world() : null);
+            if (disabled && playerUuid != null && statusGuiService != null)
+                mainThreadRunner.accept(() -> statusGuiService.cancelPendingReason(playerUuid));
+            if (!disabled && playerUuid != null && statusGuiService != null && statusGuiService.hasPendingReason(playerUuid)) {
                 event.setCancelled(true);
                 String rawReason = extractPlainText(event.message());
                 mainThreadRunner.accept(() -> {
@@ -149,8 +161,8 @@ public class AsyncChatListener implements Listener {
                 return;
             }
             // Read one immutable snapshot per event (T-040, T-042)
-            RuntimeSnapshot snapshot = configManager.snapshot();
-            String original = snapshot.config().chatFilter().apply(extractPlainText(event.message()),
+            String plain = extractPlainText(event.message());
+            String original = disabled ? plain : snapshot.config().chatFilter().apply(plain,
                     messageRegistry.getRaw(snapshot, "chat-filter.replacement"));
             if (!original.equals(extractPlainText(event.message()))) event.message(Component.text(original));
             if (!(event.renderer() instanceof ChatRenderer.Default)) {
@@ -165,7 +177,7 @@ public class AsyncChatListener implements Listener {
 
             // Resolve tier and prefix dynamically from current snapshot per lookup (T-040)
             Tier tier = snapshot.config().tiers().ladder().resolve(view.status());
-            String prefixStr = snapshot.config().tiers().prefix(tier);
+            String prefixStr = com.dasannn.socialblueprint.domain.PlayerNameFormat.prefix(snapshot.config().tiers().prefix(tier));
             Component prefixComp = (prefixStr != null && !prefixStr.isEmpty())
                     ? ColorParser.parse(prefixStr)
                     : Component.empty();
@@ -174,8 +186,8 @@ public class AsyncChatListener implements Listener {
             long sequence = identity != null ? identity.sequence().getAndIncrement() : 1;
             long speakerSeed = playerUuid != null
                     ? playerUuid.getMostSignificantBits() ^ playerUuid.getLeastSignificantBits() : 0;
-            Component body = messageBody(original, view.psychosis(), speakerSeed, sequence,
-                    snapshot.config().psychosis().chat());
+            Component body = messageBodyInWorld(original, view.psychosis(), speakerSeed, sequence,
+                    snapshot.config().psychosis().chat(), snapshot.config().worldRules(), identity != null ? identity.world() : "");
 
             // Format name hover summary from message bundle (T-043)
             Component hoverComponent = buildHoverComponent(snapshot, view, tier);
@@ -216,12 +228,15 @@ public class AsyncChatListener implements Listener {
                 hoveredName = sourceDisplayName;
             }
             // Isolate prefix/name styling and actions from the plain message body.
-            Component rendered = Component.empty();
-            if (prefixComp != null && !prefixComp.equals(Component.empty())) {
-                rendered = rendered.append(prefixComp).append(Component.space());
-            }
-            return rendered.append(hoveredName).append(Component.text(": ")).append(body);
+            return PlayerNameRenderer.join(prefixComp, hoveredName).append(Component.text(": ")).append(body);
         });
+    }
+
+    public static Component messageBodyInWorld(String original, com.dasannn.socialblueprint.domain.PsychosisLevel level,
+                                               long seed, long sequence, com.dasannn.socialblueprint.domain.ChatCorruptionConfig chat,
+                                               com.dasannn.socialblueprint.config.WorldRules rules, String world) {
+        return messageBody(original, rules.allowsWorld(world) ? level
+                : com.dasannn.socialblueprint.domain.PsychosisLevel.NEUTRAL, seed, sequence, chat);
     }
 
     public static Component messageBody(String original, com.dasannn.socialblueprint.domain.PsychosisLevel level,
@@ -240,7 +255,7 @@ public class AsyncChatListener implements Listener {
         Component line1 = messageRegistry.render(snapshot, "chat.hover-status",
                 Map.of("status", String.valueOf(view.status())));
 
-        String prefixStr = snapshot.config().tiers().prefix(tier);
+        String prefixStr = com.dasannn.socialblueprint.domain.PlayerNameFormat.prefix(snapshot.config().tiers().prefix(tier));
         Component prefixComp = (prefixStr != null && !prefixStr.isEmpty())
                 ? ColorParser.parse(prefixStr)
                 : Component.empty();

@@ -1,0 +1,129 @@
+package com.dasannn.socialblueprint.platform.listener;
+
+import com.dasannn.socialblueprint.config.*;
+import com.dasannn.socialblueprint.domain.*;
+import com.dasannn.socialblueprint.feature.profile.ProfileService;
+import com.dasannn.socialblueprint.storage.*;
+import net.kyori.adventure.text.Component;
+import org.bukkit.Server;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitScheduler;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.lang.reflect.Proxy;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Logger;
+import static org.assertj.core.api.Assertions.*;
+
+class PlayerPresentationListenerTest {
+    @TempDir Path folder;
+    private static final Instant NOW = Instant.parse("2026-10-03T12:00:00Z");
+    @SuppressWarnings("unchecked")
+    private static <T> T proxy(Class<T> type, java.lang.reflect.InvocationHandler handler) {
+        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler);
+    }
+    private static Object fallback(java.lang.reflect.Method method) {
+        if (method.getReturnType() == boolean.class) return false;
+        if (method.getReturnType() == int.class) return 0;
+        return null;
+    }
+    @Test void sharedProfileWritesRefreshTabAndPrivateNoticesWithReloadAndDisableCleanup() {
+        var logger = Logger.getLogger("PlayerPresentationTest");
+        var notices = new ArrayList<String>();
+        var messages = new MessageRegistry(folder.toFile(), "en", logger) {
+            @Override public Component renderWithPrefix(RuntimeSnapshot snapshot, String key, Map<String, String> values) {
+                if (key.startsWith("mind-notices.")) notices.add(key);
+                return super.renderWithPrefix(snapshot, key, values);
+            }
+        };
+        var configs = new ConfigManager(folder.resolve("config.yml").toFile(), messages, Runnable::run, logger);
+        configs.initialize();
+        var queue = new ConcurrentLinkedQueue<Runnable>();
+        var tab = new AtomicReference<Component>();
+        var online = new AtomicBoolean(true);
+        var id = PlayerId.of(UUID.randomUUID());
+        Thread main = Thread.currentThread();
+        Player player = proxy(Player.class, (object, method, args) -> {
+            assertThat(Thread.currentThread()).isSameAs(main);
+            return switch (method.getName()) {
+                case "getUniqueId" -> id.uuid();
+                case "getName" -> "Alex";
+                case "isOnline" -> online.get();
+                case "playerListName" -> { if (args != null && args.length == 1) tab.set((Component) args[0]); yield null; }
+                case "sendMessage" -> null;
+                default -> fallback(method);
+            };
+        });
+        BukkitScheduler scheduler = proxy(BukkitScheduler.class, (object, method, args) -> {
+            if (method.getName().equals("runTask")) queue.add((Runnable) args[1]);
+            return fallback(method);
+        });
+        Server server = proxy(Server.class, (object, method, args) -> switch (method.getName()) {
+            case "getOnlinePlayers" -> online.get() ? List.of(player) : List.of();
+            case "getPlayer" -> online.get() ? player : null;
+            case "getScheduler" -> scheduler;
+            default -> fallback(method);
+        });
+        Plugin plugin = proxy(Plugin.class, (object, method, args) -> switch (method.getName()) {
+            case "isEnabled" -> true;
+            case "getServer" -> server;
+            default -> fallback(method);
+        });
+        try (var engine = StorageEngine.inMemory()) {
+            engine.runMigrations();
+            var reputation = new ReputationRepository(engine, new StatusCache());
+            var profiles = new ProfileService(engine, reputation, new PsychosisRepository(engine), new ProfileRepository(engine),
+                    new StatusCache(), configs, null, logger, java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+            var presentation = new PlayerPresentationListener(plugin, profiles, configs, messages);
+            profiles.mind().setAsync(id, -50, PlayerId.CONSOLE, "Owner", NOW).join();
+            profiles.warmUp(id, "Alex", configs.snapshot()).join();
+            drain(queue);
+            assertThat(notices).isEmpty();
+            String initial = AsyncChatListener.extractPlainText(tab.get());
+            assertThat(initial).endsWith(" Alex");
+            profiles.mind().reduceAsync(id, 40, PlayerId.CONSOLE, "Console", NOW).join();
+            profiles.loadViewAsync(id, "Alex", configs.snapshot()).join();
+            drain(queue);
+            assertThat(notices).containsExactly("mind-notices.psychosis-fell");
+            profiles.mind().setAsync(id, 10, PlayerId.CONSOLE, "Owner", NOW).join();
+            profiles.loadViewAsync(id, "Alex", configs.snapshot()).join();
+            drain(queue);
+            assertThat(notices).containsExactly("mind-notices.psychosis-fell", "mind-notices.psychosis-fell", "mind-notices.serenity-rose");
+            reputation.saveAsync(new ReputationEvent(PlayerId.CONSOLE, id, 50, HonorKind.ADMIN_GIVE, 0, "Owner", NOW)).join();
+            profiles.loadViewAsync(id, "Alex", configs.snapshot()).join();
+            drain(queue);
+            assertThat(AsyncChatListener.extractPlainText(tab.get())).isNotEqualTo(initial);
+            configs.set("tiers.tier4.prefix", "&a[NEW]");
+            drain(queue);
+            profiles.loadViewAsync(id, "Alex", configs.snapshot()).join();
+            drain(queue);
+            assertThat(AsyncChatListener.extractPlainText(tab.get())).isEqualTo("[NEW] Alex");
+            configs.set("tab.enabled", "false");
+            drain(queue);
+            assertThat(tab.get()).isNull();
+            profiles.mind().setAsync(id, -50, PlayerId.CONSOLE, "Owner", NOW).join();
+            profiles.loadViewAsync(id, "Alex", configs.snapshot()).join();
+            online.set(false);
+            presentation.onQuit(new PlayerQuitEvent(player, Component.empty()));
+            profiles.evict(id);
+            int count = notices.size();
+            drain(queue);
+            assertThat(notices).hasSize(count);
+            online.set(true);
+            tab.set(Component.text("temporary"));
+            presentation.stop();
+            assertThat(tab.get()).isNull();
+        }
+    }
+    private static void drain(Queue<Runnable> queue) {
+        Runnable action;
+        while ((action = queue.poll()) != null) action.run();
+    }
+}

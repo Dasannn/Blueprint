@@ -1,6 +1,6 @@
 # 0003 — Honor has two windows, not one
 
-**Status:** accepted
+**Status:** amended by decision 0008 (2026-10-03); the multiplier window is superseded, per-pair windows remain
 **Supersedes:** part of `0001-honor-cost-is-a-fixed-yaml-amount.md`
 
 ## Context

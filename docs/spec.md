@@ -88,9 +88,9 @@ Falling must not be cheaper than rising.
 cached once at enable. Editing the configuration in-game takes effect without a
 restart.
 
-**SB-014.** The plugin never overwrites a player's display name, list name or
-custom name unconditionally. Coexistence with other prefix plugins is a
-requirement, not an accident.
+**SB-014.** The plugin never overwrites a player's display name or custom
+name. Release 2.0.1 explicitly permits the vanilla tab list name under SB-160,
+controlled by `tab.enabled`; chat retains coexistence with other renderers.
 
 ## 4. Chat
 
@@ -563,11 +563,20 @@ companion or mechanical advantage (SB-100).
 
 ## 7. Honor economy
 
-Governed by `docs/decisions/0001-honor-cost-is-a-fixed-yaml-amount.md`.
+Governed by `docs/decisions/0008-honor-cost-scales-with-balance.md`.
 
-**SB-050.** Giving or removing honor charges the actor a fixed amount configured
-in YAML, multiplied by a progressive factor based on how many ratings that actor
-has issued inside a rolling window.
+**SB-050.** Giving or removing honor charges the actor
+`honor.cost + honor.cost-percent / 100 × max(0, actorBalance)`, rounded with
+`roundCurrency`. Vault balance is read at quote time on the main thread.
+Defaults are `cost: 30.0`, `cost-percent: 8.0`; the base must be finite and
+non-negative, the percent finite in `[0, 100]`, and they cannot both be zero.
+The amount shown and confirmed under SB-052 is charged exactly at confirmation,
+with the existing insufficient-funds check; balance or config changes do not
+reprice that quote. Progressive multipliers and their window are removed;
+SB-053 and SB-054 retain their independent per-pair limits. Upgrade prunes the
+removed keys, adds the percent, and adopts 30 for the untouched legacy base of
+500 while preserving deliberate overrides. `/status config honor.percent`
+aliases `honor.cost-percent`.
 
 **SB-051.** Vault is required. Without an economy provider the plugin does not
 enable, and says why.
@@ -1276,6 +1285,62 @@ id, rater and recipient in both languages. A missing id and an existing but
 non-revocable id have distinct messages. Revocation preserves the audit, mind
 reversal, once-only and no-refund rules (SB-152).
 
+### 15.6 Release 2.0.1
+
+Owner decisions, 2026-10-03. SB-050 now follows decision 0008; no constitution
+change. These requirements supplement release 2.
+
+**SB-160.** Vanilla tab shows the same tier prefix, space and player name as
+chat, using shared formatting. `tab.enabled: true` is the shipped default.
+Refresh on profile load/join, status or tier changes and config reload. Reset
+the list name to `null` for online players on disable and when the toggle is
+turned off. The string/layout decision is tested without a live Bukkit registry.
+
+**SB-161.** Each online session keeps independent last-announced Psychosis
+`P = max(0, −value)` and Serenity `S = max(0, value)` baselines, initialized
+when the profile first loads, with no join notice. The common profile rebuild
+path after mental-state writes checks both halves: a rise or fall of at least
+`mind.notices.step` from its baseline produces a private, plugin-prefixed
+notice with the change and current magnitude, both to one decimal, and updates
+that baseline. Changes below the threshold accumulate. Crossing Neutral checks
+both halves independently. All inputs, honor review/reversal, admin set/reset
+and reduce use this path. Shipped settings: `mind.notices.enabled: true`,
+`step: 5`, `rises: true`, `falls: true`; step is finite and positive and toggles
+are booleans. Disabled notices/directions track the current baseline without
+catch-up messages on re-enable. Baselines are memory-only and discarded on quit.
+English and Spanish message files hold all four notices.
+
+**SB-162.** Top-level `disabled-worlds: [minigames]` lists exact Bukkit world
+names where SocialBlueprint gameplay does not apply. The list contains strings
+and may be empty. Upgrade merges names from legacy `exempt-worlds`,
+`kill-penalty.exempt-worlds` and `effects.excluded-worlds`, then prunes those keys.
+No mental-state input counts there: kills, deaths, near-death, sleep, sleepless
+nights, peaceful actions, received honor reviews or active time for clean days.
+An enabled actor may still rate a target there; the rating has no mental-state
+input. Offline targets have no current world. For a kill, if either
+player is in a disabled world, no mental-state or status rule counts it and no
+status penalty applies. All Psychosis and Serenity effects, speaker chat
+corruption and chat word filtering are disabled; pending honor reason prompts
+do not consume chat there. Duels cannot start or continue there; entry ends the
+duel without a forfeit or combat-log penalty. Honor give/take and confirmation
+are refused with a translated message when the actor is there, including a
+world change while a preview or confirmation is pending. Entry and reload use
+existing effect cleanup to cancel delivery and restore private sky/time/weather
+and temporary presentation. Time and activity there cannot earn later credit.
+Chat/tab tier prefixes, profile viewing and all admin commands remain available,
+including `mind reduce`.
+
+**SB-163.** `/status admin mind reduce <player> <percent>` uses the same
+permission as `mind set`, accepts finite decimal `0 < percent ≤ 100`, and
+works from console for online or offline identities. For negative values,
+`value' = value × (1 − percent/100)`; 100 produces exactly positive zero
+(Neutral). Neutral and Serenity are unchanged and the sender is told so.
+The storage executor atomically reads, reduces, writes the immutable
+`mind_event` and audit just as `set` does, using kind `admin-reduce` and the
+sender's identity. No-op reductions create no event. Successful reductions
+trigger SB-161 via the shared rebuild. Tab completion follows `set`, with
+percentage suggestions; all replies are translated.
+
 ## 16. Acceptance criteria for release 2
 
 - [ ] One signed mental-state value per player; no 72-hour expiry; nothing
@@ -1306,3 +1371,27 @@ reversal, once-only and no-refund rules (SB-152).
 - [ ] The release-1 checks deferred to this release pass: a real name change,
       every effect with two clients, `language: en`, and a reload during an
       effect.
+
+- [ ] Release 2.0.1 honor quotes 30 at zero/negative balance and 830 at 10,000;
+      confirmation charges the quote after balance/config changes, or rejects
+      insufficient funds. Legacy multiplier keys load and are pruned; untouched
+      500 adopts 30 and pair limits remain (SB-050, SB-052).
+- [ ] Vanilla tab matches the chat tier prefix/name on join, status changes and
+      reload; disabling the toggle or plugin restores the default list name
+      (SB-160).
+- [ ] No notice on join; both directions notify at the exact five-point boundary,
+      accumulate smaller moves and notify independently across Neutral. Check
+      gameplay, honor/revocation, admin set/reset/reduce, both languages and
+      disabled notices/directions (SB-161).
+- [ ] In an exactly disabled world, no mental input or clean-day time counts,
+      kills cost no status and count for neither participant, no effect or
+      speaker corruption plays, duels cannot start/continue, and honor give/take
+      and confirmation are refused. Empty list enables all worlds; both old
+      world lists merge and disappear on upgrade. Entry/reload during active
+      sky/blocks/apparitions cancel and restore presentation. Returning earns
+      no backfilled time. Chat/tab prefixes, profile viewing and admin commands
+      (including console `mind reduce`) still work there (SB-162).
+- [ ] Console and online/offline reductions accept decimals: Psychosis 50 at
+      40% becomes 30; 100% becomes Neutral; serene/neutral remain untouched.
+      Invalid percentages/permissions are rejected, logs preserve before/after,
+      and online reductions trigger notices (SB-163).

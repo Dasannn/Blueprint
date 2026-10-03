@@ -74,7 +74,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * 2. Idempotent refunding: concurrent reconciliation and failed deletes do not double-refund.
  * 3. Withdrawal amount checked against preview: partial/mismatched debits are resolved and refunded.
  * 4. Resetting at Integer.MIN_VALUE: overflow handled with two compensating events summing to +2,147,483,648.
- * 5. Configuration upgrade migration: legacy honor.window migrated to cap-window and default multiplier-window.
+ * 5. Configuration upgrade migration: legacy honor.window migrated to cap-window and balance-based price.
  * 6. Config edit audit: confirmed before reporting success; failure reported plainly without rollback.
  */
 public class MoneyPathSafetyTest {
@@ -662,7 +662,7 @@ public class MoneyPathSafetyTest {
     // =========================================================================
 
     @Test
-    @DisplayName("Blocking 5: Legacy honor.window key is migrated to cap-window and multiplier-window on load")
+    @DisplayName("Blocking 5: Legacy honor.window key is migrated to cap-window and balance pricing on load")
     void legacyHonorWindowMigratedSuccessfully() throws Exception {
         File upgradeConfigFile = new File(tempDir, "legacy_config.yml");
         String legacyYaml = """
@@ -716,12 +716,13 @@ public class MoneyPathSafetyTest {
 
         // honor.window value adopted as cap-window (7d)
         assertThat(upgradeManager.config().honor().capWindow()).isEqualTo(Duration.ofDays(7));
-        // multiplier-window set to default (1h)
-        assertThat(upgradeManager.config().honor().multiplierWindow()).isEqualTo(Duration.ofHours(1));
+        // cost-percent set to default (8)
+        assertThat(upgradeManager.config().honor().costPercent()).isEqualTo(8.0);
 
         // File on disk was rewritten
         String diskContent = Files.readString(upgradeConfigFile.toPath(), StandardCharsets.UTF_8);
-        assertThat(diskContent).contains("multiplier-window: 1h");
+        assertThat(diskContent).doesNotContain("multiplier-window:").doesNotContain("multipliers:");
+        assertThat(upgradeManager.config().honor().cost()).isEqualTo(30.0);
         assertThat(diskContent).contains("cap-window: 7d");
     }
 

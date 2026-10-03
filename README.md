@@ -83,7 +83,7 @@ Status is derived from recorded reputation changes. New players begin at `0`, wi
 
 ### Honor and history
 
-Giving or taking honor changes status by `+1` or `−1` per accepted rating. It costs the actor **500** economy units initially. Ratings issued across all targets in the preceding **1 hour** raise the cost through multipliers `1`, `1.5`, `2`, then `3` (the last multiplier applies thereafter). The same actor-target pair has a **24-hour** cooldown and a cap of **3 positive and 3 negative ratings**, counted separately over **7 days**. Self-rating is rejected. Commands and GUI rejections show the time left until another rating is allowed; profile rating buttons show whether you can rate now or how long you must wait.
+Giving or taking honor changes status by `+1` or `−1` per accepted rating. The quoted cost is **30 + 8% of the actor’s current Vault balance**, rounded to two decimals; negative balances count as zero. A balance of 10,000 costs **830**. Confirmation charges exactly the quoted amount, with a fresh funds check. The same actor-target pair has a **24-hour** cooldown and a cap of **3 positive and 3 negative ratings**, counted separately over **7 days**. Self-rating is rejected. Commands and GUI rejections show the time left until another rating is allowed; profile rating buttons show whether you can rate now or how long you must wait.
 
 Both giving and taking honor require a written reason, with at least **3 visible characters** by default and at most **100 characters**. Reasons are rendered as inert plain text. Profile GUI buttons prompt for the reason in chat and open a confirmation chest showing the target, exact cost, and reason. Confirmation lasts **60 seconds**; command ratings also support `/status confirm`. Payment and the recorded rating share the same honor path, with compensation handling for failed writes.
 
@@ -114,6 +114,10 @@ One persistent scale runs from **Psychosis 100 → Neutral → Serenity 100**. P
 
 Peaceful actions mean catching fish, breeding animals, feeding into love mode or baby growth, planting crops on farmland, and harvesting mature crops. Fishing requires recent non-fishing activity, so AFK farms earn nothing. Offline and idle/AFK time earn nothing; active time alone gives no credit. Qualifying activity includes player-driven movement and gameplay interactions, with a default **300-second** idle timeout; chat and passive transport do not qualify. Ratings beyond the mental-state cap still change status. Administrative adjustments and system penalties do not apply the rating input.
 
+Private notices report Psychosis and Serenity changes of **5 points** from the last announced amount, with one decimal for the change and current value. Smaller changes accumulate; crossing Neutral checks both halves. Joining initializes the baselines silently. `mind.notices.enabled`, `.step`, `.rises` and `.falls` control these session-only notices. Admin reduction, set and reset use the same notices as gameplay inputs.
+
+`/status admin mind reduce <player> <percent>` reduces only Psychosis: 50 at 40% becomes 30, and 100% reaches Neutral exactly. Neutral and Serenity remain unchanged. It accepts decimal percentages, works from console for online or offline players, and records successful reductions in the mental-state event log and audit.
+
 Psychosis levels use magnitude: **Low** above 0 and below 20, **Medium** from 20, **High** from 50, and **Extreme** from 80 to 100. Neutral triggers no episodes.
 
 | Level | Eligible cosmetic effects with shipped defaults | Maximum effects started together |
@@ -125,6 +129,8 @@ Psychosis levels use magnitude: **Low** above 0 and below 20, **Medium** from 20
 
 Effects retain their individual level floors, cooldowns, session caps and quiet intervals; fewer play when fewer are eligible. Temporary appearances restore during cleanup. Phantom mobs have no real server entity, damage, collision or drops, and appear outside interaction reach; hostile phantoms require non-Peaceful difficulty. Victim ghosts use the player's eligible victim history; false death notices require another visible living player and rotate through configured lines. The advancement toast is configured but not delivered: Paper 26.3 cannot show one without granting a real advancement. There is no nausea, inventory deception, or player `/status effects` opt-out.
 
+Top-level `disabled-worlds` defaults to `[minigames]`. In these exact world names, no mental-state input or clean-day active time counts, no Psychosis or Serenity effects, speaker chat corruption or chat word filtering apply, duels cannot start or continue, and honor give/take and confirmation are refused for actors there. A kill counts for neither player and costs no status if either is in a disabled world. Entry ends an active duel without a forfeit and cancels effects, restoring private sky/time/weather; reload also cleans affected sessions. Chat/tab tier prefixes, `/status` profile viewing and all admin commands (including console `mind reduce`) remain available. Returning earns no credit for time or activity spent there. An empty list enables all worlds. Upgrade merges the old `exempt-worlds`, `kill-penalty.exempt-worlds` and `effects.excluded-worlds` lists and removes their keys.
+
 **Chat corruption and darkening** affect occasional messages from Medium/High/Extreme speakers at default rates of **10%/25%/40%**, with corruption extents of **20%/35%/50%**. All readers see the same altered body. Alternating messages remain intact, at least half the letters stay unchanged, and messages shorter than 6 letters are skipped. Only episode bodies darken; prefixes and hover remain intact. Social status does not drive corruption or madness effects.
 
 ### Serenity, chat, and language
@@ -133,7 +139,7 @@ Effects retain their individual level floors, cooldowns, session caps and quiet 
 
 Eligible nearby observers can hear the sounds and see particles and apparitions within **16 blocks** by default, respecting visibility and world boundaries. Dawn remains private. No serene title or chat corruption appears.
 
-Chat carries the tier prefix and a name hover with status, tier, Confidence, one mental-state line, and how many distinct players rated them. If another plugin owns the chat renderer, SocialBlueprint leaves that renderer in control, so its chat presentation may not appear.
+Chat carries the tier prefix and a name hover with status, tier, Confidence, one mental-state line, and how many distinct players rated them. If another plugin owns the chat renderer, SocialBlueprint leaves that renderer in control, so its chat presentation may not appear. Vanilla tab also shows the same tier prefix and name, refreshed on join, status changes and config reload. `tab.enabled: false` restores the default tab name; plugin disable resets online list names.
 
 English and Spanish message files are bundled. Colors use Essentials-style `&` codes, including hex colors. Owners can edit behavior and messages live in-game. The GitHub updater stages verified releases for the next restart.
 
@@ -163,6 +169,7 @@ English and Spanish message files are bundled. Colors use Essentials-style `&` c
 | `/status admin reset <player>` | Reset status through a compensating event | `socialblueprint.admin.adjust` |
 | `/status admin revoke <id>` or `/status admin revoke <player> last` | Revoke a rating by its id, or the latest rating the player received | `socialblueprint.admin.revoke` |
 | `/status admin mind set <player> <value>` | Set a finite value from -100 (Psychosis) to +100 (Serenity) | `socialblueprint.admin.mind` |
+| `/status admin mind reduce <player> <percent>` | Reduce Psychosis by a decimal percentage greater than 0 through 100; console and offline players supported, logged and audited | `socialblueprint.admin.mind` |
 | `/status admin mind reset <player>` | Reset one online or offline player to Neutral | `socialblueprint.admin.mind` |
 | `/status admin mind reset-all [confirm]` | Reset all stored players; repeat with `confirm` within 30 seconds | `socialblueprint.admin.mind` |
 | `/status admin features` | Open the live input/effect toggle chest in-game | `socialblueprint.admin.features` |
@@ -219,12 +226,15 @@ See the complete [default config.yml](src/main/resources/config.yml) for every e
 | `tiers.<tier>.threshold`, `.prefix` | −50/−30/−15/−5/0/5/15/30/50; colored `[\|]` ladder | Tier boundaries and appearance |
 | `confidence.half-life`; `.low-threshold`, `.established-threshold`, `.high-threshold` | `30d`; `1.0`, `5.0`, `15.0` | Evidence aging and levels |
 | `decay.enabled`, `.half-life`, `.floor`, `.cache-ttl` | `true`, `30d`, `0.0`, `60s` | Status aging and cache lifetime |
-| `honor.cost`, `.multipliers`, `.multiplier-window` | `500.0`, `[1.0, 1.5, 2.0, 3.0]`, `1h` | Rating price progression |
+| `honor.cost`, `.cost-percent` | `30.0`, `8.0` | Base plus percentage of the actor’s balance at quote time |
 | `honor.cooldown-per-pair`, `.max-per-target`, `.cap-window` | `24h`, `3`, `7d` | Pair frequency and signed caps |
 | `history.reveal-cost` | `100.0` | Reveal a rater's name |
-| `kill-penalty.delta`, `.pair-cooldown`, `.cap-window`, `.max-loss`, `.exempt-worlds` | `-1`, `30m`, `7d`, `10`, `[]` | Automatic status penalty; delta `0` disables it |
+| `kill-penalty.delta`, `.pair-cooldown`, `.cap-window`, `.max-loss` | `-1`, `30m`, `7d`, `10` | Automatic status penalty in enabled worlds; delta `0` disables it |
 | `psychosis.levels.low`, `.medium`, `.high`, `.extreme` | `0`, `20`, `50`, `80` | Mental-state level boundaries; Low starts above zero |
 | `psychosis.inputs.<id>.*` | Enabled; amounts and caps above | Individual mental-state inputs |
+| `tab.enabled` | `true` | Tier prefix and name in vanilla tab |
+| `mind.notices.enabled`, `.step`, `.rises`, `.falls` | `true`, `5`, `true`, `true` | Private mental-state change notices |
+| `disabled-worlds` | `[minigames]` | Exact world names with no gameplay inputs, effects, duels or actor honor; prefixes/profiles/admin remain |
 | `honor.reason.min-length` | `3` | Minimum visible reason length |
 | `chat-filter.enabled`, `.words.en`, `.words.es` | `true`, English/Spanish word lists | Chat and reason filtering |
 | `psychosis.chat.<level>-rate`, `.<level>-extent` | Rates `10/25/40`, extents `20/35/50` | Corruption probability and amount |
@@ -258,7 +268,7 @@ Duration keys accept `d`, `h`, `m`, and `s`; a bare number means seconds. Keys e
 /status config reload
 ```
 
-Unique dot-separated key suffixes work too: `peaceful.cap` resolves to `psychosis.inputs.peaceful.cap`. Ambiguous suffixes list matching full keys; tab completion offers short unique forms.
+`honor.percent` is a short alias for `honor.cost-percent`. Unique dot-separated key suffixes work too: `peaceful.cap` resolves to `psychosis.inputs.peaceful.cap`. Ambiguous suffixes list matching full keys; tab completion offers short unique forms.
 
 `/status admin features` toggles inputs, madness effects, chat corruption and serenity effects through the same saved, validated live-edit path. Changes apply immediately and are audited; an effect already playing finishes and cleans up normally. Mind set/reset commands support console and offline players and are audited. Reset restarts the clean-day clock but preserves used 24-hour caps.
 
@@ -284,6 +294,8 @@ Custom/private-chat, toast, and boss-bar lines must be nonblank, validly colored
 `update.channel: stable` checks the latest stable release; `beta` also considers prereleases. Startup checks are enabled, but automatic downloading is off by default. Downloads require SHA-256 verification and JAR validation before staging. Missing or mismatched checksums reject the update.
 
 The verified jar goes into Paper's update folder, normally `plugins/update/`, using the current plugin jar's filename when available. The running jar is left in place until restart. Network or release-check failures are reported without preventing startup.
+
+Upgrading to **2.0.1** removes the old honor multiplier keys, adds the percentage setting, and changes an untouched legacy base cost of 500 to 30. Customized base costs and the pair cooldown/cap are preserved.
 
 Upgrading from **1.0** converts existing data automatically: eligible kills in the old window become Psychosis `min(100, 10 * kills)`; otherwise credited serenity keeps its old curve value, and other players start Neutral. Existing kill history is retained, and conversion records a mental-state event without inventing playtime. Back up the stopped server's data folder first.
 
