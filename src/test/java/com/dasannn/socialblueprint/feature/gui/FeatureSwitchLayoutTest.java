@@ -31,7 +31,8 @@ class FeatureSwitchLayoutTest {
                 "hurt-flash", "victim-ghost", "advancement-toast", "boss-bar", "false-death", "fake-connection", "private-chat", "silverfish", "creeper"))
             expected.add("effects." + id + ".enabled");
         expected.add("psychosis.chat.enabled");
-        for (String id : List.of("dawn", "source-less-sounds", "particles", "apparition")) expected.add("effects.serenity." + id + ".enabled");
+        for (String id : List.of("dawn", "source-less-sounds", "particles", "apparition", "flowers", "clear-sky",
+                "ambient-particles", "music", "warm-phrases", "glowing-animals")) expected.add("effects.serenity." + id + ".enabled");
         assertThat(view.switches().values().stream().map(FeatureSwitchLayout.Switch::key).toList())
                 .containsExactlyInAnyOrderElementsOf(expected);
         assertThat(view.switches()).hasSize(expected.size());

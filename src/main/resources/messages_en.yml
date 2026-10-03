@@ -148,6 +148,13 @@ duel:
   reconnected: '&e{player}&a reconnected to the duel!'
 
 effects:
+  serenity:
+    warm-phrases:
+      lines:
+        - '&aYou feel at peace'
+        - '&aThe air smells of grass'
+        - '&aA gentle breeze surrounds you'
+        - '&aThe world feels calm'
   sign:
     lines:
       - '&8Still here.'
@@ -306,6 +313,12 @@ features:
         source-less-sounds: "&fSerene sounds"
         particles: "&fSerene particles"
         apparition: "&fSerene apparition"
+        flowers: "&fFlowers"
+        clear-sky: "&fClear sky"
+        ambient-particles: "&fFireflies and cherry petals"
+        music: "&fCalm music"
+        warm-phrases: "&fWarm phrases"
+        glowing-animals: "&fGlowing animals"
 
 rating-wait:
   hours: '{hours} h {minutes} min'

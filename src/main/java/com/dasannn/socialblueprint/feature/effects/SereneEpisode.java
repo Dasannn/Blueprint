@@ -118,6 +118,13 @@ public final class SereneEpisode {
 
     public static long durationTicks(String effect, SerenityEffectsConfig config, SoundsConfigSection sounds) {
         return switch (effect) {
+            case "flowers" -> config.flowers().duration();
+            case "clear-sky" -> config.clearDuration();
+            // Reserve the longest vanilla particle lifetime after the final emission.
+            case "ambient-particles" -> config.ambient().duration() + CalmEffectDecision.PARTICLE_TAIL;
+            case "music" -> config.music().duration();
+            case "warm-phrases" -> config.phraseDuration();
+            case "glowing-animals" -> config.glow().duration();
             case "dawn" -> config.dawnDuration();
             case "particles" -> config.particles().totalTicks();
             case "apparition" -> config.animalDuration();

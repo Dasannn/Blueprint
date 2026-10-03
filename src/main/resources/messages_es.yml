@@ -148,6 +148,13 @@ duel:
   reconnected: '&e{player}&a ¡se reconectó al duelo!'
 
 effects:
+  serenity:
+    warm-phrases:
+      lines:
+        - '&aTe sientes en paz'
+        - '&aEl aire huele a hierba'
+        - '&aUna brisa suave te rodea'
+        - '&aEl mundo parece tranquilo'
   sign:
     lines:
       - '&8Sigo aquí.'
@@ -306,6 +313,12 @@ features:
         source-less-sounds: "&fSonidos serenos"
         particles: "&fPartículas serenas"
         apparition: "&fAparición serena"
+        flowers: "&fFlores"
+        clear-sky: "&fCielo despejado"
+        ambient-particles: "&fLuciérnagas y pétalos de cerezo"
+        music: "&fMúsica tranquila"
+        warm-phrases: "&fFrases cálidas"
+        glowing-animals: "&fAnimales brillantes"
 
 rating-wait:
   hours: '{hours} h {minutes} min'

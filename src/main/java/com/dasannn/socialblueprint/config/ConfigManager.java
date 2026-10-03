@@ -39,7 +39,8 @@ import java.util.regex.Pattern;
 public class ConfigManager {
 
     private static final Set<String> EFFECT_CHOICE_LISTS = Set.of("effects.particles.types",
-            "effects.serenity.particles.types", "effects.serenity.apparition.kinds");
+            "effects.serenity.particles.types", "effects.serenity.apparition.kinds",
+            "effects.serenity.flowers.types", "effects.serenity.music.keys");
     private static final Set<String> SUPPORTED_CONFIG_LEAVES = createSupportedConfigLeaves();
 
     private final File configFile;

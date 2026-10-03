@@ -311,6 +311,51 @@ effects:
       duration-ticks: 300
       follow-update-ticks: 5
       follow-distance-blocks: 6
+    flowers:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      types: [poppy, dandelion, cornflower, oxeye_daisy, allium]
+      range-blocks: 6
+      count: 8
+      duration-ticks: 200
+    clear-sky:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      duration-ticks: 200
+    ambient-particles:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      count: 24
+      radius-blocks: 2
+      duration-ticks: 60
+    music:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      keys: [minecraft:music.overworld.meadow, minecraft:music.overworld.cherry_grove]
+      volume: 0.3
+      duration-ticks: 200
+    warm-phrases:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      duration-ticks: 60
+    glowing-animals:
+      enabled: true
+      minimum-serenity: 1
+      cooldown-ticks: 6000
+      session-cap: 12
+      range-blocks: 8
+      count: 8
+      duration-ticks: 100
   advancement-toast:
     enabled: true
     minimum-level: medium
