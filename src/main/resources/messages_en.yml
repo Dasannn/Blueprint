@@ -279,6 +279,7 @@ features:
     "off": "&cOff"
     unavailable: "&7Unavailable"
   group:
+    chat: "&eChat corruption"
     inputs: "&eMental-state inputs"
     madness: "&eMadness effects"
     serenity: "&eSerenity effects"

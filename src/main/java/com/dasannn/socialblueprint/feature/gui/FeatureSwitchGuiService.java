@@ -51,7 +51,7 @@ public final class FeatureSwitchGuiService implements Listener {
     }
 
     private void refresh(Holder holder, RuntimeSnapshot snapshot) {
-        holder.view = FeatureSwitchLayout.compute(snapshot);
+        holder.view = FeatureSwitchLayout.compute(snapshot, holder.page);
         Map<Integer, GuiSlot> resolved = new LinkedHashMap<>();
         holder.view.layout().slots().forEach((index, slot) ->
                 resolved.put(index, StatusGuiService.resolveSlotText(slot, snapshot, messages)));
@@ -64,6 +64,12 @@ public final class FeatureSwitchGuiService implements Listener {
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player player) || !holder.viewer.equals(player.getUniqueId())
                 || holder.busy || event.getRawSlot() < 0 || event.getRawSlot() >= 54) return;
+        int page = holder.view.pageAfterClick(event.getRawSlot());
+        if (page != holder.page) {
+            holder.page = page;
+            refresh(holder, config.snapshot());
+            return;
+        }
         FeatureSwitchLayout.Switch item = holder.view.switches().get(event.getRawSlot());
         if (item == null) return;
         RuntimeSnapshot snapshot = config.snapshot();
@@ -91,6 +97,7 @@ public final class FeatureSwitchGuiService implements Listener {
         private Inventory inventory;
         private FeatureSwitchLayout.View view;
         private boolean busy;
+        private int page;
         private Holder(UUID viewer) { this.viewer = viewer; }
         @Override public Inventory getInventory() { return inventory; }
     }

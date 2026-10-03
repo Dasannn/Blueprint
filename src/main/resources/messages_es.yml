@@ -279,6 +279,7 @@ features:
     "off": "&cDesactivado"
     unavailable: "&7No disponible"
   group:
+    chat: "&eCorrupción del chat"
     inputs: "&eEntradas del estado mental"
     madness: "&eEfectos de psicosis"
     serenity: "&eEfectos de serenidad"

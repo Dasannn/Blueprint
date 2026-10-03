@@ -11,8 +11,17 @@ public final class FeatureSwitchLayout {
     private FeatureSwitchLayout() {}
 
     public record Switch(int slot, String key, Boolean enabled) {}
-    public record View(GuiLayout layout, Map<Integer, Switch> switches) {
+    public record View(GuiLayout layout, Map<Integer, Switch> switches, int page) {
         public View { switches = Map.copyOf(switches); }
+        public int pageAfterClick(int slot) {
+            GuiSlot item = layout.get(slot);
+            if (item == null) return page;
+            return switch (item.iconKind()) {
+                case PAGE_PREVIOUS_STAR -> Math.max(0, page - 1);
+                case PAGE_NEXT_STAR -> Math.min(1, page + 1);
+                default -> page;
+            };
+        }
     }
 
     private static List<String> inputs() {
@@ -30,7 +39,6 @@ public final class FeatureSwitchLayout {
         for (AmbientEffectType type : AmbientEffectType.values()) {
             keys.add("effects." + type.configId() + ".enabled");
         }
-        keys.add("psychosis.chat.enabled");
         return keys;
     }
 
@@ -42,17 +50,32 @@ public final class FeatureSwitchLayout {
         Set<String> keys = new LinkedHashSet<>(inputs());
         keys.addAll(madness());
         keys.addAll(serenity());
+        keys.add("psychosis.chat.enabled");
         return Set.copyOf(keys);
     }
 
     public static View compute(RuntimeSnapshot snapshot) {
+        return compute(snapshot, 0);
+    }
+
+    public static View compute(RuntimeSnapshot snapshot, int page) {
+        page = Math.max(0, Math.min(1, page));
         Map<Integer, GuiSlot> slots = new LinkedHashMap<>();
         Map<Integer, Switch> switches = new LinkedHashMap<>();
         for (int slot = 0; slot < 54; slot++) slots.put(slot, GuiSlot.of(slot, GuiIconKind.FILLER, "features.separator"));
-        group(snapshot, slots, switches, 0, "inputs", inputs());
-        group(snapshot, slots, switches, 18, "madness", madness());
-        group(snapshot, slots, switches, 45, "serenity", serenity());
-        return new View(new GuiLayout(54, slots), switches);
+        if (page == 0) {
+            group(snapshot, slots, switches, 0, "inputs", inputs());
+            group(snapshot, slots, switches, 18, "madness", madness());
+        } else {
+            group(snapshot, slots, switches, 0, "serenity", serenity());
+            group(snapshot, slots, switches, 18, "chat", List.of("psychosis.chat.enabled"));
+        }
+        Map<String, String> pageInfo = Map.of("current", String.valueOf(page + 1), "total", "2");
+        List<GuiLoreLine> pageLore = List.of(GuiLoreLine.ofKey("gui.history.page-info", pageInfo));
+        slots.put(45, GuiSlot.of(45, GuiIconKind.PAGE_PREVIOUS_STAR, "gui.history.page-previous", Map.of(), pageLore));
+        slots.put(49, GuiSlot.of(49, GuiIconKind.PAGE_INFO, "gui.history.page-info", pageInfo));
+        slots.put(53, GuiSlot.of(53, GuiIconKind.PAGE_NEXT_STAR, "gui.history.page-next", Map.of(), pageLore));
+        return new View(new GuiLayout(54, slots), switches, page);
     }
 
     private static void group(RuntimeSnapshot snapshot, Map<Integer, GuiSlot> slots,
