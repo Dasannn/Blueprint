@@ -14,7 +14,7 @@ class Release201Test {
         var rise = update(notices, -15);
         assertThat(rise).hasSize(1);
         assertThat(rise.getFirst().key()).isEqualTo("mind-notices.psychosis-rose");
-        assertThat(rise.getFirst().values()).containsEntry("change", "5.0").containsEntry("now", "15.0");
+        assertThat(rise.getFirst().values()).containsEntry("change", "5").containsEntry("now", "15");
         assertThat(update(notices, -19)).isEmpty();
         assertThat(update(notices, -20)).hasSize(1);
     }
@@ -25,7 +25,7 @@ class Release201Test {
         var crossing = update(notices, 10);
         assertThat(crossing).extracting(MindNotices.Notice::key)
                 .containsExactly("mind-notices.psychosis-fell", "mind-notices.serenity-rose");
-        assertThat(crossing.getFirst().values()).containsEntry("change", "5.0").containsEntry("now", "0.0");
+        assertThat(crossing.getFirst().values()).containsEntry("change", "5").containsEntry("now", "0");
         assertThat(update(notices, -10)).extracting(MindNotices.Notice::key)
                 .containsExactly("mind-notices.psychosis-rose", "mind-notices.serenity-fell");
     }

@@ -1,6 +1,7 @@
 package com.dasannn.socialblueprint.command;
 
 import com.dasannn.socialblueprint.config.*;
+import com.dasannn.socialblueprint.domain.MindNumbers;
 import com.dasannn.socialblueprint.domain.PlayerId;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
 import org.bukkit.command.CommandSender;
@@ -45,7 +46,7 @@ public final class StatusMindCommand {
                 }
                 return profiles.mind().setAsync(target.get().id(), value.getAsDouble(), actor, adminName, now)
                         .thenRun(() -> reply(sender, snapshot, "mind-admin.set",
-                                Map.of("player", target.get().name(), "value", Double.toString(value.getAsDouble()))));
+                                Map.of("player", target.get().name(), "value", MindNumbers.format(value.getAsDouble()))));
             });
         } else if (args.length == 3 && "reduce".equalsIgnoreCase(args[0])) {
             double percent;
@@ -65,7 +66,7 @@ public final class StatusMindCommand {
                 return profiles.mind().reduceAsync(target.get().id(), reduction, actor, adminName, now).thenAccept(result ->
                         reply(sender, snapshot, result.enabled() ? "mind-admin.reduced" : "mind-admin.reduce-unchanged",
                                 Map.of("player", target.get().name(), "percent", Double.toString(reduction),
-                                       "value", String.format(Locale.ROOT, "%.1f", Math.max(0, -result.after())))));
+                                       "value", MindNumbers.format(Math.max(0, -result.after())))));
             });
         } else if (args.length == 2 && "reset".equalsIgnoreCase(args[0])) {
             String input = args[1];

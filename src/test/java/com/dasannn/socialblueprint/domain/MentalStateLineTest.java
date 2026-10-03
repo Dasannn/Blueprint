@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MentalStateLineTest {
     @Test
-    void signedValueSelectsOneLineWithResolvedLevelsAndOneDecimalMagnitude() {
+    void signedValueSelectsOneLineWithResolvedLevelsAndAtMostOneDecimalMagnitude() {
         var calculator = new PsychosisCalculator(PsychosisConfig.defaults());
         for (String prefix : new String[]{"chat.hover-mental-state", "status.profile-mental-state"}) {
             for (boolean detail : new boolean[]{false, true}) {
@@ -27,11 +27,12 @@ class MentalStateLineTest {
                     assertThat(line.levelKey()).isEqualTo("psychosis." + row.getValue());
                     // The magnitude shows on every surface, not only the detail command.
                     assertThat(line.placeholders()).containsExactlyEntriesOf(
-                            Map.of("value", String.format(java.util.Locale.ROOT, "%.1f", Math.abs(row.getKey()))));
+                            Map.of("value", Map.of(-0.01, "0", -19.99, "20", -20.0, "20", -34.0, "34",
+                                    -50.0, "50", -80.0, "80", -100.0, "100").get(row.getKey())));
                 }
             }
         }
         assertThat(MentalStateLine.of(PsychosisLevel.MEDIUM, 34, "status.profile-mental-state", true).placeholders())
-                .containsEntry("value", "34.0");
+                .containsEntry("value", "34");
     }
 }

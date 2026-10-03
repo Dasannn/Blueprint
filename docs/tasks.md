@@ -31,7 +31,7 @@ second place where progress is recorded.
 | P12 Kill penalty, configurable sounds | `feat/p12-kill-sounds` | **done** — review closed, 417 tests green in both languages (`f3fc2e9`) |
 | P13 Psychosis effects and chat | `feat/p13-tuning` | **done** — released in v1.0; T-169/T-174 two-client walks move to T-207 |
 | P14 Release 2 | `integration/r2` | **done** — 882 tests green, Codex review closed, owner and bot acceptance passed; ready to release as v2.0 |
-| P15 Release 2.0.1 | `integration/r2.0.1` | **review** — implementation and tests ready; Claude build and live acceptance pending |
+| P15 Release 2.0.1 | `integration/r2.0.1` | **review** — merged baseline: 943 unit tests and 15/15 live bot scenarios green; T-229 owner manual check and attached-comment prune regression build pending |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -365,8 +365,16 @@ acceptance; this worktree does not run Maven.
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-217 | Balance-based honor quote and exact confirmation charge, removal of progressive pricing, legacy config adoption and validation tests. | SB-050, SB-052, decision 0008 | review |
-| T-218 | Shared chat/tab tier prefix and name, join/status/reload updates, toggle and disable restoration, plain-data formatting tests. | SB-160 | review |
-| T-219 | Session Psychosis/Serenity notice baselines at the shared rebuild, translated rises/falls, validated settings and decision tests. | SB-161 | review |
-| T-220 | Plugin-wide disabled worlds: migrate old lists, suppress every mental input and active-time credit, both-sided kill/status rules, effects/chat corruption, duels and actor honor/confirm; preserve prefixes/profiles/admin, entry/reload cleanup and regression tests. | SB-162 | review |
-| T-221 | Console/online/offline percentage Psychosis reduction, serialized immutable event/audit write, permission/completion/messages and math/storage tests. | SB-163 | review |
+| T-217 | Balance-based honor quote and exact confirmation charge, removal of progressive pricing, legacy config adoption and validation tests. | SB-050, SB-052, decision 0008 | done |
+| T-218 | Shared chat/tab tier prefix and name, join/status/reload updates, toggle and disable restoration, plain-data formatting tests. | SB-160 | done |
+| T-219 | Session Psychosis/Serenity notice baselines at the shared rebuild, translated rises/falls, validated settings and decision tests. | SB-161 | done |
+| T-220 | Plugin-wide disabled worlds: migrate old lists, suppress every mental input and active-time credit, both-sided kill/status rules, effects/chat corruption, duels and actor honor/confirm; preserve prefixes/profiles/admin, entry/reload cleanup and regression tests. | SB-162 | done |
+| T-221 | Console/online/offline percentage Psychosis reduction, serialized immutable event/audit write, permission/completion/messages and math/storage tests. | SB-163 | done |
+| T-222 | Six private serenity additions, validated defaults/live editing, lifecycle restoration and regression coverage. | SB-164 to SB-170 | done |
+| T-223 | Seven private Psychosis additions, level floors, bounded visuals/sound tails, cleanup and regression coverage. | SB-171 to SB-178 | done |
+| T-224 | Fully anonymous history heads and immediate real skin/name on authorized or paid reveal, per-viewer persistence. | SB-082, SB-181 | done |
+| T-225 | Two-click exact-cost reveal confirmation, translated lore, expiry/disarming, live window and charge-once coverage. | SB-052, SB-082, SB-181 | done |
+| T-226 | EssentialsX Chat/foreign renderer coexistence, shared early body, prefix modes, leave mode and configuration/tests. | SB-179 | done |
+| T-227 | Two-page feature GUI with all 45 switches, bounded navigation and retained page on audited toggle refresh. | SB-180 | done |
+| T-228 | Consolidate merged release requirements/acceptance and README; prune attached obsolete-key comments with upgrade regression coverage. | SB-182, §15.6, §16 | done |
+| T-229 | Owner manual check 2.0.1: tab prefix, the 13 effects visually, anonymous head, two-click reveal, EssentialsX chat look. | SB-160, SB-164 to SB-181 | review |

@@ -107,7 +107,7 @@ class AsyncChatListenerTest {
                 java.util.Map.of("status", "25"),
                 java.util.Map.of("tier", messageRegistry.getRaw(snapshot, "tiers.tier2")),
                 java.util.Map.of("confidence", messageRegistry.getRaw(snapshot, "confidence.established")),
-                java.util.Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis.low"), "value", "0.0"),
+                java.util.Map.of("psychosis", messageRegistry.getRaw(snapshot, "psychosis.low"), "value", "0"),
                 java.util.Map.of("contributors", "7"));
         assertThat(calls.get(1).components()).containsOnlyKeys("prefix").containsEntry("prefix",
                 ColorParser.parse(snapshot.config().tiers().prefix(Tier.HONORABLE)));
@@ -223,6 +223,15 @@ class AsyncChatListenerTest {
                 .hoverEvent(HoverEvent.showText(Component.text("foreign hover")))
                 .clickEvent(ClickEvent.suggestCommand("/msg Nick "));
         Component body = Component.text("shared body", NamedTextColor.DARK_GRAY);
+        var snapshot = configManager.snapshot();
+        var view = new PlayerSocialView(PlayerId.of(UUID.randomUUID()), "Nick", 25,
+                Tier.HONORABLE, ConfidenceLevel.ESTABLISHED, PsychosisLevel.LOW, 7);
+        Component hover = chatListener.buildHoverComponent(snapshot, view, Tier.HONORABLE);
+        assertHoverInputsAndStructure(snapshot, hover);
+        Component hoveredName = chatListener.createRenderer(Component.empty(), hover, body)
+                .render(null, name, Component.empty(), null).children().getFirst();
+        assertThat(hoveredName.hoverEvent()).isEqualTo(HoverEvent.showText(hover));
+        assertThat(hoveredName.clickEvent()).isEqualTo(name.clickEvent());
         Audience viewer = Audience.empty();
         AtomicReference<Component> passedName = new AtomicReference<>();
         AtomicReference<Component> passedBody = new AtomicReference<>();
@@ -235,19 +244,42 @@ class AsyncChatListenerTest {
         };
         for (String placement : java.util.List.of("before-line", "display-name", "none")) {
             var config = new com.dasannn.socialblueprint.config.ForeignRendererConfig("wrap", placement);
-            ChatRenderer wrapper = chatListener.createForeignRenderer(foreign, prefix, body, config);
+            ChatRenderer wrapper = chatListener.createForeignRenderer(foreign, prefix, hover, body, config);
             Component rendered = wrapper.render(null, name, Component.text("ignored input"), viewer);
-            Component leading = Component.empty().append(prefix).append(Component.space());
-            Component expectedName = placement.equals("display-name") ? leading.append(name) : name;
+            Component expectedPrefix = placement.equals("before-line") ? prefix.hoverEvent(HoverEvent.showText(hover)) : prefix;
+            Component leading = Component.empty().append(expectedPrefix).append(Component.space());
+            Component expectedName = placement.equals("display-name") ? leading.append(hoveredName) : hoveredName;
             Component expectedLine = Component.text("world > ", NamedTextColor.BLUE).append(expectedName)
                     .append(Component.text(" :: ")).append(body);
             assertThat(passedBody.get()).isSameAs(body);
             assertThat(passedName.get()).isEqualTo(expectedName);
             assertThat(rendered).isEqualTo(placement.equals("before-line") ? leading.append(expectedLine) : expectedLine);
-            assertThat(chatListener.createForeignRenderer(wrapper, prefix, body, config)).isSameAs(wrapper);
+            assertThat(chatListener.createForeignRenderer(wrapper, prefix, hover, body, config)).isSameAs(wrapper);
         }
         var leave = new com.dasannn.socialblueprint.config.ForeignRendererConfig("leave", "before-line");
-        assertThat(chatListener.createForeignRenderer(foreign, prefix, body, leave)).isSameAs(foreign);
+        assertThat(chatListener.createForeignRenderer(foreign, prefix, hover, body, leave)).isSameAs(foreign);
+        Component untouched = foreign.render(null, name, body, viewer);
+        assertThat(passedName.get()).isSameAs(name);
+        assertThat(untouched).isEqualTo(Component.text("world > ", NamedTextColor.BLUE).append(name)
+                .append(Component.text(" :: ")).append(body));
+    }
+
+    @Test
+    void beforeLinePrefixOffersSummaryWhenForeignRendererIgnoresDisplayName() {
+        Component prefix = Component.text("[tier]", NamedTextColor.GREEN);
+        Component body = Component.text("shared body");
+        var snapshot = configManager.snapshot();
+        Component hover = chatListener.buildHoverComponent(snapshot,
+                profileService.getViewCached(null, snapshot), Tier.PARTICULAR);
+        ChatRenderer foreign = (source, ignoredName, message, viewer) -> Component.text("fixed name: ").append(message);
+        var config = new com.dasannn.socialblueprint.config.ForeignRendererConfig("wrap", "before-line");
+        Component rendered = chatListener.createForeignRenderer(foreign, prefix, hover, body, config)
+                .render(null, Component.text("Speaker"), Component.empty(), null);
+        assertThat(rendered.children().getFirst()).isEqualTo(prefix.hoverEvent(HoverEvent.showText(hover)));
+        assertThat(rendered.children().getLast()).isEqualTo(Component.text("fixed name: ").append(body));
+        Component withoutPrefix = chatListener.createForeignRenderer(foreign, Component.empty(), hover, body, config)
+                .render(null, Component.text("Speaker"), Component.empty(), null);
+        assertThat(withoutPrefix).isEqualTo(Component.text("fixed name: ").append(body));
     }
 
     @Test
@@ -263,6 +295,10 @@ class AsyncChatListenerTest {
             var manifest = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(reader);
             assertThat(manifest.getStringList("softdepend")).contains("EssentialsChat");
         }
+        var initialSnapshot = configManager.snapshot();
+        Component hover = chatListener.buildHoverComponent(initialSnapshot,
+                profileService.getViewCached(null, initialSnapshot), Tier.PARTICULAR);
+        cacheReads.set(0);
         Component prefix = ColorParser.parse(configManager.config().tiers().prefix(Tier.PARTICULAR));
         String input = "Please idiot bring wooden supplies";
         String filtered = configManager.config().chatFilter().apply(input,
@@ -282,9 +318,11 @@ class AsyncChatListenerTest {
             assertThat(event.message()).isSameAs(preparedBody);
             ChatRenderer wrapper = event.renderer();
             assertThat(wrapper).isNotSameAs(foreign);
-            Component leading = Component.empty().append(prefix).append(Component.space());
-            Component name = Component.text("Speaker");
-            Component expectedName = placement.equals("display-name") ? leading.append(name) : name;
+            Component expectedPrefix = placement.equals("before-line") ? prefix.hoverEvent(HoverEvent.showText(hover)) : prefix;
+            Component leading = Component.empty().append(expectedPrefix).append(Component.space());
+            Component name = Component.text("Speaker").clickEvent(ClickEvent.suggestCommand("/msg Speaker "));
+            Component hoveredName = name.hoverEvent(HoverEvent.showText(hover));
+            Component expectedName = placement.equals("display-name") ? leading.append(hoveredName) : hoveredName;
             Component expected = Component.text("<").append(expectedName).append(Component.text("> "))
                     .append(Component.text(filtered));
             if (placement.equals("before-line")) expected = leading.append(expected);
@@ -639,10 +677,13 @@ class AsyncChatListenerTest {
                         Component rendered = event.renderer().render(speaker, Component.text("Speaker"),
                                 Component.text("different renderer input " + reader), viewer);
                         if (foreign) {
-                            Component foreignLine = Component.empty().append(Component.text("Speaker"))
+                            Component hover = chatListener.buildHoverComponent(snapshot, view, view.tier());
+                            Component hoveredName = chatListener.createRenderer(Component.empty(), hover, expectedBody)
+                                    .render(null, Component.text("Speaker"), Component.empty(), null).children().getFirst();
+                            Component foreignLine = Component.empty().append(hoveredName)
                                     .append(Component.text(" :: ")).append(expectedBody);
-                            assertThat(rendered).isEqualTo(Component.empty().append(prefix).append(Component.space())
-                                    .append(foreignLine));
+                            assertThat(rendered).isEqualTo(Component.empty().append(prefix.hoverEvent(HoverEvent.showText(hover)))
+                                    .append(Component.space()).append(foreignLine));
                             assertThat(rendered.children().getLast().children().getLast()).isSameAs(preparedBody);
                         } else {
                             assertThat(rendered.children().getLast()).isEqualTo(expectedBody);
@@ -684,7 +725,12 @@ class AsyncChatListenerTest {
         AsyncChatEvent event = chatEvent(null, Component.text("ordinary message"));
         ChatRenderer foreign = (source, name, body, viewer) -> body;
         event.renderer(foreign);
-        Component prefix = ColorParser.parse(configManager.config().tiers().prefix(Tier.PARTICULAR));
+        var snapshot = configManager.snapshot();
+        Component hover = chatListener.buildHoverComponent(snapshot,
+                profileService.getViewCached(null, snapshot), Tier.PARTICULAR);
+        Component prefix = ColorParser.parse(snapshot.config().tiers().prefix(Tier.PARTICULAR))
+                .hoverEvent(HoverEvent.showText(hover));
+        cacheReads.set(0); // Exclude the expected-hover fixture lookup.
         chatListener.onPrepareChat(event);
         Component body = event.message();
         configManager.set("chat.foreign-renderer.mode", "leave");

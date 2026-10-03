@@ -745,4 +745,32 @@ class ConfigUpgradeMergeTest {
         assertThat(configManager.get("sounds.creeper-fuse.volume")).isEqualTo("1.0");
         assertThat(configManager.get("disabled-worlds")).isEqualTo("[minigames]");
     }
+    @Test
+    void pruningDropsOnlyImmediatelyAttachedCommentLines() {
+        for (String newline : java.util.List.of("\n", "\r\n")) {
+            String yaml = String.join(newline,
+                    "# Section comment", "honor:", "  # Keep across the blank line", "",
+                    "  # Progressive cost multiplier per rating issued by the actor within the window.",
+                    "  # Attached second line", "  multipliers:", "    - 1.0", "    - 1.5",
+                    "  # Kept with cost", "  cost: 30.0", "  # Window comment",
+                    "  multiplier-window: 1h", "  cap-window: 7d", "",
+                    "kill-penalty:", "  # Worlds where a kill costs nothing.",
+                    "  exempt-worlds: [arena]", "  # Kept with delta", "  delta: -1", "");
+            String pruned = YamlFileUpdater.updateLeafContent(yaml, "honor.multipliers", null);
+            pruned = YamlFileUpdater.updateLeafContent(pruned, "honor.multiplier-window", null);
+            pruned = YamlFileUpdater.updateLeafContent(pruned, "kill-penalty.exempt-worlds", null);
+            assertThat(pruned).isEqualTo(String.join(newline,
+                    "# Section comment", "honor:", "  # Keep across the blank line", "", "",
+                    "  # Kept with cost", "  cost: 30.0", "", "  cap-window: 7d", "",
+                    "kill-penalty:", "", "  # Kept with delta", "  delta: -1", ""));
+            assertThat(YamlFileUpdater.updateLeafContent(yaml, "honor.cost", "40.0"))
+                    .contains("  # Kept with cost" + newline + "  cost: 40.0")
+                    .contains("  # Window comment" + newline + "  multiplier-window: 1h");
+            assertThat(YamlFileUpdater.updateLeafContent(
+                    "section:" + newline + "  # Attached" + newline + "  obsolete:" + newline
+                            + "    nested: true" + newline + "  retained: true" + newline,
+                    "section.obsolete", null))
+                    .isEqualTo("section:" + newline + newline + "  retained: true" + newline);
+        }
+    }
 }

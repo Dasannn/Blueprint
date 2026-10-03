@@ -89,11 +89,11 @@ Both giving and taking honor require a written reason, with at least **3 visible
 
 The word filter replaces listed whole words with **`bobba`** in public chat and displayed reasons. Matching ignores case and accents, and both language lists apply regardless of the active language. Original reasons remain stored.
 
-The profile chest includes paginated rating history, signed changes, dates, and reasons. Rater names are hidden until revealed for **100** economy units by default; the reveal is remembered for that viewer. Administrative `/status history` provides text history. Administrators can revoke a rating with `/status admin revoke <id>`, use `/status admin revoke <player> last` for the latest rating that player received, or shift-click its history column and confirm. Admin history shows the exact revoke command. Revocation preserves the event and audit trail, removes its status contribution, and reverses any mental-state delta it applied within the scale bounds. It refunds no money and restores no rating allowance. Revoked entries are hidden from ordinary viewers and marked for administrators with revoke permission.
+The profile chest includes paginated rating history, signed changes, dates, and reasons. Anonymous raters show plain heads without their name, real skin or identifying item metadata. A reveal costs **100** economy units by default and is remembered for that viewer. The first click displays the exact confirming cost without charging; click the same head again within **5 seconds** to pay and immediately see its real skin and name. `history.reveal-confirm-seconds` accepts 1–60 seconds. Expiry, switching heads, changing page, closing or quitting requires a fresh confirmation; authorized viewers see identities without paying. Administrative `/status history` provides text history. Administrators can revoke a rating with `/status admin revoke <id>`, use `/status admin revoke <player> last` for the latest rating that player received, or shift-click its history column and confirm. Admin history shows the exact revoke command. Revocation preserves the event and audit trail, removes its status contribution, and reverses any mental-state delta it applied within the scale bounds. It refunds no money and restores no rating allowance. Revoked entries are hidden from ordinary viewers and marked for administrators with revoke permission.
 
 ### Kills and sanctioned duels
 
-An eligible open-world kill affects Psychosis independently of the status penalty. The default penalty is **−1 status**, limited to one penalty per killer/victim pair every **30 minutes** and **10 total automatic status loss per killer in 7 days**. Owners can exempt worlds from the status penalty. These penalty limits do not suppress the mental-state input.
+An eligible open-world kill affects Psychosis independently of the status penalty. The default penalty is **−1 status**, limited to one penalty per killer/victim pair every **30 minutes** and **10 total automatic status loss per killer in 7 days**. The plugin-wide `disabled-worlds` list suppresses both the status penalty and mental-state inputs there. Pair cooldown and loss caps elsewhere do not suppress the mental-state input.
 
 Duels support one-on-one fights, multiple opponents, and teams using `vs`. All invited participants must accept; challenges expire after **60 seconds**. Kills within the sanctioned duel context change neither status nor Psychosis. Leaving forfeits. Disconnecting within **10 seconds** of combat damage is classified as combat logging, with immediate forfeiture, audit, and a configured broadcast or notification. Other disconnects allow **30 seconds** to reconnect before forfeiture.
 
@@ -122,10 +122,22 @@ Psychosis levels use magnitude: **Low** above 0 and below 20, **Medium** from 20
 
 | Level | Eligible cosmetic effects with shipped defaults | Maximum effects started together |
 | --- | --- | --- |
-| Low | Particles, title/action-bar flashes, sourceless sounds, self-only fake join/leave messages, boss bars, private whispers and custom lines | 1 |
-| Medium | Low catalogue plus creeper fuse sounds; chat corruption begins | 2 |
-| High | Also private night sky, equivalent block appearances, sign text, hurt flashes without damage, victim ghosts, harmless hostile phantoms, and false death notices | 3 |
-| Extreme | High catalogue, with more frequent episodes and longer bounded visuals | 4 |
+| Low | Particles, title/action-bar flashes, sourceless sounds, self-only fake join/leave messages, boss bars, private whispers and custom lines, approaching footsteps and nearby door/chest/trapdoor noises | 1 |
+| Medium | Low catalogue plus creeper fuse sounds, torch/lantern flicker and subliminal word titles; chat corruption begins | 2 |
+| High | Also private night sky, equivalent block appearances, sign text, hurt flashes without damage, victim ghosts, harmless hostile phantoms, false death notices, a distant watcher and a red screen vignette | 3 |
+| Extreme | High catalogue plus private fake lightning and thunder, with more frequent episodes and longer bounded visuals | 4 |
+
+The seven new private effects use these defaults:
+
+- **Footsteps (Low):** seven native ground step sounds approach from six to two blocks behind the player over 60 ticks.
+- **Nearby noises (Low):** door, trapdoor or chest sounds come from matching loaded blocks within eight blocks, without operating them; no source means no sound.
+- **Torch flicker (Medium):** up to three distant torches/lanterns flicker three times over 40 ticks; waterlogged/redstone lights and lights within interaction reach are excluded.
+- **Subliminal words (Medium):** translated words, including the player's name, rotate as three-tick titles with no fade.
+- **Watcher (High):** a harmless enderman figure appears on visible ground 20–40 blocks away and vanishes on direct gaze, unsafe approach or after 100 ticks. `effects.watcher.kinds` also accepts `wither_skeleton`.
+- **Red vignette (High):** a private border warning tints the screen for 60 ticks, then restores the previous view.
+- **Fake lightning (Extreme):** a packet-only bolt lasts 20 ticks within a 12-block range, with private `sounds.horror-thunder` playback and an 80-tick sound tail. No fire or damage occurs.
+
+Each defaults to enabled, a 1200-tick cooldown and a session cap of six. Their bounded parameters live under `effects.<id>` and support live editing.
 
 Effects retain their individual level floors, cooldowns, session caps and quiet intervals; fewer play when fewer are eligible. Temporary appearances restore during cleanup. Phantom mobs have no real server entity, damage, collision or drops, and appear outside interaction reach; hostile phantoms require non-Peaceful difficulty. Victim ghosts use the player's eligible victim history; false death notices require another visible living player and rotate through configured lines. The advancement toast is configured but not delivered: Paper 26.3 cannot show one without granting a real advancement. There is no nausea, inventory deception, or player `/status effects` opt-out.
 
@@ -137,9 +149,18 @@ Top-level `disabled-worlds` defaults to `[minigames]`. In these exact world name
 
 **Serenity is the peaceful direction of the same mental state.** It brings private dawn, clean sounds, gentle particles, and friendly animal apparitions selected from turtles, foxes, armadillos and bees by default. Apparitions follow at a safe distance (default **6 blocks**) and cannot be harmed or interacted with. All are cosmetic packet-only visuals, with no companions, buffs, healing or rewards. Serenity episodes play one effect at a time.
 
-Eligible nearby observers can hear the sounds and see particles and apparitions within **16 blocks** by default, respecting visibility and world boundaries. Dawn remains private. No serene title or chat corruption appears.
+Eligible nearby observers can hear the sounds and see particles and apparitions within **16 blocks** by default, respecting visibility and world boundaries. Dawn remains private. Six additional effects are private to the serene player:
 
-Chat carries the tier prefix and a name hover with status, tier, Confidence, one mental-state line, and how many distinct players rated them. If another plugin owns the chat renderer, SocialBlueprint leaves that renderer in control, so its chat presentation may not appear. Vanilla tab also shows the same tier prefix and name, refreshed on join, status changes and config reload. `tab.enabled: false` restores the default tab name; plugin disable resets online list names.
+- **Flowers:** eight harmless fake flowers within six blocks for 200 ticks, only in loaded air above eligible grass/dirt and outside interaction reach; cleanup restores true blocks.
+- **Clear sky:** 200 ticks of private clear weather when the player's effective weather is rainy, restoring the previous view afterward.
+- **Ambient particles:** 24 emissions over 60 ticks within two blocks; fireflies at displayed night and cherry leaves by day.
+- **Music:** a 200-tick meadow/cherry-grove snippet at volume 0.3, stopped on expiry or interruption; vanilla music keys are configurable.
+- **Warm phrases:** four translated action-bar lines rotate for 60 ticks, preserving a newer external action bar on cleanup.
+- **Glowing animals:** up to eight nearby visible tracked passive animals within eight blocks are privately outlined for 100 ticks; real entity flags remain unchanged.
+
+All six default to enabled, minimum serenity **1**, a **6000-tick** cooldown and session cap **12** under `effects.serenity.<id>`. They reuse the one-effect serenity episode and lifecycle cleanup. No serene title or chat corruption appears.
+
+Chat carries the tier prefix and a name hover with status, tier, Confidence, one mental-state line, and how many distinct players rated them. EssentialsX Chat and other Paper chat renderers retain their formatting, recipients, name styling and click actions. By default, SocialBlueprint publishes one filtered/corrupted/coloured message before EssentialsChat captures it and wraps the rendered line with its tier prefix. Wrap mode adds SocialBlueprint's summary hover to the supplied name and to the leading prefix in `before-line` mode. `chat.foreign-renderer.mode` accepts `wrap` (default) or `leave`; `leave` keeps the foreign renderer and skips SocialBlueprint's body/prefix presentation while retaining word filtering and a one-time warning. `chat.foreign-renderer.prefix` accepts `before-line` (default), `display-name` or `none`; `none` still processes the body. Both keys support live editing/reload. Other renderers that capture text before the HIGH event priority or replace the wrapper afterward need separate compatibility verification. Vanilla tab also shows the same tier prefix and name, refreshed on join, status changes and config reload. `tab.enabled: false` restores the default tab name; plugin disable resets online list names.
 
 English and Spanish message files are bundled. Colors use Essentials-style `&` codes, including hex colors. Owners can edit behavior and messages live in-game. The GitHub updater stages verified releases for the next restart.
 
@@ -228,7 +249,9 @@ See the complete [default config.yml](src/main/resources/config.yml) for every e
 | `decay.enabled`, `.half-life`, `.floor`, `.cache-ttl` | `true`, `30d`, `0.0`, `60s` | Status aging and cache lifetime |
 | `honor.cost`, `.cost-percent` | `30.0`, `8.0` | Base plus percentage of the actor’s balance at quote time |
 | `honor.cooldown-per-pair`, `.max-per-target`, `.cap-window` | `24h`, `3`, `7d` | Pair frequency and signed caps |
-| `history.reveal-cost` | `100.0` | Reveal a rater's name |
+| `history.reveal-cost` | `100.0` | Reveal a rater's identity after two-click confirmation |
+| `history.reveal-confirm-seconds` | `5` | Second-click window, integer 1–60 seconds |
+| `chat.foreign-renderer.mode`, `.prefix` | `wrap`, `before-line` | Foreign renderer coexistence and tier prefix placement |
 | `kill-penalty.delta`, `.pair-cooldown`, `.cap-window`, `.max-loss` | `-1`, `30m`, `7d`, `10` | Automatic status penalty in enabled worlds; delta `0` disables it |
 | `psychosis.levels.low`, `.medium`, `.high`, `.extreme` | `0`, `20`, `50`, `80` | Mental-state level boundaries; Low starts above zero |
 | `psychosis.inputs.<id>.*` | Enabled; amounts and caps above | Individual mental-state inputs |
@@ -270,7 +293,7 @@ Duration keys accept `d`, `h`, `m`, and `s`; a bare number means seconds. Keys e
 
 `honor.percent` is a short alias for `honor.cost-percent`. Unique dot-separated key suffixes work too: `peaceful.cap` resolves to `psychosis.inputs.peaceful.cap`. Ambiguous suffixes list matching full keys; tab completion offers short unique forms.
 
-`/status admin features` toggles inputs, madness effects, chat corruption and serenity effects through the same saved, validated live-edit path. Changes apply immediately and are audited; an effect already playing finishes and cleans up normally. Mind set/reset commands support console and offline players and are audited. Reset restarts the clean-day clock but preserves used 24-hour caps.
+`/status admin features` has two 54-slot pages: page 1 contains 12 mental inputs and 22 madness effects; page 2 contains 10 serenity effects and chat corruption. Previous/next stars and a page indicator occupy the bottom row. All 45 switches use the same saved, validated live-edit path; navigation writes nothing and toggling keeps the current page. Changes apply immediately and are audited; an effect already playing finishes and cleans up normally. Mind set/reset commands support console and offline players and are audited. Reset restarts the clean-day clock but preserves used 24-hour caps.
 
 Live edits validate before applying and persist to disk. Unsupported keys and invalid values are rejected. Manual YAML edits take effect with `/status config reload`.
 
@@ -295,7 +318,7 @@ Custom/private-chat, toast, and boss-bar lines must be nonblank, validly colored
 
 The verified jar goes into Paper's update folder, normally `plugins/update/`, using the current plugin jar's filename when available. The running jar is left in place until restart. Network or release-check failures are reported without preventing startup.
 
-Upgrading to **2.0.1** removes the old honor multiplier keys, adds the percentage setting, and changes an untouched legacy base cost of 500 to 30. Customized base costs and the pair cooldown/cap are preserved.
+Upgrading to **2.0.1** removes the old honor multiplier keys and their directly attached comments, adds the percentage setting, and changes an untouched legacy base cost of 500 to 30. Customized base costs and the pair cooldown/cap are preserved.
 
 Upgrading from **1.0** converts existing data automatically: eligible kills in the old window become Psychosis `min(100, 10 * kills)`; otherwise credited serenity keeps its old curve value, and other players start Neutral. Existing kill history is retained, and conversion records a mental-state event without inventing playtime. Back up the stopped server's data folder first.
 

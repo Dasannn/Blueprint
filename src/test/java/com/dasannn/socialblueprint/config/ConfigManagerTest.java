@@ -347,13 +347,15 @@ class ConfigManagerTest {
     @Test void oldHonorPricingIsPrunedAndUntouchedBaseAdoptsThirty() throws Exception {
         YamlFileUpdater.removeLeafAndSave(configFile, "honor.cost-percent");
         YamlFileUpdater.updateLeafAndSave(configFile, "honor.cost", "500.0");
-        ConfigMerger.mergeFile(configFile, "honor:\n  multipliers: [1.0, 1.5, 2.0, 3.0]\n  multiplier-window: 1h\n", null, false, logger);
+        ConfigMerger.mergeFile(configFile, "honor:\n  # Progressive cost multiplier per rating issued by the actor within the window.\n  # Owner multiplier detail.\n  multipliers: [1.0, 1.5, 2.0, 3.0]\n  # Window for progressive pricing.\n  multiplier-window: 1h\n", null, false, logger);
         configManager.reload();
         assertThat(configManager.config().honor().cost()).isEqualTo(30);
         assertThat(configManager.config().honor().costPercent()).isEqualTo(8);
         assertThat(configManager.config().honor().capWindow()).isEqualTo(java.time.Duration.ofDays(7));
         assertThat(configManager.config().honor().cooldownPerPair()).isEqualTo(java.time.Duration.ofDays(1));
-        assertThat(readConfigFile()).doesNotContain("multipliers:").doesNotContain("multiplier-window:");
+        assertThat(readConfigFile()).doesNotContain("multipliers:", "multiplier-window:",
+                "# Progressive cost multiplier per rating issued by the actor within the window.",
+                "# Owner multiplier detail.", "# Window for progressive pricing.");
         assertThat(configManager.editableKeys(configManager.snapshot())).doesNotContain("honor.multipliers", "honor.multiplier-window");
         configManager.set("honor.cost", "500.0");
         configManager.reload();
@@ -362,10 +364,10 @@ class ConfigManagerTest {
 
     @Test void disabledWorldUpgradeMergesAndPrunesBothLegacyLists() throws Exception {
         configManager.set("disabled-worlds", "[custom]");
-        ConfigMerger.mergeFile(configFile, "effects:\n  excluded-worlds: [arena, custom]\nkill-penalty:\n  exempt-worlds: [duel, arena]\nexempt-worlds: [legacy]\n", null, false, logger);
+        ConfigMerger.mergeFile(configFile, "effects:\n  excluded-worlds: [arena, custom]\nkill-penalty:\n  # Worlds where a kill costs nothing.\n  exempt-worlds: [duel, arena]\nexempt-worlds: [legacy]\n", null, false, logger);
         configManager.reload();
         assertThat(configManager.config().worldRules().disabledWorlds()).containsExactly("custom", "legacy", "duel", "arena");
-        assertThat(readConfigFile()).doesNotContain("excluded-worlds:", "exempt-worlds:");
+        assertThat(readConfigFile()).doesNotContain("excluded-worlds:", "exempt-worlds:", "# Worlds where a kill costs nothing.");
         assertThat(configManager.editableKeys(configManager.snapshot())).contains("disabled-worlds")
                 .doesNotContain("effects.excluded-worlds", "kill-penalty.exempt-worlds", "exempt-worlds");
         configManager.reload();

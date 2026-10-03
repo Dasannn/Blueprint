@@ -2,7 +2,6 @@ package com.dasannn.socialblueprint.domain;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /** Session-only baselines, initialized from the first loaded value. */
@@ -22,8 +21,8 @@ public final class MindNotices {
         if (!enabled || delta > 0 && !rises || delta < 0 && !falls) return current;
         if (Math.abs(delta) >= step) {
             notices.add(new Notice("mind-notices." + half + (delta > 0 ? "-rose" : "-fell"),
-                    Map.of("change", String.format(Locale.ROOT, "%.1f", Math.abs(delta)),
-                           "now", String.format(Locale.ROOT, "%.1f", current))));
+                    Map.of("change", MindNumbers.format(Math.abs(delta)),
+                           "now", MindNumbers.format(current))));
             return current;
         }
         return baseline;

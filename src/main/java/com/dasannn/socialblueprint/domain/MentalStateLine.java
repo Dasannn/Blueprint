@@ -9,10 +9,10 @@ public record MentalStateLine(String key, String levelKey, Map<String, String> p
         return switch (level) {
             case NEUTRAL -> new MentalStateLine(prefix + "-neutral", null, Map.of());
             case SERENITY -> new MentalStateLine(prefix + "-serenity", null,
-                    Map.of("value", String.format(Locale.ROOT, "%.1f", magnitude)));
+                    Map.of("value", MindNumbers.format(magnitude)));
             default -> new MentalStateLine(prefix + (detail ? "-psychosis-detail" : "-psychosis"),
                     "psychosis." + level.name().toLowerCase(Locale.ROOT),
-                    Map.of("value", String.format(Locale.ROOT, "%.1f", magnitude)));
+                    Map.of("value", MindNumbers.format(magnitude)));
         };
     }
 }

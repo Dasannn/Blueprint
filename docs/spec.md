@@ -140,7 +140,7 @@ higher levels must be no lighter than the preceding level. Colours are
 validated, live-editable and merged into older configurations without replacing
 owner values. Status never colours the body (SB-094). Apply the captured colour
 in the existing async renderer for vanilla/Paper chat with EssentialsX core;
-if another plugin replaces the renderer, leave it in control and log once.
+release 2.0.1 adds foreign-renderer coexistence under SB-179.
 The frequency and extent are configurable, but no setting may remove these
 guards. Rater-supplied text is still stored as written and rendered as plain
 text under SB-083, never parsed for colour, formatting or click actions; chat
@@ -496,8 +496,9 @@ reset changes neither status nor Confidence; any SB-032 event is independent.
 the perceptual madness effects through the existing scheduler, layered sound
 slots, visual renderers and managed-fake lifecycle: private dawn, clean
 sourceless sounds, gentle particles and a kindly apparition (SB-121 through
-SB-124). There is **no serene title or action-bar line**, no chat corruption,
-and no additional catalogue. Calm is social: nearby players in the same world
+SB-124). There is **no serene title** or chat corruption; release 2.0.1 adds
+warm action-bar phrases and the catalogue in SB-164 through SB-170. Calm is
+social: nearby players in the same world
 who can normally see the subject see its particles and apparition, and hear
 its sounds within the configured local range. Respect visibility/vanish and
 world boundaries; do not reveal a hidden player's presence. **Dawn alone stays
@@ -582,7 +583,8 @@ aliases `honor.cost-percent`.
 enable, and says why.
 
 **SB-052.** The exact cost is shown to the actor and confirmed before any money
-moves or any event is written.
+moves or any event is written. Paid identity reveals also require explicit
+confirmation of the displayed exact cost by a second click under SB-082.
 
 **SB-053.** A cooldown applies per actor-target pair.
 
@@ -839,7 +841,7 @@ it never grants wall-clock credit. Both language files add
 `psychosis.serenity.name`, `psychosis.serenity.detail` (magnitude `{value}` and
 ceiling `{ceiling}`), and `psychosis.neutral.name`, through SB-062/SB-063/SB-068.
 These are profile/detail labels, not episode messages. There are no serene
-title/action-bar keys and no nausea keys.
+title keys and no nausea keys; SB-168 permits warm action-bar phrases.
 
 ## 9. Commands
 
@@ -902,10 +904,21 @@ asynchronous load, never a blocking read, and a rating made through it goes
 through the same honor path as the command — same cost, same cooldown, same
 cap, same audit. A second surface must not become a second set of rules.
 
-**SB-082.** A rater's **identity is hidden by default**: the history shows their
-head and their reason, not their name. Revealing one name costs a configurable
-amount, charged through Vault, and the reveal is remembered for that viewer.
-The reason text is always visible; only the name is paid for.
+**SB-082.** A rater's **identity is hidden by default**: history shows a plain
+head and the reason, without their name, real skin or identifying player
+profile. No rater name or UUID is sent in an unrevealed item's metadata,
+lore, tooltip or persistent data; the UUID remains server-side for click handling.
+Revealing costs `history.reveal-cost` through Vault and is remembered per viewer.
+The first click only arms that event and shows a translated confirmation with
+the exact cost. A second click on the same head strictly before
+`history.reveal-confirm-seconds` expires begins the reveal/charge flow. The
+integer window defaults to 5 seconds, accepts 1..60 and is live-editable.
+Only one event is armed per viewer; switching heads restores the previous lore.
+Expiry, closing, changing page or quitting disarms without charging; a late
+click re-arms. In-flight repeated confirmations cannot charge twice. Success
+immediately shows the real skin and name; authorized viewers see both without
+paying. Reasons always remain visible. System events have no player identity
+or skin. Upgrades add missing defaults without replacing owner reveal settings.
 
 **SB-083.** A rater's comment is length-bounded, stored as written, and rendered
 as plain text. It never carries colour codes, formatting or click actions,
@@ -1341,6 +1354,164 @@ sender's identity. No-op reductions create no event. Successful reductions
 trigger SB-161 via the shared rebuild. Tab completion follows `set`, with
 percentage suggestions; all replies are translated.
 
+**SB-164.** Serenity can privately show flowers around its player. A configurable
+list of harmless single-block flowers appears only in loaded air blocks above
+grass or dirt within the configured range (default six blocks), with a bounded
+count (default eight) and duration (default 200 ticks). Never replace non-air or
+change a real block. Keep fake flowers outside interaction reach; restore
+current true block data at expiry or earlier when the surface/reach becomes
+unsafe, on interaction, teleport, quit, world change or plugin disable.
+
+**SB-165.** A serene player experiencing rain or storm can receive private clear
+weather for a configurable duration (default 200 ticks). Decide against their
+effective weather, including existing private overrides; skip when already
+clear. Reuse the private sky restoration path, restore the prior private
+weather or current world weather, respect a newer different override, and
+never change real time or weather.
+
+**SB-166.** Serenity can privately emit ambient particles around the player for
+a bounded configurable interval (default 24 emissions over 60 ticks, radius
+two). At displayed time 13000..22999 use Paper 26.3 fireflies; otherwise use
+falling cherry leaves. Only this player receives the particles. Cancel future
+emissions on interruption and include the client particle lifetime in the
+episode reservation before quiet time starts.
+
+**SB-167.** Serenity can play a short private snippet selected from a configurable
+list of vanilla music sound keys (default meadow and cherry-grove), with
+configurable volume and duration (default 0.3 and 200 ticks). Stop the selected
+key when its duration ends or the episode is interrupted. Playback does not
+begin without a managed restoration task; no other player receives it.
+
+**SB-168.** Serenity can show a rotating private warm phrase in the action bar
+(default 60 ticks). Each language file supplies a validated configurable list
+of single noninteractive lines; English and Spanish ship four lines. Rotate
+on successful delivery and preserve newer external action-bar presentation
+during cleanup. This is an explicit exception to SB-125's former prohibition
+on serenity action-bar keys; no serenity title is added.
+
+**SB-169.** Serenity can privately outline nearby visible tracked passive animals
+(defaults eight targets, eight-block range, 100 ticks). Send per-player metadata
+only, preserving all flags except temporarily adding the glow bit. Never mutate
+real entity state. Remove the private override at expiry, interruption, target
+departure, quit, world change or disable, restoring current real flags rather
+than stale captured flags. Exclude hidden, invisible, vanished, dead, untracked
+or non-passive targets; skip if none qualifies or the bridge is unavailable.
+
+**SB-170.** These six effects extend the existing serenity catalogue and play
+one at a time. Their config ids are `flowers`, `clear-sky`, `ambient-particles`,
+`music`, `warm-phrases` and `glowing-animals`. Each exposes `enabled` (default
+`true`), `minimum-serenity` (`1`), `cooldown-ticks` (`6000`), `session-cap` (`12`)
+and its bounded relevant parameters under `effects.serenity.<id>`. Flower
+`types`, music `keys`, ranges/counts, volume and durations are owner-configurable.
+Warm phrase text lives in `effects.serenity.warm-phrases.lines` in both language
+files; titles remain forbidden.
+Use existing validation, live editing, unique short-key suffixes, feature-toggle
+GUI, debug logging, independent limits and lifecycle cleanup. Upgrades adopt
+missing settings/translations without replacing owner settings. Skips consume
+no delivery; no effect changes world state, another player's view, movement,
+combat, health, inventory, status, Confidence, mind value or money.
+
+**SB-171.** Low **footsteps** play the native step sounds of the block beneath
+the recipient at positions behind them, approaching from six to two blocks
+over about three seconds, then stopping. Defaults: seven steps, 60 ticks,
+volume 0.6, pitch 1.0. Position follows the player's current orientation and
+location; absent applicable ground skips. Bounds: duration 20..100 ticks,
+steps 2..16, start distance 2..12 blocks, end distance 1..12 strictly below
+start, volume 0..2, pitch 0.1..2.
+
+**SB-172.** High **watcher** places one private packet figure on visible
+loaded ground 20..40 blocks away, facing the recipient. `kinds` defaults to
+`[enderman]`, accepting `enderman` and `wither_skeleton`. It disappears
+immediately when the viewer looks straight at its centre, on unsafe
+approach/teleport, or after `duration-ticks` (default 100, 1..200). `look-dot`
+defaults to 0.985 and must be 0.95..1. Configurable minimum/maximum distance
+remain ordered inside 20..40. No clear visible safe position means skip.
+
+**SB-173.** Low **nearby-noises** plays a private door/trapdoor opening or
+chest sound at a matching real block nearby, without operating it. With no
+source it skips. Defaults: range eight blocks, volume 0.7, pitch 0.8, playback
+40 ticks. Range is 1..12, volume 0..2, pitch 0.1..2 and playback 1..100 ticks.
+Scan only loaded terrain within three blocks vertically; match each
+wood/metal/chest sound family.
+
+**SB-174.** Medium **torch-flicker** hides nearby ordinary/soul torches and
+lanterns with recipient-only air block changes, alternates a few times and
+restores current true data. Defaults: range eight blocks, at most three
+lights, three flickers, 40 ticks. Range is 1..12, light count 1..8, flickers
+1..8, duration 6..100 and must fit two transitions per flicker. Exclude
+redstone lights, waterlogged lights and lights within the recipient's actual
+interaction reach plus margin. Restore on movement/look and before interaction
+or hand changes as well as normal cleanup; skip when no safe light qualifies.
+
+**SB-175.** Medium **subliminal** flashes one translated single word as a
+title with no fade for `duration-ticks` (default 3, 1..10). Rotate
+sequentially through `effects.subliminal.words` in every shipped language,
+including `{player}` for the recipient's name. Lists must be nonempty, contain
+single noninteractive words and fit 32 visible characters after substitution.
+Reuse owned-title cleanup.
+
+**SB-176.** High **red-vignette** temporarily increases a per-player
+world-border warning to tint the screen red for `duration-ticks` (default 60,
+1..100). Preserve the effective border's centre and size, restore the prior
+private border or ordinary world view afterward, and preserve a newer external
+override. Never change the world border or any damage/health value.
+
+**SB-177.** Extreme **fake-lightning** sends a packet-only lightning bolt near
+the recipient with private thunder. Defaults: horizontal range 12 blocks
+(4..24), bolt duration 20 ticks (1..40), sound slot `horror-thunder`, playback
+80 ticks (1..200). Require an existing sound slot and final audible layer
+delay plus playback <= 200 ticks; reserve silence only after the complete
+tail. No real lightning, fire, damage or world change; unloaded positions
+skip.
+
+**SB-178.** All seven effects follow the catalogue's
+enabled/minimum-level/cooldown/session-cap settings (defaults enabled, the
+floors above, 1200 ticks, cap 6), validated live editing and upgrade merging
+without replacing owner values. They share existing level concurrency, world
+gating and `effects.debug` reporting, and each has an admin feature switch and
+translated name. Skips consume no delivery. Delivery is private and cosmetic;
+restoration runs at expiry, quit, world change, direction change and disable.
+No metric, inventory, money, health, movement or real-world state changes.
+
+**SB-179.** Coexist with EssentialsX Chat and foreign Paper chat renderers.
+`chat.foreign-renderer.mode` accepts `wrap` (default) or `leave`;
+`chat.foreign-renderer.prefix` accepts `before-line` (default), `display-name`
+or `none`. In wrap mode, compute one filtered, Psychosis-corrupted and
+episode-coloured body per event for every viewer. Publish it at HIGH before
+EssentialsChat captures the message at HIGHEST, then wrap the renderer at
+HIGHEST, delegating its source/viewer and passing that same body. Preserve
+foreign formatting, recipients, name styling and click actions. Attach the
+SocialBlueprint summary hover to the supplied display name and, in
+`before-line` mode, to the leading tier prefix; a renderer that ignores the
+supplied name can still show the summary on that prefix. Prefix the complete line or supplied
+display name, or omit the prefix; `none` still replaces the body. Wrapping and
+early preparation are idempotent and use one runtime snapshot/cache lookup.
+`softdepend: [EssentialsChat]` orders normal startup registration. Leave mode
+retains the foreign renderer, skips our prefix/body processing but retains word
+filtering and the one-time diagnostic. Missing leaves independently adopt the
+defaults, validate allowed strings and support live editing/reload. A renderer
+that captures text before HIGH or replaces the wrapper later needs separate
+compatibility verification; the MONITOR observer never mutates a renderer.
+
+**SB-180.** `/status admin features` uses two 54-slot pages. Page 1 contains
+12 unique mental inputs under header slot 0 and 22 madness effects under slot
+18; page 2 contains 10 serenity effects under slot 0 and chat corruption under
+slot 18. All 45 switches occur exactly once. Both pages use previous/indicator/
+next at slots 45/49/53 with translated history navigation labels; boundary
+clicks stay on the current page. Navigation never writes configuration.
+Toggling retains the current page and the existing validated, saved, audited
+live-edit path, with refreshed switch state.
+
+**SB-181.** Release 2.0.1 applies SB-082's full identity anonymity and two-click
+paid reveal to history heads, including immediate skin/name refresh after a
+successful reveal, per-viewer persistence and translated confirmation lore.
+
+**SB-182.** Upgrade pruning removes each obsolete key, its children and only
+the contiguous comment lines immediately above it, stopping at a blank line or
+any non-comment line. This includes honor multipliers/their window and legacy
+kill-world exemptions. Preserve unrelated comments, values and sections;
+ordinary value updates retain their attached comments.
+
 ## 16. Acceptance criteria for release 2
 
 - [ ] One signed mental-state value per player; no 72-hour expiry; nothing
@@ -1395,3 +1566,74 @@ percentage suggestions; all replies are translated.
       40% becomes 30; 100% becomes Neutral; serene/neutral remain untouched.
       Invalid percentages/permissions are rejected, logs preserve before/after,
       and online reductions trigger notices (SB-163).
+
+- [ ] With two clients, flowers appear only to the serene subject, only over
+      eligible air/soil, for the configured interval. Safe movement retains
+      them; approaching, interacting, real block replacement, teleport, world
+      change and quit restore true data without affecting building or
+      targeting (SB-164).
+- [ ] Private rain clears only for the subject and restores afterward. Already
+      clear weather skips; inherited storms and private overrides are handled;
+      a newer different override survives cleanup. World time/weather is
+      unchanged (SB-165).
+- [ ] Displayed night emits private fireflies and displayed day emits private
+      cherry petals. Counts/radius/emission duration honor configuration and
+      quiet time includes client expiry; bystanders see nothing (SB-166).
+- [ ] Meadow/cherry music is private, honors volume and duration, and stops
+      after expiry, direction change, quit, world change and disable (SB-167).
+- [ ] English and Spanish warm phrases rotate in the action bar, can be edited
+      live, and do not erase a newer external action bar during cleanup
+      (SB-168).
+- [ ] Nearby eligible passive animals glow only for the subject, including
+      across real metadata updates; expiry/departure/interruption restores
+      current flags. Hidden/invisible/hostile animals and bystanders are
+      excluded (SB-169).
+- [ ] All six switches appear in `/status admin features`; disabling affects
+      subsequent episodes. Serenity stays at one simultaneous episode and
+      retains cooldown/session limits through reload. Legacy upgrades preserve
+      owner settings and add missing blocks/translations (SB-170).
+- [ ] No new effect modifies real blocks/entities, health, combat, movement,
+      inventory, status, Confidence, mind value or economy, and no temporary
+      presentation survives applicable lifecycle cleanup/relogin/restart
+      (SB-170).
+- [ ] At Low, native footsteps approach behind the recipient over ~3 seconds
+      and stop; nearby noises originate only at actual nearby
+      door/chest/trapdoor blocks and skip without a source (SB-171, SB-173).
+- [ ] At High, both configured watcher kinds appear in view 20–40 blocks away,
+      face the recipient and disappear on direct gaze, timeout or unsafe
+      approach/teleport; a second client sees no figure (SB-172).
+- [ ] At Medium, safe distant torches/lanterns flicker privately, then restore
+      current real data at expiry and during movement, interaction, quit,
+      world change and disable; no waterlogged/redstone light is altered
+      (SB-174).
+- [ ] Subliminal words rotate in Spanish and English, include the recipient's
+      name, show for a few ticks without fades, and preserve newer external
+      title ownership (SB-175).
+- [ ] The red vignette restores both ordinary and pre-existing private border
+      views, survives neither interruption nor disable, and preserves newer
+      external overrides (SB-176).
+- [ ] At Extreme, the recipient sees a lightning flash and hears bounded
+      thunder; another client sees/hears neither, and there is no real bolt,
+      fire, damage or world change (SB-177).
+- [ ] Every new effect obeys its floor, concurrency/cap/cooldown/quiet rules,
+      debug reporting, world gating and feature switch; live edits and legacy
+      adoption retain owner overrides; no effect changes metrics or gameplay
+      state (SB-178).
+- [ ] Anonymous heads expose no name, real skin or identifying item metadata;
+      authorized viewers and successful reveals show real skin/name
+      immediately. First click shows exact cost without debit/write; second
+      within the window charges once. Check expiry, switching heads, paging,
+      close, quit, late clicks, insufficient funds, rapid clicks, persisted
+      reopen and viewer isolation, both languages and live window
+      edits/upgrade (SB-052, SB-082, SB-181).
+- [ ] EssentialsX Chat keeps its format, recipients, name styling/click
+      actions and exposes the summary hover on the name/prefix while all
+      clients see the same filtered/corrupted/coloured body. Verify all three
+      prefix placements without duplicates, leave-mode filtering/warning,
+      idempotence, normal startup order and live edits/reload (SB-179).
+- [ ] Both feature pages have 54 valid slots and all 45 switches exactly once;
+      previous/next stop at boundaries, navigation writes nothing, and
+      toggling on page 2 refreshes there. Check both languages (SB-180).
+- [ ] Upgrading honor and kill-world legacy keys also removes their attached
+      comments, preserving comments across blank/key boundaries; ordinary
+      value updates preserve comments and owner values (SB-182).

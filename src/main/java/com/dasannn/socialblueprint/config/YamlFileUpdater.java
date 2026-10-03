@@ -61,7 +61,7 @@ public final class YamlFileUpdater {
         }
     }
 
-    /** Removes an obsolete key and its children without reformatting the rest of the file. */
+    /** Removes an obsolete key, its children and directly preceding comments. */
     public static void removeLeafAndSave(File targetFile, String path) throws IOException {
         updateLeafAndSave(targetFile, path, null);
     }
@@ -148,6 +148,14 @@ public final class YamlFileUpdater {
             } else {
                 break;
             }
+        }
+
+        if (rawValue == null) {
+            int commentStart = matchedLineIndex;
+            while (commentStart > 0 && lines.get(commentStart - 1).trim().startsWith("#")) {
+                commentStart--;
+            }
+            lines.subList(commentStart, matchedLineIndex).clear();
         }
 
         return String.join(lineSeparator, lines);

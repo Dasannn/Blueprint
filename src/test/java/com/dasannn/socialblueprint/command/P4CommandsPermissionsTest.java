@@ -437,10 +437,11 @@ class P4CommandsPermissionsTest {
         runCommandSync(console, "status", "admin", "mind", "reduce", "PotionTarget", "40");
         assertThat(profileService.mind().value(id)).isEqualTo(-30);
         assertThat(messageRegistry.lastCall().key()).isEqualTo("mind-admin.reduced");
-        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("value", "30.0");
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("value", "30");
         onlineLookupMap.remove("potiontarget");
         runCommandSync(console, "status", "admin", "mind", "reduce", id.toString(), "100");
         assertThat(profileService.mind().value(id)).isZero();
+        assertThat(messageRegistry.lastCall().placeholders()).containsEntry("value", "0");
         assertThat(profileService.mind().events(id).getLast().kind()).isEqualTo("admin-reduce");
         assertThat(profileService.mind().events(id).getLast().actor()).isEqualTo(PlayerId.CONSOLE);
         runCommandSync(console, "status", "admin", "mind", "set", id.toString(), "50");

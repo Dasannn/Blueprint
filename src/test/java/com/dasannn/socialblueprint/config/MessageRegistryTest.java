@@ -33,9 +33,9 @@ class MessageRegistryTest {
                 com.dasannn.socialblueprint.domain.PsychosisLevel.MEDIUM, 0, 34);
         for (int i = 0; i < 2; i++) {
             var line = registry.mentalStateLine(snapshot, view, "status.profile-mental-state", true);
-            assertThat(line.placeholders()).containsEntry("value", "34.0");
+            assertThat(line.placeholders()).containsEntry("value", "34");
             assertThat(registry.renderMentalState(snapshot, line)).isEqualTo(ColorParser.renderTemplate(
-                    fallback.get(key), Map.of("value", "34.0"),
+                    fallback.get(key), Map.of("value", "34"),
                     Map.of("psychosis", ColorParser.parse(fallback.get("psychosis.medium")))));
         }
         assertThat(registry.warnedKeys()).containsExactlyInAnyOrder(key, "psychosis.medium");

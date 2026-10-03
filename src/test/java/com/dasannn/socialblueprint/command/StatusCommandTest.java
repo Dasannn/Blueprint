@@ -74,6 +74,8 @@ class StatusCommandTest {
             assertThat(event.kind()).isEqualTo("admin-set");
             assertThat(event.actor()).isEqualTo(PlayerId.CONSOLE);
             assertThat(event.source()).isEqualTo(console.getName());
+            assertThat(messageRegistry.renderedCalls()).filteredOn(call -> call.key().equals("mind-admin.set"))
+                    .last().satisfies(call -> assertThat(call.placeholders()).containsEntry("value", value));
         }
         assertThat(messageRegistry.hasCall("mind-admin.set")).isTrue();
         assertThat(new com.dasannn.socialblueprint.storage.AuditRepository(storage).findByTarget(target)).hasSize(4);
@@ -127,7 +129,7 @@ class StatusCommandTest {
         assertThat(messageRegistry.renderedCalls()).anySatisfy(call -> {
             assertThat(call.key()).isEqualTo("status.profile-mental-state-psychosis-detail");
             assertThat(call.placeholders()).containsExactlyInAnyOrderEntriesOf(Map.of(
-                    "psychosis", messageRegistry.getRaw(configManager.snapshot(), "psychosis.medium"), "value", "34.0"));
+                    "psychosis", messageRegistry.getRaw(configManager.snapshot(), "psychosis.medium"), "value", "34"));
         });
     }
 
@@ -451,7 +453,7 @@ class StatusCommandTest {
         // Line 6: Distinct raters
         assertThat(messages.get(5)).contains("&7Rated by: &f0 players");
 
-        assertPinnedMentalStateMessages(player, "Mental state: Psychosis Medium (34.0/100)", "Mental state: Serenity 43.7/100");
+        assertPinnedMentalStateMessages(player, "Mental state: Psychosis Medium (34/100)", "Mental state: Serenity 43.7/100");
     }
 
     @Test
@@ -480,7 +482,7 @@ class StatusCommandTest {
         // Line 6: Distinct raters
         assertThat(messages.get(5)).contains("&7Valorado por: &f0 jugadores");
 
-        assertPinnedMentalStateMessages(player, "Estado mental: Psicosis Media (34.0/100)", "Estado mental: Serenidad 43.7/100");
+        assertPinnedMentalStateMessages(player, "Estado mental: Psicosis Media (34/100)", "Estado mental: Serenidad 43.7/100");
     }
 
     private void assertPinnedMentalStateMessages(Player player, String psychosis, String serenity) {
@@ -502,7 +504,7 @@ class StatusCommandTest {
         getMessages(player).clear();
         commandExecutor.sendProfile(player, view, snapshot);
         assertThat(getMessages(player)).hasSize(6);
-        assertThat(getMessages(player).get(4)).contains("34.0/100"); // the magnitude shows on the profile too
+        assertThat(getMessages(player).get(4)).contains("34/100"); // the magnitude shows on the profile too
     }
 
     @Test

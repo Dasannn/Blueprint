@@ -663,6 +663,7 @@ sounds:
 history:
   # Cost in currency to reveal an anonymous rater's identity in the /status GUI (T-124).
   reveal-cost: 100.0
+  # Click the same anonymous head twice within this window (integer 1..60 seconds).
   reveal-confirm-seconds: 5
 
 

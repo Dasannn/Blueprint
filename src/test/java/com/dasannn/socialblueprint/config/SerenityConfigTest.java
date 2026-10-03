@@ -131,7 +131,7 @@ class SerenityConfigTest {
                     ConfidenceLevel.UNKNOWN, PsychosisLevel.HIGH, 0, 2);
             var madLine = registry.mentalStateLine(snapshot, mad, "status.profile-mental-state", false);
             assertThat(madLine.key()).isEqualTo("status.profile-mental-state-psychosis");
-            assertThat(madLine.placeholders()).containsExactlyInAnyOrderEntriesOf(Map.of("psychosis", registry.getRaw(snapshot, "psychosis.high"), "value", "2.0"));
+            assertThat(madLine.placeholders()).containsExactlyInAnyOrderEntriesOf(Map.of("psychosis", registry.getRaw(snapshot, "psychosis.high"), "value", "2"));
             assertThat(snapshot.messages().bundledActiveMessages()).containsKeys("status.profile-mental-state-serenity", "chat.hover-mental-state-serenity",
                     "gui.prompt-give-reason", "honor.reason-too-short");
             assertThat(registry.getRaw(snapshot, "psychosis.serenity.name")).isEqualTo(language.equals("en") ? "Serenity" : "Serenidad");
