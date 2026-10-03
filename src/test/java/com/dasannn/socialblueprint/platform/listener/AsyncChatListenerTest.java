@@ -67,6 +67,7 @@ class AsyncChatListenerTest {
     private ProfileService profileService;
     private PsychosisRepository psychosisRepo;
     private AsyncChatListener chatListener;
+    private final java.util.concurrent.atomic.AtomicInteger cacheReads = new java.util.concurrent.atomic.AtomicInteger();
 
     private record HoverCall(String key, java.util.Map<String, String> values,
                              java.util.Map<String, Component> components, Component rendered) {}
@@ -151,7 +152,12 @@ class AsyncChatListenerTest {
                 configManager,
                 null,
                 logger
-        );
+        ) {
+            @Override public PlayerSocialView getViewCached(PlayerId id, RuntimeSnapshot snapshot) {
+                cacheReads.incrementAndGet();
+                return super.getViewCached(id, snapshot);
+            }
+        };
 
         chatListener = new AsyncChatListener(profileService, configManager, messageRegistry);
     }
@@ -249,6 +255,9 @@ class AsyncChatListenerTest {
         var annotation = AsyncChatListener.class.getMethod("onChat", AsyncChatEvent.class)
                 .getAnnotation(org.bukkit.event.EventHandler.class);
         assertThat(annotation.priority()).isEqualTo(org.bukkit.event.EventPriority.HIGHEST);
+        var preparation = AsyncChatListener.class.getMethod("onPrepareChat", AsyncChatEvent.class)
+                .getAnnotation(org.bukkit.event.EventHandler.class);
+        assertThat(preparation.priority()).isEqualTo(org.bukkit.event.EventPriority.HIGH);
         try (var in = getClass().getClassLoader().getResourceAsStream("plugin.yml");
              var reader = new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
             var manifest = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(reader);
@@ -265,7 +274,12 @@ class AsyncChatListenerTest {
             configManager.set("chat.foreign-renderer.prefix", placement);
             AsyncChatEvent event = chatEvent(null, Component.text(input));
             event.renderer(foreign);
+            chatListener.onPrepareChat(event);
+            Component preparedBody = event.message();
+            assertThat(preparedBody).isEqualTo(Component.text(filtered));
+            assertThat(event.renderer()).isSameAs(foreign);
             chatListener.onChat(event);
+            assertThat(event.message()).isSameAs(preparedBody);
             ChatRenderer wrapper = event.renderer();
             assertThat(wrapper).isNotSameAs(foreign);
             Component leading = Component.empty().append(prefix).append(Component.space());
@@ -283,9 +297,20 @@ class AsyncChatListenerTest {
         configManager.set("chat.foreign-renderer.mode", "leave");
         AsyncChatEvent event = chatEvent(null, Component.text(input));
         event.renderer(foreign);
+        chatListener.onPrepareChat(event);
+        assertThat(event.message()).isEqualTo(Component.text(input));
         chatListener.onChat(event);
         assertThat(event.renderer()).isSameAs(foreign);
         assertThat(event.message()).isEqualTo(Component.text(filtered));
+        chatListener = new AsyncChatListener(profileService, configManager, messageRegistry, null, null, null, true);
+        AsyncChatEvent intact = chatEvent(null, Component.text("ordinary message"));
+        intact.renderer(foreign);
+        Component originalBody = intact.message();
+        chatListener.onPrepareChat(intact);
+        chatListener.onChat(intact);
+        assertThat(intact.message()).isSameAs(originalBody);
+        assertThat(intact.renderer()).isSameAs(foreign);
+        assertThat(cacheReads.get()).isEqualTo(3); // Only the three wrap events read the profile.
     }
 
     @Test
@@ -476,7 +501,18 @@ class AsyncChatListenerTest {
         sharedBodyAcrossViewers(true);
     }
 
+    @Test
+    void capturingRendererReadsCorruptedEventBodyBeforeHighestAndReusesOneDecision() throws Exception {
+        sharedBodyAcrossViewers(true, true);
+    }
+
     private void sharedBodyAcrossViewers(boolean foreign) throws Exception {
+        sharedBodyAcrossViewers(foreign, false);
+    }
+
+    private void sharedBodyAcrossViewers(boolean foreign, boolean capturing) throws Exception {
+        if (capturing) chatListener = new AsyncChatListener(profileService, configManager, messageRegistry,
+                null, null, null, true);
         UUID uuid = UUID.fromString("00000000-0000-0000-0000-000000000123");
         PlayerId id = PlayerId.of(uuid);
         RuntimeSnapshot snapshot = configManager.snapshot();
@@ -509,10 +545,25 @@ class AsyncChatListenerTest {
             try {
                 for (int sequence = 0; sequence < 100; sequence++) {
                     AsyncChatEvent event = chatEvent(speaker, Component.text(unfiltered));
-                    if (foreign) event.renderer((source, name, message, viewer) ->
+                    if (foreign && !capturing) event.renderer((source, name, message, viewer) ->
                             Component.empty().append(name).append(Component.text(" :: ")).append(message));
+                    Component initialBody = event.message();
+                    chatListener.onPrepareChat(event);
+                    Component preparedBody = event.message();
+                    chatListener.onPrepareChat(event); // Preparing twice must not reroll either.
+                    assertThat(event.message()).isSameAs(preparedBody);
+                    if (!foreign) assertThat(preparedBody).isSameAs(initialBody);
+                    if (capturing) {
+                        // Simulate EssentialsChat at HIGHEST: capture the event body and ignore render's message argument.
+                        Component captured = event.message();
+                        event.renderer((source, name, ignored, viewer) ->
+                                Component.empty().append(name).append(Component.text(" :: ")).append(captured));
+                    }
                     chatListener.onChat(event);
-                    if (foreign) chatListener.onChat(event); // Must not reroll or advance the speaker sequence.
+                    if (foreign) {
+                        assertThat(event.message()).isSameAs(preparedBody);
+                        chatListener.onChat(event); // Must not reroll or advance the speaker sequence.
+                    }
                     String expectedText = ChatCorruption.corrupt(original, view.psychosis(),
                             uuid.getMostSignificantBits() ^ uuid.getLeastSignificantBits(), sequence,
                             snapshot.config().psychosis().chat());
@@ -521,6 +572,8 @@ class AsyncChatListenerTest {
                             snapshot.config().psychosis().chat());
                     Component expectedBody = Component.text(expectedText);
                     if (episode) expectedBody = expectedBody.color(TextColor.fromHexString("#303030"));
+                    if (foreign) assertThat(preparedBody).isEqualTo(expectedBody);
+                    else assertThat(event.message()).isEqualTo(Component.text(original));
                     if (!expectedText.equals(original)) changed.set(true);
                     Component first = null;
                     for (int reader = 0; reader < 4; reader++) {
@@ -535,7 +588,7 @@ class AsyncChatListenerTest {
                                     .append(Component.text(" :: ")).append(expectedBody);
                             assertThat(rendered).isEqualTo(Component.empty().append(prefix).append(Component.space())
                                     .append(foreignLine));
-                            assertThat(rendered.children().getLast().children().getLast()).isEqualTo(expectedBody);
+                            assertThat(rendered.children().getLast().children().getLast()).isSameAs(preparedBody);
                         } else {
                             assertThat(rendered.children().getLast()).isEqualTo(expectedBody);
                             assertThat(rendered).isEqualTo(Component.empty().append(prefix).append(Component.space())
@@ -547,6 +600,8 @@ class AsyncChatListenerTest {
                         else assertThat(rendered).isEqualTo(first);
                     }
                     assertThat(event.isCancelled()).isFalse();
+                    assertThat(cacheReads.get()).isEqualTo(sequence + 1);
+                    chatListener.onRenderedChat(event);
                 }
                 assertThat(profileService.getViewCached(PlayerId.of(UUID.randomUUID()), snapshot).psychosis())
                         .isEqualTo(PsychosisLevel.NEUTRAL); // cold read also submits no storage work
@@ -561,6 +616,42 @@ class AsyncChatListenerTest {
     private static AsyncChatEvent chatEvent(Player player, Component message) {
         return new AsyncChatEvent(true, player, Collections.emptySet(), ChatRenderer.defaultRenderer(),
                 message, message, SignedMessage.system(AsyncChatListener.extractPlainText(message), message));
+    }
+
+    @Test
+    void preparationSnapshotAndBodySurviveReloadBetweenPriorities() {
+        AsyncChatEvent event = chatEvent(null, Component.text("ordinary message"));
+        ChatRenderer foreign = (source, name, body, viewer) -> body;
+        event.renderer(foreign);
+        Component prefix = ColorParser.parse(configManager.config().tiers().prefix(Tier.PARTICULAR));
+        chatListener.onPrepareChat(event);
+        Component body = event.message();
+        configManager.set("chat.foreign-renderer.mode", "leave");
+        chatListener.onChat(event);
+        assertThat(event.renderer()).isNotSameAs(foreign);
+        assertThat(event.renderer().render(null, Component.text("Speaker"), Component.empty(), null))
+                .isEqualTo(Component.empty().append(prefix).append(Component.space()).append(body));
+        assertThat(cacheReads.get()).isEqualTo(1);
+    }
+
+    @Test
+    void preparedContextIsClearedAtHighestAndMonitorEvenWhenCancelled() throws Exception {
+        var field = AsyncChatListener.class.getDeclaredField("prepared");
+        field.setAccessible(true);
+        var contexts = (java.util.Map<?, ?>) field.get(chatListener);
+        for (boolean cancelled : java.util.List.of(false, true)) {
+            AsyncChatEvent event = chatEvent(null, Component.text("ordinary message"));
+            event.renderer((source, name, body, viewer) -> body);
+            chatListener.onPrepareChat(event);
+            assertThat(contexts.size()).isEqualTo(1);
+            if (cancelled) event.setCancelled(true);
+            else chatListener.onChat(event);
+            chatListener.onRenderedChat(event);
+            assertThat(contexts).isEmpty();
+        }
+        var monitor = AsyncChatListener.class.getMethod("onRenderedChat", AsyncChatEvent.class)
+                .getAnnotation(org.bukkit.event.EventHandler.class);
+        assertThat(monitor.ignoreCancelled()).isFalse();
     }
 
     @Test
