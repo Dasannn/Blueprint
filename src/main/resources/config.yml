@@ -684,3 +684,9 @@ mind:
 
 # SocialBlueprint inputs, effects, duels and honor are disabled in these exact world names.
 disabled-worlds: [minigames]
+
+# Coexist with EssentialsX Chat and other Paper chat renderers.
+chat:
+  foreign-renderer:
+    mode: wrap # wrap | leave
+    prefix: before-line # before-line | display-name | none

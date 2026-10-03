@@ -115,6 +115,20 @@ class StatusConfigCommandTest {
     }
 
     @Test
+    void foreignRendererShortKeysUseExistingSuffixResolution() {
+        var admin = new MockSender("Admin", "socialblueprint.admin.config");
+        command.execute(admin, new String[]{"foreign-renderer.mode", "leave"});
+        assertThat(configManager.config().foreignRenderer().mode()).isEqualTo("leave");
+        command.execute(admin, new String[]{"foreign-renderer.prefix", "display-name"});
+        assertThat(configManager.config().foreignRenderer().prefix()).isEqualTo("display-name");
+        command.execute(admin, new String[]{"foreign-renderer.mode", "invalid"});
+        assertThat(messageRegistry.lastCall().key()).isEqualTo("commands.config.set-failed");
+        assertThat(configManager.config().foreignRenderer().mode()).isEqualTo("leave");
+        assertThat(command.tabComplete(admin, new String[]{"foreign-renderer."}))
+                .contains("foreign-renderer.prefix");
+    }
+
+    @Test
     void effectsDebugCanBeEnabledAndDisabledThroughStatusConfig() {
         var admin = new MockSender("Admin", "socialblueprint.admin.config");
         command.execute(admin, new String[]{"effects.debug", "true"});

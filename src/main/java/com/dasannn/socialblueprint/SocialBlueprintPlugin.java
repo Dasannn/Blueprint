@@ -326,7 +326,8 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                         getServer().getScheduler().runTask(this, runnable);
                     }
                 },
-                uuid -> getServer().getPlayer(uuid)
+                uuid -> getServer().getPlayer(uuid),
+                getServer().getPluginManager().getPlugin("EssentialsChat") != null
         );
         getServer().getOnlinePlayers().forEach(chatListener::registerPlayer);
         getServer().getPluginManager().registerEvents(chatListener, this);

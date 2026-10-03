@@ -862,6 +862,8 @@ public class ConfigManager {
         set.add("psychosis.serenity.idle-timeout-seconds");
 
         set.add("honor.reason.min-length");
+        set.add("chat.foreign-renderer.mode");
+        set.add("chat.foreign-renderer.prefix");
         set.add("chat-filter.enabled");
         set.add("chat-filter.words.es");
         set.add("chat-filter.words.en");
@@ -1037,6 +1039,8 @@ public class ConfigManager {
             if ((prefix + (kind.bad() ? "psychosis-weight" : "cure")).equals(path)) return String.valueOf(input.psychosisAmount());
             if ((prefix + "cap").equals(path)) return String.valueOf(input.cap());
         }
+        if ("chat.foreign-renderer.mode".equals(path)) return config.foreignRenderer().mode();
+        if ("chat.foreign-renderer.prefix".equals(path)) return config.foreignRenderer().prefix();
         if ("psychosis.chat.enabled".equals(path)) return String.valueOf(config.psychosis().chat().enabled());
         if ("psychosis.chat.medium-rate".equals(path)) return String.valueOf(config.psychosis().chat().mediumRate());
         if ("psychosis.chat.high-rate".equals(path)) return String.valueOf(config.psychosis().chat().highRate());

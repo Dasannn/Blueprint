@@ -54,13 +54,17 @@ public class AsyncChatListener implements Listener {
                 .warning("Another plugin replaced the chat renderer; SocialBlueprint leaves it in control of chat presentation.");
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onRenderedChat(AsyncChatEvent event) {
-        if (!(event.renderer() instanceof OwnedRenderer) && !(event.renderer() instanceof ChatRenderer.Default))
+        prepared.remove(event);
+        if (!event.isCancelled() && !(event.renderer() instanceof OwnedRenderer) && !(event.renderer() instanceof ChatRenderer.Default))
             warnForeignRenderer();
     }
 
     private record ChatIdentity(PlayerId id, AtomicLong sequence, String world) {}
+    private record PreparedChat(RuntimeSnapshot snapshot, PlayerSocialView view, Component body) {}
+    private final Map<AsyncChatEvent, PreparedChat> prepared = Collections.synchronizedMap(new IdentityHashMap<>());
+    private final boolean essentialsChat;
     // Identity keys never invoke a Player method (including hashCode) on the chat thread.
     private final Map<Player, ChatIdentity> identities = Collections.synchronizedMap(new IdentityHashMap<>());
     private final ProfileService profileService;
@@ -101,6 +105,19 @@ public class AsyncChatListener implements Listener {
             Consumer<Runnable> mainThreadRunner,
             Function<UUID, Player> playerResolver
     ) {
+        this(profileService, configManager, messageRegistry, statusGuiService, mainThreadRunner, playerResolver, false);
+    }
+
+    public AsyncChatListener(
+            ProfileService profileService,
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            com.dasannn.socialblueprint.feature.gui.StatusGuiService statusGuiService,
+            Consumer<Runnable> mainThreadRunner,
+            Function<UUID, Player> playerResolver,
+            boolean essentialsChat
+    ) {
+        this.essentialsChat = essentialsChat;
         this.profileService = Objects.requireNonNull(profileService, "ProfileService must not be null");
         this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "MessageRegistry must not be null");
@@ -137,13 +154,40 @@ public class AsyncChatListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) { identities.remove(event.getPlayer()); }
 
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPrepareChat(AsyncChatEvent event) {
+        // EssentialsChat installs its capturing renderer at HIGHEST, after this stage.
+        if (prepared.containsKey(event) || event.renderer() instanceof OwnedRenderer) return;
+        if (!essentialsChat && event.renderer() instanceof ChatRenderer.Default) return;
+        handleChat(event, true);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
         try {
+            handleChat(event, false);
+        } finally {
+            prepared.remove(event);
+        }
+    }
+
+    private void handleChat(AsyncChatEvent event, boolean preparing) {
+        try {
+            if (event.renderer() instanceof OwnedRenderer) return;
+            PreparedChat context = prepared.get(event);
+            if (context != null && context.body() != null) {
+                installRenderer(event, context.snapshot(), context.view(), context.body());
+                return;
+            }
+            // Read one immutable snapshot across both priorities.
+            RuntimeSnapshot snapshot = context != null ? context.snapshot() : configManager.snapshot();
+            if (preparing && snapshot.config().foreignRenderer().mode().equals("leave")) {
+                prepared.put(event, new PreparedChat(snapshot, null, null));
+                return;
+            }
             // Hook GUI pending written reason prompt before normal chat formatting (Finding 3 / Finding 6)
             ChatIdentity identity = identities.get(event.getPlayer());
             UUID playerUuid = identity != null ? identity.id().uuid() : null;
-            RuntimeSnapshot snapshot = configManager.snapshot();
             boolean disabled = snapshot.config().worldRules().isDisabled(identity != null ? identity.world() : null);
             if (disabled && playerUuid != null && statusGuiService != null)
                 mainThreadRunner.accept(() -> statusGuiService.cancelPendingReason(playerUuid));
@@ -165,7 +209,9 @@ public class AsyncChatListener implements Listener {
             String original = disabled ? plain : snapshot.config().chatFilter().apply(plain,
                     messageRegistry.getRaw(snapshot, "chat-filter.replacement"));
             if (!original.equals(extractPlainText(event.message()))) event.message(Component.text(original));
-            if (!(event.renderer() instanceof ChatRenderer.Default)) {
+            ChatRenderer renderer = event.renderer();
+            boolean foreign = !(renderer instanceof ChatRenderer.Default);
+            if (foreign && snapshot.config().foreignRenderer().mode().equals("leave")) {
                 warnForeignRenderer();
                 return;
             }
@@ -175,33 +221,52 @@ public class AsyncChatListener implements Listener {
             // Single read from in-memory cache, neutral default if absent (T-042)
             PlayerSocialView view = profileService.getViewCached(playerId, snapshot);
 
-            // Resolve tier and prefix dynamically from current snapshot per lookup (T-040)
-            Tier tier = snapshot.config().tiers().ladder().resolve(view.status());
-            String prefixStr = com.dasannn.socialblueprint.domain.PlayerNameFormat.prefix(snapshot.config().tiers().prefix(tier));
-            Component prefixComp = (prefixStr != null && !prefixStr.isEmpty())
-                    ? ColorParser.parse(prefixStr)
-                    : Component.empty();
-
-
             long sequence = identity != null ? identity.sequence().getAndIncrement() : 1;
             long speakerSeed = playerUuid != null
                     ? playerUuid.getMostSignificantBits() ^ playerUuid.getLeastSignificantBits() : 0;
             Component body = messageBodyInWorld(original, view.psychosis(), speakerSeed, sequence,
                     snapshot.config().psychosis().chat(), snapshot.config().worldRules(), identity != null ? identity.world() : "");
 
-            // Format name hover summary from message bundle (T-043)
-            Component hoverComponent = buildHoverComponent(snapshot, view, tier);
-
-            // Install renderer: preserves player name, attaches hover, captures shared body (T-043, T-044)
-            event.renderer(createRenderer(prefixComp, hoverComponent, body));
+            if (preparing) {
+                prepared.put(event, new PreparedChat(snapshot, view, body));
+                event.message(body);
+                return;
+            }
+            installRenderer(event, snapshot, view, body);
         } catch (Throwable t) {
             // Keep even the fallback body fixed for all viewers.
             Component body = plainBody(event.message());
-            if (event.renderer() instanceof ChatRenderer.Default) {
+            if (!preparing && event.renderer() instanceof ChatRenderer.Default) {
                 event.renderer(new OwnedRenderer((source, sourceDisplayName, message, viewer) ->
                         Component.empty().append(sourceDisplayName).append(Component.text(": ")).append(body)));
             }
         }
+    }
+
+    private void installRenderer(AsyncChatEvent event, RuntimeSnapshot snapshot, PlayerSocialView view, Component body) {
+        Tier tier = snapshot.config().tiers().ladder().resolve(view.status());
+        String prefixStr = com.dasannn.socialblueprint.domain.PlayerNameFormat.prefix(snapshot.config().tiers().prefix(tier));
+        Component prefixComp = (prefixStr != null && !prefixStr.isEmpty())
+                ? ColorParser.parse(prefixStr) : Component.empty();
+        ChatRenderer renderer = event.renderer();
+        if (!(renderer instanceof ChatRenderer.Default)) {
+            event.renderer(createForeignRenderer(renderer, prefixComp, body, snapshot.config().foreignRenderer()));
+        } else {
+            event.renderer(createRenderer(prefixComp, buildHoverComponent(snapshot, view, tier), body));
+        }
+    }
+
+    public ChatRenderer createForeignRenderer(ChatRenderer foreign, Component prefix, Component body,
+            com.dasannn.socialblueprint.config.ForeignRendererConfig config) {
+        if (foreign instanceof OwnedRenderer || config.mode().equals("leave")) return foreign;
+        Component leading = prefix.equals(Component.empty()) ? Component.empty()
+                : Component.empty().append(prefix).append(Component.space());
+        // Preserve the foreign name's hover/click actions and its complete line structure.
+        return new OwnedRenderer((source, name, message, viewer) -> {
+            Component displayName = config.prefix().equals("display-name") ? leading.append(name) : name;
+            Component line = foreign.render(source, displayName, body, viewer);
+            return config.prefix().equals("before-line") ? leading.append(line) : line;
+        });
     }
 
     public ChatRenderer createRenderer(Component prefixComp, Component hoverComponent, Component body) {
