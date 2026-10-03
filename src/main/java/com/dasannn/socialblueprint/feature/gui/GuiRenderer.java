@@ -60,9 +60,8 @@ public class GuiRenderer {
             return item;
         }
 
-        if (meta instanceof SkullMeta skullMeta && slot.owningPlayerId() != null) {
-            // Deliberate product decision (SB-082): Anonymity covers the name only;
-            // the rater's head carries their real skin so the player sees who rated them as a face.
+        if (meta instanceof SkullMeta skullMeta && slot.applyPlayerSkin() && slot.owningPlayerId() != null) {
+            // SB-082: Anonymous heads must carry no identifying player profile.
             OfflinePlayer op = offlinePlayerResolver.apply(slot.owningPlayerId());
             if (op != null) {
                 skullMeta.setOwningPlayer(op);

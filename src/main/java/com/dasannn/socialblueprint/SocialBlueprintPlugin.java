@@ -280,6 +280,10 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
                 getLogger()
         );
 
+        this.statusGuiService.setRevealExpiryRunner((task, ticks) -> {
+            if (isEnabled()) getServer().getScheduler().runTaskLater(this, task, ticks);
+        });
+
         this.duelService = new com.dasannn.socialblueprint.feature.duel.DuelService(
                 duelRepository,
                 auditRepository,

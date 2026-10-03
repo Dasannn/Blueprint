@@ -69,12 +69,14 @@ public class StatusGuiListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {
         if (event.getInventory().getHolder() instanceof StatusGuiHolder holder) {
+            guiService.disarmReveal(event.getPlayer().getUniqueId());
             guiService.discardHonorPreview(holder);
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
+        guiService.disarmReveal(event.getPlayer().getUniqueId());
         guiService.cancelPendingReason(event.getPlayer().getUniqueId());
     }
 }

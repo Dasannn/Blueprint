@@ -529,6 +529,7 @@ public class StatusGuiServiceTest {
         assertThat(headSlot).isNotNull();
         assertThat(headSlot.iconKind()).isEqualTo(GuiIconKind.SUBJECT_HEAD);
         assertThat(headSlot.owningPlayerId()).isEqualTo(subjectUuid);
+        assertThat(headSlot.applyPlayerSkin()).isTrue();
         assertThat(headSlot.titleKey()).isEqualTo("gui.top.subject-head-title");
         assertThat(headSlot.titlePlaceholders()).containsEntry("player", "PublicSubject");
     }
@@ -732,6 +733,9 @@ public class StatusGuiServiceTest {
         assertThat(layout.get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
         assertThat(layout.get(28).titleKey()).isEqualTo("gui.history.revealed-rater");
         assertThat(layout.get(29).titleKey()).isEqualTo("status.system-actor");
+        assertThat(layout.get(27).applyPlayerSkin()).isFalse();
+        assertThat(layout.get(28).applyPlayerSkin()).isTrue();
+        assertThat(layout.get(29).applyPlayerSkin()).isFalse();
         assertThat(layout.get(37).lore().getFirst().isPlain()).isTrue();
         assertThat(layout.get(38).lore().getFirst().key()).isEqualTo("kill-penalty.reason");
         assertThat(layout.get(39).lore().getFirst().key()).isEqualTo("gui.history.no-reason");
@@ -802,6 +806,7 @@ public class StatusGuiServiceTest {
         assertThat(raterHead).isNotNull();
         assertThat(raterHead.iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertThat(raterHead.owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(raterHead.applyPlayerSkin()).isFalse();
 
         assertThat(reasonPaper).isNotNull();
         assertThat(reasonPaper.iconKind()).isEqualTo(GuiIconKind.REASON_PAPER);
@@ -849,6 +854,8 @@ public class StatusGuiServiceTest {
         assertThat(page0Layout.get(35).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertSlotMap(page0Layout, 9);
 
+        guiService.handleClick(viewer, holder, 27);
+        assertThat(holder.layout().get(27).lore().getFirst().key()).isEqualTo("gui.history.confirm-reveal");
         // Click next star at slot 26
         guiService.handleClick(viewer, holder, StatusGuiService.SLOT_PAGE_NEXT_ROW2);
         assertThat(holder.currentPage()).isEqualTo(1);
@@ -864,6 +871,10 @@ public class StatusGuiServiceTest {
         assertThat(countRaterHeads(holder.layout())).isEqualTo(9);
         assertThat(holder.layout().get(35).iconKind()).isEqualTo(GuiIconKind.RATER_HEAD);
         assertSlotMap(holder.layout(), 9);
+        assertThat(holder.layout().get(27).lore().getFirst().key()).isEqualTo("gui.history.click-to-reveal");
+        guiService.handleClick(viewer, holder, 27);
+        assertThat(holder.revealedEventIds()).isEmpty();
+        assertThat(mainThreadQueue).isEmpty();
     }
 
     // =========================================================================
@@ -1292,8 +1303,23 @@ public class StatusGuiServiceTest {
         // 1. By default, rater is not revealed to regular viewer
         assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isFalse();
         assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(holder.layout().get(27).applyPlayerSkin()).isFalse();
+        assertThat(holder.layout().get(27).owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(holder.layout().get(27).titlePlaceholders()).isEmpty();
+        assertThat(holder.layout().get(27).lore()).containsExactly(
+                GuiLoreLine.ofKey("gui.history.click-to-reveal", Map.of("cost", HonorService.formatCost(100.0))));
 
-        // 2. Click rater head at slot 27 to reveal
+        // The first click only arms; no Vault or storage work occurs.
+        guiService.handleClick(viewer, holder, 27);
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(500.0);
+        assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join()).isEmpty();
+        assertThat(compensationRepo.findByPlayerAsync(viewerUuid).join()).isEmpty();
+        assertThat(mainThreadQueue).isEmpty();
+        assertThat(holder.layout().get(27).lore()).containsExactly(
+                GuiLoreLine.ofKey("gui.history.confirm-reveal", Map.of("cost", HonorService.formatCost(100.0))));
+        assertThat(holder.layout().get(27).applyPlayerSkin()).isFalse();
+        assertThat(holder.layout().get(27).titlePlaceholders()).isEmpty();
+        testClock.advance(Duration.ofSeconds(4));
         guiService.handleClick(viewer, holder, 27);
         awaitGuiOutcome(() -> holder.revealedEventIds().contains(saved.id()));
         Set<Long> revealedEvents = raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join();
@@ -1304,6 +1330,8 @@ public class StatusGuiServiceTest {
         // Now revealed in holder
         assertThat(guiService.isRaterRevealed(viewer, saved, holder)).isTrue();
         assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(holder.layout().get(27).applyPlayerSkin()).isTrue();
+        assertThat(holder.layout().get(27).owningPlayerId()).isEqualTo(raterUuid);
         assertThat(holder.layout().get(27).titlePlaceholders()).containsEntry("player", "SecretRater");
         assertParsedText(holder.layout());
 
@@ -1314,6 +1342,7 @@ public class StatusGuiServiceTest {
         drainMainThreadQueue();
         StatusGuiHolder reopenedHolder = (StatusGuiHolder) openedInventories.get(1).getHolder();
         assertThat(reopenedHolder.layout().get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(reopenedHolder.layout().get(27).applyPlayerSkin()).isTrue();
         assertThat(reopenedHolder.layout().get(27).titlePlaceholders()).containsEntry("player", "SecretRater");
         assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
 
@@ -1325,6 +1354,57 @@ public class StatusGuiServiceTest {
         StatusGuiHolder otherHolder = (StatusGuiHolder) openedInventories.get(2).getHolder();
         assertThat(guiService.isRaterRevealed(otherViewer, saved, otherHolder)).isFalse();
         assertThat(otherHolder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(otherHolder.layout().get(27).applyPlayerSkin()).isFalse();
+    }
+
+    @Test
+    void revealSwitchExpiryCloseAndQuitDisarmWithoutCharge() {
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        onlineLookupMap.put("targetuser", new PlayerLookup.KnownPlayer(target, "TargetUser", true));
+        for (int i = 0; i < 2; i++) {
+            reputationRepo.saveAsync(new ReputationEvent(PlayerId.of(UUID.randomUUID()), target,
+                    1, HonorKind.POSITIVE, 500, "Helpful", testClock.instant())).join();
+        }
+        UUID viewerUuid = UUID.randomUUID();
+        economyBalances.put(viewerUuid, 500.0);
+        Player viewer = createMockPlayer("Viewer", viewerUuid, "socialblueprint.show", "socialblueprint.show-others");
+        guiService.openGuiAsync(viewer, "TargetUser", configManager.snapshot()).join();
+        drainMainThreadQueue();
+        StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
+        List<Runnable> expiryTasks = new ArrayList<>();
+        guiService.setRevealExpiryRunner((task, ticks) -> {
+            assertThat(ticks).isBetween(1L, 100L);
+            expiryTasks.add(task);
+        });
+        guiService.handleClick(viewer, holder, 27);
+        testClock.advance(Duration.ofSeconds(1));
+        guiService.handleClick(viewer, holder, 28);
+        assertThat(holder.layout().get(27).lore().getFirst().key()).isEqualTo("gui.history.click-to-reveal");
+        assertThat(holder.layout().get(28).lore().getFirst().key()).isEqualTo("gui.history.confirm-reveal");
+        testClock.advance(Duration.ofSeconds(4));
+        expiryTasks.getFirst().run(); // Old timer must leave the newer arm intact.
+        assertThat(holder.layout().get(28).lore().getFirst().key()).isEqualTo("gui.history.confirm-reveal");
+        testClock.advance(Duration.ofSeconds(1));
+        expiryTasks.get(1).run();
+        assertThat(holder.layout().get(28).lore().getFirst().key()).isEqualTo("gui.history.click-to-reveal");
+        guiService.handleClick(viewer, holder, 28);
+        testClock.advance(Duration.ofSeconds(6));
+        guiService.handleClick(viewer, holder, 28); // Late second click re-arms.
+        assertThat(holder.layout().get(28).lore().getFirst().key()).isEqualTo("gui.history.confirm-reveal");
+        var listener = new com.dasannn.socialblueprint.platform.listener.StatusGuiListener(guiService);
+        listener.onInventoryClose(new org.bukkit.event.inventory.InventoryCloseEvent(viewer.getOpenInventory()));
+        viewer.closeInventory();
+        viewer.openInventory(holder.getInventory());
+        guiService.handleClick(viewer, holder, 28);
+        listener.onPlayerQuit(
+                new org.bukkit.event.player.PlayerQuitEvent(viewer, (Component) null));
+        guiService.handleClick(viewer, holder, 28);
+        assertThat(holder.layout().get(28).lore().getFirst().key()).isEqualTo("gui.history.confirm-reveal");
+        assertThat(economyBalances.get(viewerUuid)).isEqualTo(500.0);
+        assertThat(holder.revealedEventIds()).isEmpty();
+        assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(viewerUuid).join()).isEmpty();
+        assertThat(compensationRepo.findByPlayerAsync(viewerUuid).join()).isEmpty();
+        assertThat(mainThreadQueue).isEmpty();
     }
 
     @Test
@@ -1353,7 +1433,8 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.get(0);
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // Click slot 27 to reveal
+        // Arm, then confirm the reveal.
+        guiService.handleClick(brokeViewer, holder, 27);
         guiService.handleClick(brokeViewer, holder, 27);
         awaitGuiOutcome(() -> messageRegistry.hasCall("gui.reveal.insufficient-funds"));
 
@@ -1362,6 +1443,11 @@ public class StatusGuiServiceTest {
         // Error message received
         assertThat(messageRegistry.hasCall("gui.reveal.insufficient-funds")).isTrue();
         assertThat(holder.layout().get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(holder.layout().get(27).applyPlayerSkin()).isFalse();
+        assertThat(holder.layout().get(27).owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(holder.layout().get(27).titlePlaceholders()).isEmpty();
+        assertThat(holder.layout().get(27).lore()).containsExactly(
+                GuiLoreLine.ofKey("gui.history.click-to-reveal", Map.of("cost", HonorService.formatCost(100.0))));
         // Not persisted
         assertThat(raterRevealRepo.findRevealedEventsByViewerAsync(brokeViewerUuid).join()).isEmpty();
     }
@@ -1396,6 +1482,7 @@ public class StatusGuiServiceTest {
         assertThat(raterSlot.titleKey()).isEqualTo("status.system-actor");
         assertThat(raterSlot.lore()).isEmpty();
         assertThat(raterSlot.owningPlayerId()).isNull();
+        assertThat(raterSlot.applyPlayerSkin()).isFalse();
 
         // 2. Verify paper slot at slot 36 has kill-penalty.reason as translated key
         GuiSlot paperSlot = holder.layout().get(36);
@@ -1489,6 +1576,10 @@ public class StatusGuiServiceTest {
         GuiLayout adminLayout = guiService.computeLayout(holder, admin);
         assertParsedText(adminLayout);
         assertThat(adminLayout.get(27).titleKey()).isEqualTo("gui.history.revealed-rater");
+        assertThat(adminLayout.get(27).applyPlayerSkin()).isTrue();
+        assertThat(guiService.computeAllPages(null, List.of(event), Set.of(), admin,
+                configManager.snapshot()).getFirst().get(27).applyPlayerSkin()).isTrue();
+        holder.setLayout(adminLayout);
 
         // Regular player without admin permission
         Player regular = createMockPlayer("Bob", UUID.randomUUID(), "socialblueprint.show");
@@ -1496,6 +1587,13 @@ public class StatusGuiServiceTest {
         GuiLayout regularLayout = guiService.computeLayout(holder, regular);
         assertParsedText(regularLayout);
         assertThat(regularLayout.get(27).titleKey()).isEqualTo("gui.history.anonymous-rater");
+        assertThat(regularLayout.get(27).applyPlayerSkin()).isFalse();
+        assertThat(regularLayout.get(27).owningPlayerId()).isEqualTo(raterUuid);
+        assertThat(regularLayout.get(27).titlePlaceholders()).isEmpty();
+
+        Player rater = createMockPlayer("SecretRater", raterUuid, "socialblueprint.show");
+        assertThat(guiService.computeAllPages(null, List.of(event), Set.of(), rater,
+                configManager.snapshot()).getFirst().get(27).applyPlayerSkin()).isTrue();
     }
 
     @Test
@@ -1696,6 +1794,7 @@ public class StatusGuiServiceTest {
         StatusGuiHolder holder = (StatusGuiHolder) openedInventories.getLast().getHolder();
         withdrawalFactor = 1.25;
         guiService.handleClick(viewer, holder, 27);
+        guiService.handleClick(viewer, holder, 27);
         // Run only the charge callback; leave the main-thread refund queued for inspection.
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (economyBalances.get(viewerUuid) == 500.0 && System.nanoTime() < deadline) {
@@ -1797,11 +1896,13 @@ public class StatusGuiServiceTest {
         Inventory inv = openedInventories.getLast();
         StatusGuiHolder holder = (StatusGuiHolder) inv.getHolder();
 
-        // Fire two clicks without draining main queue in between
+        // Arm, confirm, then double-confirm while the charge is in flight.
         guiService.handleClick(viewer, holder, 27);
         guiService.handleClick(viewer, holder, 27);
-
-        drainMainThreadQueue();
+        guiService.handleClick(viewer, holder, 27);
+        guiService.handleClick(viewer, holder, 27);
+        awaitGuiOutcome(() -> holder.revealedEventIds().size() == 1
+                && compensationRepo.findByPlayerAsync(viewerUuid).join().isEmpty());
 
         // Charged exactly once (500 -> 400), not twice (not 300)
         assertThat(economyBalances.get(viewerUuid)).isEqualTo(400.0);
@@ -1836,7 +1937,8 @@ public class StatusGuiServiceTest {
         // Pre-insert into rater reveal repo so saveRevealAsync inside reveal flow detects duplicate (returns false)
         raterRevealRepo.saveRevealAsync(viewerUuid, event.id(), raterUuid, 100.0, Instant.now()).join();
 
-        // Now trigger reveal click
+        // Arm, then confirm.
+        guiService.handleClick(viewer, holder, 27);
         guiService.handleClick(viewer, holder, 27);
         awaitGuiOutcome(() -> messageRegistry.hasCall("gui.reveal.already-revealed")
                 && economyBalances.get(viewerUuid) == 400.0);
@@ -1995,6 +2097,7 @@ public class StatusGuiServiceTest {
         // Player closes inventory before reveal executes
         viewer.closeInventory();
 
+        guiService.handleClick(viewer, holder, 27);
         guiService.handleClick(viewer, holder, 27);
         drainMainThreadQueue();
 
@@ -2179,6 +2282,7 @@ public class StatusGuiServiceTest {
                 if (activeInv[0] == null) return null;
                 InvocationHandler viewHandler = (vProxy, vMethod, vArgs) -> {
                     if ("getTopInventory".equals(vMethod.getName())) return activeInv[0];
+                    if ("getPlayer".equals(vMethod.getName())) return proxy;
                     return defaultValue(vMethod.getReturnType());
                 };
                 return (InventoryView) Proxy.newProxyInstance(

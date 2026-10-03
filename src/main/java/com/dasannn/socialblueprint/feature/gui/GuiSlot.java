@@ -12,6 +12,7 @@ import java.util.UUID;
 /**
  * Plain-data descriptor for a single slot in the Social Profile & Rating History GUI.
  * Contains no Bukkit types, allowing full layout and flow verification in unit tests.
+ * owningPlayerId stays server-side for clicks; only applyPlayerSkin permits a client profile.
  */
 public record GuiSlot(
         int slot,
@@ -24,7 +25,8 @@ public record GuiSlot(
         Map<String, String> titlePlaceholders,
         List<GuiLoreLine> lore,
         Component title,
-        List<Component> renderedLore
+        List<Component> renderedLore,
+        boolean applyPlayerSkin
 ) {
     public GuiSlot {
         renderedLore = renderedLore != null ? List.copyOf(renderedLore) : List.of();
@@ -39,7 +41,16 @@ public record GuiSlot(
             Map<String, String> titlePlaceholders, List<GuiLoreLine> lore
     ) {
         this(slot, iconKind, owningPlayerId, eventId, tier, dyeKind, titleKey,
-                titlePlaceholders, lore, null, List.of());
+                titlePlaceholders, lore, iconKind == GuiIconKind.SUBJECT_HEAD && owningPlayerId != null);
+    }
+
+    public GuiSlot(
+            int slot, GuiIconKind iconKind, UUID owningPlayerId, Long eventId,
+            Tier tier, GuiDyeKind dyeKind, String titleKey,
+            Map<String, String> titlePlaceholders, List<GuiLoreLine> lore, boolean applyPlayerSkin
+    ) {
+        this(slot, iconKind, owningPlayerId, eventId, tier, dyeKind, titleKey,
+                titlePlaceholders, lore, null, List.of(), applyPlayerSkin);
     }
 
     public GuiSlot(

@@ -598,6 +598,27 @@ class ConfigValidationTest {
                 .matches(e -> ((ConfigValidationException) e).key().equals("history.reveal-cost"));
     }
 
+    @Test
+    void revealConfirmSecondsDefaultsAndValidatesIntegerRange() {
+        YamlConfiguration yaml = loadValidYaml();
+        assertThat(PluginConfig.load(yaml).history().revealConfirmSeconds()).isEqualTo(5);
+        for (Object invalid : new Object[]{0, 61, -1, 1.5, "five"}) {
+            yaml.set("history.reveal-confirm-seconds", invalid);
+            assertThatThrownBy(() -> PluginConfig.load(yaml))
+                    .isInstanceOf(ConfigValidationException.class)
+                    .hasMessageContaining("history.reveal-confirm-seconds");
+        }
+        for (int valid : new int[]{1, 60}) {
+            yaml.set("history.reveal-confirm-seconds", valid);
+            assertThat(PluginConfig.load(yaml).history().revealConfirmSeconds()).isEqualTo(valid);
+        }
+        yaml.set("history.reveal-confirm-seconds", null);
+        assertThat(PluginConfig.load(yaml).history().revealConfirmSeconds()).isEqualTo(5);
+        yaml.set("history.reveal-cost", null);
+        yaml.set("history.reveal-confirm-seconds", 9);
+        assertThat(PluginConfig.load(yaml).history().revealConfirmSeconds()).isEqualTo(9);
+    }
+
     private static YamlConfiguration loadValidYaml() {
         InputStream stream = ConfigValidationTest.class.getClassLoader().getResourceAsStream("config.yml");
         assertThat(stream).isNotNull();

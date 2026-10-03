@@ -958,6 +958,7 @@ public class ConfigManager {
         set.add("sounds.creeper-fuse.delay");
         set.add("sounds.serenity-clean");
         set.add("history.reveal-cost");
+        set.add("history.reveal-confirm-seconds");
 
         return Collections.unmodifiableSet(set);
     }
@@ -1119,6 +1120,9 @@ public class ConfigManager {
             if ("kill-penalty.max-loss".equals(path)) return String.valueOf(config.killPenalty().maxLoss());
         }
 
+        if (config.history() != null && "history.reveal-confirm-seconds".equals(path)) {
+            return String.valueOf(config.history().revealConfirmSeconds());
+        }
         if (config.history() != null && "history.reveal-cost".equals(path)) {
             return String.valueOf(config.history().revealCost());
         }
