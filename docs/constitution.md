@@ -116,9 +116,8 @@ its English equivalents in English, while `&7[&a||&7]` is the same everywhere.
 - Specification-driven. Code follows an approved document, never the reverse.
 - Source-of-truth order: this file, then `docs/spec.md`, then `ARCHITECTURE.md`,
   then `docs/plan.md`, then `docs/tasks.md`.
-- Three agents: Claude orchestrates and owns git; Antigravity writes the
-  production code; Codex reviews it and issues corrections. One task per git
-  worktree.
+- Claude orchestrates, owns git and runs the build; Codex writes the
+  production code, tests and corrections. One task per git worktree.
 - `.agent/` is scratch space and is never committed.
 - A conflict between this constitution and the functional design document is
   resolved in a file under `docs/decisions/`, never silently in code.

@@ -66,9 +66,9 @@ Target platform is fixed in `docs/constitution.md` §3. Practical notes:
 
 ## Agent Pipeline
 
-Claude orchestrates, owns git and runs the build. Antigravity writes
-production code. Codex reviews it and issues corrections. One task per
-worktree.
+Claude orchestrates, owns git and runs the build. Codex writes production
+code, tests and corrections. One task per worktree. Antigravity is no longer
+used; the notes about it below are kept for history.
 
 ```bash
 # Antigravity
