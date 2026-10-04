@@ -194,6 +194,8 @@ effects:
   whisper-3: '&#202020Look behind you.'
 
 updater:
+  signature-invalid: '&cUpdate {release} refused: its Ed25519 signature is invalid or this running plugin has no trusted signing key.'
+  signature-missing: '&cUpdate {release} refused: its Ed25519 signature is missing.'
   running-ahead: '&7Running build &b{current}&7 is ahead of release &b{latest}&7; nothing was staged.'
   repository-not-found: 'GitHub returned HTTP 404 for update repository {repository}. Check update.repository: a private repository returns the same response as a missing repository; a repository without a release also returns 404.'
   update-available: '&aNew version available: &f{version}'

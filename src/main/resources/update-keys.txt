@@ -1,0 +1,2 @@
+# Primary Ed25519 public key: Claude fills in base64 X.509 SPKI before release.
+# Backup Ed25519 public key: Claude fills in base64 X.509 SPKI before release.
