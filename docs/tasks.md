@@ -386,3 +386,6 @@ acceptance; this worktree does not run Maven.
 | id | task | spec | status |
 |---|---|---|---|
 | T-230 | Show the rating calendar date after every history reason in GUI and chat/console, with a validated live-editable pattern, server time zone, both languages and plain-data tests. | SB-183 | review |
+| T-231 | Require detached Ed25519 signatures for manual and automatic updates using cached running-jar trust, secure bounded downloads, fail-closed cleanup, bilingual failures and regression coverage. | SB-184 to SB-186, decision 0009 | done |
+| T-232 | JDK-only encrypted-key generation/sign/verify tool, regression coverage and release guide for separate backups, rotation, recovery and publishing all three assets. | SB-187, decision 0009 | done |
+| T-233 | Generate and embed the release keys; sign v2.0.2 | SB-185, SB-187, decision 0009 | review |

@@ -870,7 +870,10 @@ against the latest release published on the plugin's GitHub repository.
 
 **SB-071.** `/status update` downloads that release's jar and writes it into the
 server's `plugins/update/` directory, so the server applies it on the next
-restart. The running jar is never replaced in place — swapping a loaded jar
+restart. Before staging, require the release checksum for integrity and an
+Ed25519 signature verified with the running jar's embedded keys for authenticity
+(SB-184 through SB-186, decision 0009); the release's own `.sha256` cannot
+establish authenticity. The running jar is never replaced in place — swapping a loaded jar
 breaks the class loader.
 Staging (manual or automatic) is allowed only when the release version is provably strictly newer than the running version; equal, older or unknown/unparseable versions never download or stage, and startup removes this plugin's staged jars that are not provably newer.
 
@@ -885,7 +888,10 @@ or prevent startup.
 it. A mismatch aborts and leaves `plugins/update/` untouched.
 
 **SB-075.** Automatic checking on startup is configurable and defaults to on;
-automatic *downloading* defaults to off.
+automatic *downloading* defaults to off. Automatic downloads enforce the same
+checksum, metadata and signature checks as `/status update`, including embedded
+key trust rather than trust in the release's own `.sha256` (SB-184 through
+SB-186, decision 0009). Availability checks do not require signatures.
 
 **SB-076.** The repository and release channel are configurable, so a fork or a
 private build can be pointed somewhere else.
@@ -1524,7 +1530,73 @@ with Locale.ROOT digits and no time. `history.date-format` defaults to
 with `ConfigValidationException` naming `history.date-format`. This supersedes
 SB-085's fixed ISO date example; timestamps remain unchanged in storage.
 
+**SB-184.** **Authenticated updates** (decision 0009). Every downloadable
+release jar has a detached `<jar-name>.sig` asset containing base64 of an
+Ed25519 signature over the exact jar bytes. Both `/status update` and
+`update.auto-download` require signature verification after existing size,
+HTTPS, SHA-256 and plugin-metadata checks, and before staging into
+`plugins/update/`. The signature asset must use the same HTTPS and redirect
+rules as other update assets; advertised size, Content-Length and actual
+downloaded bytes are each bounded by a hard 1 KiB cap. Availability reporting,
+including `/status update check`, does not require a signature and keeps its
+existing behaviour.
+
+**SB-185.** **Running-jar trust.** The running plugin embeds primary and backup
+Ed25519 public keys in the jar resource `update-keys.txt`, one base64 X.509 SPKI
+key per line, with `#` comments permitted. Load the trust set once from the
+running jar, never from server configuration, release metadata or the downloaded
+jar. Either trusted key may verify an update. Invalid key lines grant no trust;
+when no valid key is available, refuse updates and log a clear error. There is
+no configuration switch that disables signature verification. A newly installed
+jar may embed rotated keys for future updates; its own installation through the
+updater must first be authenticated by a key trusted by the previously running
+jar.
+
+**SB-186.** **Signature failure.** Missing or undecodable detached signatures,
+failures of their transport/size checks, and signatures verified by no embedded
+key refuse the update. Delete the temporary jar, do not stage any replacement,
+preserve existing staged jars through the signature-failure path, log SEVERE
+naming the release and jar asset, and send a translated
+`updater.signature-invalid` or `updater.signature-missing` message to the
+requesting administrator. Existing startup cleanup of non-newer staged jars
+remains unchanged.
+
+**SB-187.** **Release signing and recovery.** The committed single-file
+JDK-only `tools/SignRelease.java` supports Ed25519 key generation, jar signing,
+and verification with exit status 0/1. Generated private keys use
+password-encrypted PKCS#8 via PBES2, PBKDF2-HMAC-SHA256 and AES-256. Read
+passwords from the console without echo, or `SB_SIGN_PASSWORD` when no console
+exists; reject empty passwords. Refuse key generation inside git worktrees and
+refuse overwriting existing key files. Keep the primary key on the release PC
+with a tested copy on USB or in a password manager, and keep the backup key
+separately. Moving PCs copies existing encrypted `.key` files and securely
+recovers their passwords. If the primary is lost, sign with the backup; if both
+keys or their passwords are lost, servers manually install one jar with new
+trusted keys. Servers running checksum-only updaters manually install the first
+signature-enforcing release to receive this protection. Follow
+[the release guide](guides/releasing.md) for key storage, rotation, recovery and
+publishing the final jar, checksum and signature together.
+
 ## 16. Acceptance criteria for release 2
+
+- [ ] Manual and automatic downloads stage only jars signed by an embedded
+      primary or backup Ed25519 key after size, HTTPS, SHA-256 and metadata
+      checks; availability checks still work without signatures (SB-184).
+- [ ] Signature assets require the exact companion name, secure transport and
+      a 1 KiB cap on advertised size, Content-Length and streamed bytes
+      (SB-184).
+- [ ] Trust loads once from the running jar; invalid key lines grant no trust,
+      missing/empty/garbled/unreadable trust fails closed, and configuration or
+      downloaded metadata cannot bypass verification (SB-185).
+- [ ] Missing, malformed, tampered, unknown-key and transport/size-failing
+      signatures refuse manual and automatic updates, delete temporary jars,
+      preserve staging and log SEVERE with release/asset names. Manual replies
+      use translated signature failure keys in both languages (SB-186).
+- [ ] The JDK-only tool generates encrypted PKCS#8 keys outside git worktrees,
+      rejects empty passwords and existing key files, signs the final jar and
+      verifies with exit status 0/1. Check the release guide's separate backups,
+      rotation and manual recovery procedure; embed real primary/backup public
+      keys and publish jar, checksum and signature together (SB-187).
 
 - [ ] Release 2.0.2 history displays the rating date immediately after every
       reason in GUI lore and chat/console, in both languages and for anonymous,

@@ -318,6 +318,13 @@ Custom/private-chat, toast, and boss-bar lines must be nonblank, validly colored
 
 `update.channel: stable` checks the latest stable release; `beta` also considers prereleases. Startup checks are enabled, but automatic downloading is off by default. Downloads require SHA-256 verification and JAR validation before staging. Missing or mismatched checksums reject the update.
 
+**Signed updates.** Servers verify the release checksum, JAR metadata and a
+detached Ed25519 signature over the exact jar bytes using primary or backup
+public keys embedded in the running plugin. `/status update` refuses unsigned
+jars; automatic downloads enforce the same checks. Availability checks remain
+unchanged. Servers running older checksum-only versions must manually install
+the first signing-enforcing release. See [the release signing guide](docs/guides/releasing.md).
+
 The verified jar goes into Paper's update folder, normally `plugins/update/`, using the current plugin jar's filename when available. The running jar is left in place until restart. Network or release-check failures are reported without preventing startup.
 
 Upgrading to **2.0.1** removes the old honor multiplier keys and their directly attached comments, adds the percentage setting, and changes an untouched legacy base cost of 500 to 30. Customized base costs and the pair cooldown/cap are preserved.
