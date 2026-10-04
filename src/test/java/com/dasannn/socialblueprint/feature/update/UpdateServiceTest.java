@@ -148,6 +148,123 @@ class UpdateServiceTest {
         assertThat(logRecords).noneMatch(r -> r.getMessage().contains("Downloading update in background"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "missing", "404", "garbled", "tampered", "unknown", "advertised-cap",
+            "header-cap", "stream-cap", "insecure", "redirect", "empty-keys"
+    })
+    void signatureFailureRefusesStagingAndPreservesExistingJar(String mode) throws Exception {
+        byte[] jar = createValidPluginJarBytes("SocialBlueprint", "1.1");
+        updateFolder.mkdirs();
+        File staged = new File(updateFolder, "SocialBlueprint.jar");
+        byte[] oldBytes = createValidPluginJarBytes("SocialBlueprint", "1.2");
+        Files.write(staged.toPath(), oldBytes);
+        java.util.Set<java.nio.file.Path> priorTemps;
+        try (var paths = Files.list(java.nio.file.Path.of(System.getProperty("java.io.tmpdir")))) {
+            priorTemps = paths.filter(path -> path.getFileName().toString().startsWith("socialblueprint-update-"))
+                    .collect(java.util.stream.Collectors.toSet());
+        }
+        AtomicReference<java.nio.file.Path> downloadedTemp = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger keyLoads = new java.util.concurrent.atomic.AtomicInteger();
+        String signature = switch (mode) {
+            case "garbled" -> "not base64!";
+            case "tampered" -> TestSigning.sign(new byte[]{1, 2, 3});
+            case "unknown" -> {
+                var key = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+                var signer = java.security.Signature.getInstance("Ed25519");
+                signer.initSign(key.getPrivate());
+                signer.update(jar);
+                yield java.util.Base64.getEncoder().encodeToString(signer.sign());
+            }
+            case "header-cap", "stream-cap" -> "A".repeat(1025);
+            default -> TestSigning.sign(jar);
+        };
+        String signatureUrl = "insecure".equals(mode) ? "http://example.com/unsigned.sig" : serverBaseUrl + "/signature";
+        String companion = "missing".equals(mode) ? "" : ", {\"name\":\"SocialBlueprint.jar.sig\","
+                + "\"browser_download_url\":\"" + signatureUrl + "\",\"size\":"
+                + ("advertised-cap".equals(mode) ? 1025 : 0) + "}";
+        String json = "{\"tag_name\":\"v1.1\",\"body\":\"SHA256: " + ChecksumVerifier.computeSha256(jar)
+                + "\",\"assets\":[{\"name\":\"SocialBlueprint.jar\",\"browser_download_url\":\""
+                + serverBaseUrl + "/jar\"}" + companion + "]}";
+        mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
+            byte[] response = json.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(response); }
+        });
+        mockServer.createContext("/jar", exchange -> {
+            exchange.sendResponseHeaders(200, jar.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(jar); }
+        });
+        mockServer.createContext("/signature", exchange -> {
+            if ("404".equals(mode)) {
+                exchange.sendResponseHeaders(404, -1);
+                exchange.close();
+            } else if ("redirect".equals(mode)) {
+                exchange.getResponseHeaders().add("Location", "http://example.com/unsigned.sig");
+                exchange.sendResponseHeaders(302, -1);
+                exchange.close();
+            } else {
+                byte[] response = signature.getBytes(StandardCharsets.US_ASCII);
+                exchange.sendResponseHeaders(200, "stream-cap".equals(mode) ? 0 : response.length);
+                try (OutputStream out = exchange.getResponseBody()) { out.write(response); }
+            }
+        });
+        try (StorageEngine storage = StorageEngine.inMemory()) {
+            storage.runMigrations();
+            AuditRepository audit = new AuditRepository(storage);
+            UpdateService service = new UpdateService(configManager, messageRegistry, asyncExecutor,
+                    mainThreadQueue::add, () -> updateFolder, () -> "1.0", () -> currentJarFile,
+                    httpClient, testLogger, true, audit, () -> {
+                        keyLoads.incrementAndGet();
+                        try (var paths = Files.list(java.nio.file.Path.of(System.getProperty("java.io.tmpdir")))) {
+                            downloadedTemp.set(paths.filter(path -> path.getFileName().toString().startsWith("socialblueprint-update-"))
+                                    .filter(path -> !priorTemps.contains(path)).findFirst().orElseThrow());
+                        } catch (Exception e) { throw new AssertionError(e); }
+                        return "empty-keys".equals(mode) ? null : TestSigning.trustedKeys();
+                    });
+            // Availability checks do not fetch signatures or load signing keys.
+            assertThat(service.checkForUpdateAsync().join().comparison()).isEqualTo(VersionComparison.OUTDATED);
+            assertThat(keyLoads.get()).isZero();
+            CommandSender sender = mockSender(new ArrayList<>());
+            assertThat(service.downloadUpdateAsync(sender, configManager.snapshot()).join()).isFalse();
+            drainMainThread();
+            assertThat(messageRegistry.lastCall().key()).isEqualTo(
+                    "missing".equals(mode) || "404".equals(mode) ? "updater.signature-missing" : "updater.signature-invalid");
+            assertThat(messageRegistry.lastCall().placeholders()).containsEntry("release", "v1.1");
+            assertThat(messageRegistry.hasKey("updater.restart-required")).isFalse();
+            assertThat(logRecords).anyMatch(record -> record.getLevel() == Level.SEVERE
+                    && record.getMessage().contains("release v1.1"));
+            assertThat(downloadedTemp.get()).isNotNull();
+            assertThat(downloadedTemp.get()).doesNotExist();
+            assertThat(Files.readAllBytes(staged.toPath())).isEqualTo(oldBytes);
+            assertThat(audit.findByTarget(NonPlayerTarget.of("update"))).isEmpty();
+            // Key source is read exactly once, even for repeated requests.
+            assertThat(service.downloadUpdateAsync(sender, configManager.snapshot()).join()).isFalse();
+            assertThat(keyLoads.get()).isEqualTo(1);
+            long refusals = logRecords.stream().filter(record -> record.getMessage().startsWith("HOSTILE / UNSIGNED UPDATE")).count();
+            configManager.set("update.check-on-startup", "true");
+            configManager.set("update.auto-download", "true");
+            service.onStartup(configManager.snapshot());
+            // Executor barriers cover cleanup, check, then the automatic download.
+            for (int i = 0; i < 3; i++) asyncExecutor.submit(() -> {}).get();
+            assertThat(logRecords.stream().filter(record -> record.getMessage().startsWith("HOSTILE / UNSIGNED UPDATE")).count())
+                    .isEqualTo(refusals + 1);
+            assertThat(Files.readAllBytes(staged.toPath())).isEqualTo(oldBytes);
+            assertThat(audit.findByTarget(NonPlayerTarget.of("update"))).isEmpty();
+            assertThat(keyLoads.get()).isEqualTo(1);
+            if ("empty-keys".equals(mode)) {
+                assertThat(logRecords).anyMatch(record -> record.getLevel() == Level.SEVERE
+                        && record.getMessage().contains("no valid Ed25519 public key"));
+            }
+            if ("missing".equals(mode)) {
+                Files.delete(staged.toPath());
+                Files.delete(updateFolder.toPath());
+                assertThat(service.downloadUpdateAsync(sender, configManager.snapshot()).join()).isFalse();
+                assertThat(updateFolder).doesNotExist();
+            }
+        }
+    }
+
     @TempDir
     File tempDir;
 
@@ -683,8 +800,10 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
+        String signedReleaseJson = TestSigning.attachSignature(mockServer, serverBaseUrl, releaseJson, jarContent);
+
         mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
-            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            byte[] resp = signedReleaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
         });
@@ -703,7 +822,10 @@ class UpdateServiceTest {
                 () -> "1.0",
                 () -> currentJarFile,
                 httpClient,
-                testLogger
+                testLogger,
+                UpdateConfig.isAllowInsecureHttpForTesting(),
+                null,
+                TestSigning::trustedKeys
         );
 
         List<String> messages = new ArrayList<>();
@@ -747,8 +869,10 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
+        String signedReleaseJson = TestSigning.attachSignature(mockServer, serverBaseUrl, releaseJson, jarContent);
+
         mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
-            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            byte[] resp = signedReleaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
         });
@@ -769,7 +893,10 @@ class UpdateServiceTest {
                 () -> "1.0",
                 () -> currentJarFile,
                 httpClient,
-                testLogger
+                testLogger,
+                UpdateConfig.isAllowInsecureHttpForTesting(),
+                null,
+                TestSigning::trustedKeys
         );
 
         serviceNoAuto.onStartup(configManager.snapshot());
@@ -795,7 +922,10 @@ class UpdateServiceTest {
                 () -> "1.0",
                 () -> currentJarFile,
                 httpClient,
-                testLogger
+                testLogger,
+                UpdateConfig.isAllowInsecureHttpForTesting(),
+                null,
+                TestSigning::trustedKeys
         );
 
         serviceWithAuto.onStartup(configManager.snapshot());
@@ -1249,8 +1379,10 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
+        String signedReleaseJson = TestSigning.attachSignature(mockServer, serverBaseUrl, releaseJson, jarContent);
+
         mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
-            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            byte[] resp = signedReleaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
         });
@@ -1274,7 +1406,9 @@ class UpdateServiceTest {
                     () -> currentJarFile,
                     httpClient,
                     testLogger,
-                    auditRepo
+                    UpdateConfig.isAllowInsecureHttpForTesting(),
+                    auditRepo,
+                    TestSigning::trustedKeys
             );
 
             java.util.UUID playerUuid = java.util.UUID.randomUUID();
@@ -1322,8 +1456,10 @@ class UpdateServiceTest {
                 }
                 """.formatted(expectedHash, serverBaseUrl, jarContent.length);
 
+        String signedReleaseJson = TestSigning.attachSignature(mockServer, serverBaseUrl, releaseJson, jarContent);
+
         mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
-            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            byte[] resp = signedReleaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
         });
@@ -1347,7 +1483,9 @@ class UpdateServiceTest {
                     () -> currentJarFile,
                     httpClient,
                     testLogger,
-                    auditRepo
+                    UpdateConfig.isAllowInsecureHttpForTesting(),
+                    auditRepo,
+                    TestSigning::trustedKeys
             );
 
             List<String> messages = new ArrayList<>();

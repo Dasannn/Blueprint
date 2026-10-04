@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.feature.update.ChecksumVerifier;
 import com.dasannn.socialblueprint.feature.update.ReleaseAsset;
 import com.dasannn.socialblueprint.feature.update.ReleaseInfo;
 import com.dasannn.socialblueprint.feature.update.UpdateService;
+import com.dasannn.socialblueprint.feature.update.TestSigning;
 import com.dasannn.socialblueprint.feature.update.VersionCheckResult;
 import com.dasannn.socialblueprint.feature.update.VersionComparison;
 import com.sun.net.httpserver.HttpServer;
@@ -194,7 +195,10 @@ class StatusCommandUpdateTest {
                 () -> "1.0",
                 () -> currentJarFile,
                 httpClient,
-                testLogger
+                testLogger,
+                UpdateConfig.isAllowInsecureHttpForTesting(),
+                null,
+                TestSigning::trustedKeys
         );
 
         commandExecutor = new StatusCommandExecutor(
@@ -447,8 +451,10 @@ class StatusCommandUpdateTest {
                 }
                 """.formatted(hash, serverBaseUrl, jarBytes.length);
 
+        String signedReleaseJson = TestSigning.attachSignature(mockServer, serverBaseUrl, releaseJson, jarBytes);
+
         mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
-            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            byte[] resp = signedReleaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
         });
@@ -499,8 +505,10 @@ class StatusCommandUpdateTest {
                 }
                 """.formatted(hash, serverBaseUrl, jarBytes.length);
 
+        String signedReleaseJson = TestSigning.attachSignature(mockServer, serverBaseUrl, releaseJson, jarBytes);
+
         mockServer.createContext("/repos/Dasannn/Blueprint/releases/latest", exchange -> {
-            byte[] resp = releaseJson.getBytes(StandardCharsets.UTF_8);
+            byte[] resp = signedReleaseJson.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) { os.write(resp); }
         });

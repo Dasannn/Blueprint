@@ -55,7 +55,7 @@ import java.util.logging.Logger;
  * - All remote connections and redirects require HTTPS (Finding 2).
  * - Staging writes to a temp file outside Paper's scan directory, verifies JAR structure, and atomically moves (Finding 3).
  * - A mismatch or failure aborts and leaves any existing staged jar untouched.
- * - Failure is quiet: logged as a warning only (SB-073, T-085).
+ * - Signature failures are SEVERE and fail closed before staging; other failures remain warnings.
  * - Player-facing messages and Bukkit calls run on the main thread via mainThreadRunner.
  */
 public class UpdateService {
@@ -63,6 +63,7 @@ public class UpdateService {
     public static final Duration DEFAULT_HTTP_TIMEOUT = Duration.ofSeconds(10);
     public static final Duration DEFAULT_DOWNLOAD_TIMEOUT = Duration.ofSeconds(60);
     public static final long MAX_METADATA_BYTES = 2 * 1024 * 1024L; // 2 MiB
+    public static final long MAX_SIGNATURE_BYTES = 1024; // 1 KiB
     public static final long MAX_CHECKSUM_BYTES = 512 * 1024L; // 512 KiB
 
     private final ConfigManager configManager;
@@ -76,6 +77,8 @@ public class UpdateService {
     private final Logger logger;
     private final boolean allowInsecureHttpForTesting;
     private final AuditRepository auditRepository;
+    private final Supplier<InputStream> trustedKeySource;
+    private volatile SignatureVerifier signatureVerifier;
 
     private final AtomicReference<VersionCheckResult> lastResult = new AtomicReference<>(null);
     private final AtomicBoolean checkInProgress = new AtomicBoolean(false);
@@ -174,6 +177,26 @@ public class UpdateService {
             boolean allowInsecureHttpForTesting,
             AuditRepository auditRepository
     ) {
+        this(configManager, messageRegistry, asyncExecutor, mainThreadRunner, updateFolderSupplier,
+                currentVersionSupplier, currentJarSupplier, httpClient, logger, allowInsecureHttpForTesting,
+                auditRepository, () -> UpdateService.class.getResourceAsStream("/update-keys.txt"));
+    }
+
+    /** Test seam: the running jar's resource is the only production key source. */
+    public UpdateService(
+            ConfigManager configManager,
+            MessageRegistry messageRegistry,
+            Executor asyncExecutor,
+            Consumer<Runnable> mainThreadRunner,
+            Supplier<File> updateFolderSupplier,
+            Supplier<String> currentVersionSupplier,
+            Supplier<File> currentJarSupplier,
+            HttpClient httpClient,
+            Logger logger,
+            boolean allowInsecureHttpForTesting,
+            AuditRepository auditRepository,
+            Supplier<InputStream> trustedKeySource
+    ) {
         this.configManager = Objects.requireNonNull(configManager, "configManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "messageRegistry must not be null");
         this.asyncExecutor = Objects.requireNonNull(asyncExecutor, "asyncExecutor must not be null");
@@ -191,6 +214,7 @@ public class UpdateService {
         this.logger = logger != null ? logger : Logger.getLogger(UpdateService.class.getName());
         this.allowInsecureHttpForTesting = allowInsecureHttpForTesting;
         this.auditRepository = auditRepository;
+        this.trustedKeySource = Objects.requireNonNull(trustedKeySource, "trustedKeySource must not be null");
     }
 
     public String getCurrentVersion() {
@@ -529,7 +553,12 @@ public class UpdateService {
                     return null;
                 }
 
-                // 6. Checksum and JAR verified: write into plugins/update/
+                // 6. Authenticate the exact temp jar with keys from the RUNNING plugin.
+                if (!verifyReleaseSignature(release, jarAsset, tempFile, sender, currentSnapshot)) {
+                    return null;
+                }
+
+                // 7. Checksum, metadata and signature verified: write into plugins/update/
                 File updateFolder = updateFolderSupplier.get();
                 if (updateFolder == null) {
                     logger.warning("Update folder could not be determined. Aborting update.");
@@ -597,6 +626,67 @@ public class UpdateService {
                         return true;
                     });
         }).whenComplete((res, ex) -> downloadInProgress.set(false));
+    }
+
+    private synchronized SignatureVerifier trustedSignatures() {
+        if (signatureVerifier == null) {
+            try {
+                signatureVerifier = SignatureVerifier.fromKeyFile(trustedKeySource.get());
+            } catch (RuntimeException e) {
+                signatureVerifier = SignatureVerifier.fromKeyFile(null);
+            }
+            if (!signatureVerifier.hasTrustedKeys()) {
+                logger.severe("Updates refused: running plugin update-keys.txt contains no valid Ed25519 public key.");
+            }
+        }
+        return signatureVerifier;
+    }
+
+    private boolean verifyReleaseSignature(ReleaseInfo release, ReleaseAsset jarAsset, File tempFile,
+                                           CommandSender sender, RuntimeSnapshot snapshot) {
+        String failure = "updater.signature-invalid";
+        String reason = "No trusted key verified the signature";
+        try {
+            SignatureVerifier verifier = trustedSignatures();
+            if (!verifier.hasTrustedKeys()) {
+                throw new IOException("Running plugin has no valid trusted Ed25519 key");
+            }
+            Optional<ReleaseAsset> companion = release.assets().stream()
+                    .filter(asset -> asset.name().equals(jarAsset.name() + ".sig"))
+                    .findFirst();
+            if (companion.isEmpty()) {
+                failure = "updater.signature-missing";
+                throw new IOException("Missing " + jarAsset.name() + ".sig");
+            }
+            ReleaseAsset asset = companion.get();
+            if (asset.size() > MAX_SIGNATURE_BYTES || !isSecureUrl(asset.downloadUrl())) {
+                throw new IOException("Signature asset exceeds size cap or has an insecure URL");
+            }
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(asset.downloadUrl()))
+                    .header("User-Agent", "SocialBlueprint-UpdateChecker")
+                    .timeout(DEFAULT_HTTP_TIMEOUT).GET().build();
+            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream body = response.body()) {
+                checkResponseSecurity(response);
+                if (response.statusCode() != 200) {
+                    if (response.statusCode() == 404) failure = "updater.signature-missing";
+                    throw new IOException("Signature download returned HTTP " + response.statusCode());
+                }
+                if (response.headers().firstValueAsLong("Content-Length").orElse(-1L) > MAX_SIGNATURE_BYTES) {
+                    throw new IOException("Signature Content-Length exceeds " + MAX_SIGNATURE_BYTES + " bytes");
+                }
+                String encoded = readBoundedString(body, MAX_SIGNATURE_BYTES);
+                if (verifier.verify(tempFile.toPath(), encoded)) return true;
+            }
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            reason = e.getMessage();
+        }
+        logger.severe("HOSTILE / UNSIGNED UPDATE: release " + release.tagName() + ", asset "
+                + jarAsset.name() + ": " + reason + ". Update refused; temp jar will be deleted.");
+        sendToSender(sender, snapshot, failure, Map.of("release", release.tagName()));
+        return false;
     }
 
     private Optional<String> findExpectedChecksum(ReleaseInfo release, ReleaseAsset jarAsset) {
