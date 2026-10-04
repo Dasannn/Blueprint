@@ -32,6 +32,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -604,6 +605,12 @@ public class StatusGuiService {
                             ? List.of(GuiLoreLine.ofKey("gui.history.no-reason"))
                             : List.of(GuiLoreLine.ofPlain(plain));
                 }
+                var historyConfig = snapshot != null && snapshot.config() != null
+                        ? snapshot.config().history()
+                        : com.dasannn.socialblueprint.config.HistoryConfig.defaults();
+                paperLore = new ArrayList<>(paperLore);
+                paperLore.add(GuiLoreLine.ofKey("gui.history.date",
+                        Map.of("date", historyConfig.formatDate(event.createdAt(), ZoneId.systemDefault()))));
                 slots.put(36 + col, new GuiSlot(
                         36 + col,
                         GuiIconKind.REASON_PAPER,

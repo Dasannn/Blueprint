@@ -10,8 +10,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,8 +21,6 @@ import java.util.function.Consumer;
  * Handles `/status history [player]` with date, signed delta and reason per SB-085.
  */
 public class StatusHistoryCommand {
-
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE.withZone(ZoneOffset.UTC);
 
     private final ProfileService profileService;
     private final ReputationRepository reputationRepository;
@@ -110,7 +107,7 @@ public class StatusHistoryCommand {
                 sender.sendMessage(messageRegistry.render(snapshot, "honor.rating-id", Map.of("id", String.valueOf(event.id()))));
             if (event.revokedBy() != null)
                 sender.sendMessage(messageRegistry.render(snapshot, "honor.revoked", Map.of("admin", event.revokedBy())));
-            String timeStr = DATE_FORMATTER.format(event.createdAt());
+            String date = snapshot.config().history().formatDate(event.createdAt(), ZoneId.systemDefault());
 
             Component deltaComp;
             if (event.delta() > 0) {
@@ -138,13 +135,14 @@ public class StatusHistoryCommand {
                     snapshot,
                     "status.history-entry",
                     Map.of(
-                            "time", timeStr,
+                            "time", date,
                             "reason", reasonStr
                     ),
                     Map.of(
                             "delta", deltaComp
                     )
             ));
+            sender.sendMessage(messageRegistry.render(snapshot, "status.history-date", Map.of("date", date)));
         }
     }
 

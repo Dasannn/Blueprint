@@ -352,7 +352,9 @@ class StatusHistoryCommandTest {
                 assertThat(calls).hasSize(2);
                 for (RenderCall call : calls) {
                     assertThat(call.stringPlaceholders()).containsOnlyKeys("time", "reason");
-                    assertThat(call.stringPlaceholders()).containsEntry("time", "2026-10-01");
+                    String date = java.time.format.DateTimeFormatter.ofPattern("MM/dd/yyyy", java.util.Locale.ROOT)
+                            .withZone(java.time.ZoneId.systemDefault()).format(baseTime);
+                    assertThat(call.stringPlaceholders()).containsEntry("time", date);
                     assertThat(call.componentPlaceholders()).containsOnlyKeys("delta");
                     boolean system = call.stringPlaceholders().get("reason")
                             .equals(recordingRegistry.getRaw(snapshot, "kill-penalty.reason"));
@@ -363,10 +365,34 @@ class StatusHistoryCommandTest {
                                     ? net.kyori.adventure.text.format.NamedTextColor.RED
                                     : net.kyori.adventure.text.format.NamedTextColor.GREEN));
                 }
+                List<RenderCall> dateCalls = recordingRegistry.findCalls("status.history-date");
+                assertThat(dateCalls).hasSize(2);
+                for (int i = 0; i < calls.size(); i++) {
+                    assertThat(dateCalls.get(i).stringPlaceholders())
+                            .containsOnlyKeys("date").containsEntry("date", calls.get(i).stringPlaceholders().get("time"));
+                    int reasonIndex = recordingRegistry.renderCalls.indexOf(calls.get(i));
+                    assertThat(recordingRegistry.renderCalls.get(reasonIndex + 1)).isEqualTo(dateCalls.get(i));
+                }
+                assertThat(recordingRegistry.getRaw(snapshot, "status.history-date"))
+                        .isEqualTo(language.equals("en") ? "&7Date: {date}" : "&7Fecha: {date}");
                 assertThat(recordingRegistry.getRaw(snapshot, "status.history-entry"))
                         .contains("{time}", "{delta}", "{reason}").doesNotContain("{actor}");
             }
         }
+    }
+
+    @Test
+    void consoleHistoryUsesCustomDatePattern() {
+        Player target = registerPlayer("Target");
+        reputationRepo.save(new ReputationEvent(0L, null, PlayerId.of(target.getUniqueId()), -1,
+                HonorKind.SYSTEM_KILL, 0.0, "kill-penalty.reason", baseTime));
+        configManager.set("history.date-format", "dd.MM.yyyy");
+        MockSenderRecord console = new MockSenderRecord("Console", false);
+        historyCommand.execute(console.sender, new String[]{"Target"}, configManager.snapshot()).join();
+        String date = java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy", java.util.Locale.ROOT)
+                .withZone(java.time.ZoneId.systemDefault()).format(baseTime);
+        assertThat(recordingRegistry.findCalls("status.history-date")).singleElement()
+                .satisfies(call -> assertThat(call.stringPlaceholders()).containsEntry("date", date));
     }
 
     @Test

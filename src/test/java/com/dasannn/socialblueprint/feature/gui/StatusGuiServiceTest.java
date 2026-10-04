@@ -366,6 +366,41 @@ public class StatusGuiServiceTest {
     }
 
     @Test
+    void historyReasonLoreIncludesDateForEveryIdentityInBothLanguages() {
+        Instant createdAt = Instant.parse("2026-10-03T01:30:00Z");
+        PlayerId target = PlayerId.of(UUID.randomUUID());
+        PlayerId rater = PlayerId.of(UUID.randomUUID());
+        List<ReputationEvent> events = List.of(
+                new ReputationEvent(101L, rater, target, 1, HonorKind.POSITIVE, 30.0, "Helpful", createdAt),
+                new ReputationEvent(102L, null, target, -1, HonorKind.SYSTEM_KILL, 0.0, "kill-penalty.reason", createdAt),
+                new ReputationEvent(103L, rater, target, 1, HonorKind.POSITIVE, 30.0, null, createdAt));
+        for (String language : List.of("en", "es")) {
+            configManager.set("language", language);
+            for (String pattern : List.of("MM/dd/yyyy", "dd.MM.yyyy")) {
+                configManager.set("history.date-format", pattern);
+                RuntimeSnapshot snapshot = configManager.snapshot();
+                String date = java.time.format.DateTimeFormatter.ofPattern(pattern, java.util.Locale.ROOT)
+                        .withZone(java.time.ZoneId.systemDefault()).format(createdAt);
+                for (Set<Long> reveals : List.of(Set.<Long>of(), Set.of(101L, 103L))) {
+                    GuiLayout layout = StatusGuiService.buildPageLayout(null, events, 0, 1, reveals,
+                            null, snapshot, null, messageRegistry);
+                    assertThat(layout.get(27).applyPlayerSkin()).isEqualTo(reveals.contains(101L));
+                    for (int slot : List.of(36, 37, 38)) {
+                        assertThat(layout.get(slot).lore()).hasSize(2);
+                        assertThat(layout.get(slot).lore().get(1))
+                                .isEqualTo(GuiLoreLine.ofKey("gui.history.date", Map.of("date", date)));
+                    }
+                    assertThat(layout.get(36).lore().getFirst()).isEqualTo(GuiLoreLine.ofPlain("Helpful"));
+                    assertThat(layout.get(37).lore().getFirst()).isEqualTo(GuiLoreLine.ofKey("kill-penalty.reason"));
+                    assertThat(layout.get(38).lore().getFirst()).isEqualTo(GuiLoreLine.ofKey("gui.history.no-reason"));
+                    assertThat(messageRegistry.getRaw(snapshot, "gui.history.date"))
+                            .isEqualTo(language.equals("en") ? "&7Date: {date}" : "&7Fecha: {date}");
+                }
+            }
+        }
+    }
+
+    @Test
     void historyAndConfirmationFilterReasonsWithoutChangingStoredText() {
         String reason = "Helpful idiot, IMBÉCIL!";
         Player actor = openGiveConfirmation(reason);
@@ -761,9 +796,11 @@ public class StatusGuiServiceTest {
         assertThat(layout.get(36).lore().getFirst()).isEqualTo(GuiLoreLine.ofPlain("kill-penalty.reason"));
         assertThat(layout.get(36).renderedLore()).containsExactly(Component.text("kill-penalty.reason")
                 .color(net.kyori.adventure.text.format.NamedTextColor.GRAY)
-                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
+                .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false),
+                messageRegistry.render(snapshot, "gui.history.date", layout.get(36).lore().get(1).placeholders()));
         assertThat(layout.get(37).lore().getFirst()).isEqualTo(GuiLoreLine.ofKey("kill-penalty.reason"));
-        assertThat(layout.get(37).renderedLore()).containsExactly(messageRegistry.render(snapshot, "kill-penalty.reason"));
+        assertThat(layout.get(37).renderedLore()).containsExactly(messageRegistry.render(snapshot, "kill-penalty.reason"),
+                messageRegistry.render(snapshot, "gui.history.date", layout.get(37).lore().get(1).placeholders()));
     }
 
     @Test

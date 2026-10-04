@@ -32,6 +32,7 @@ second place where progress is recorded.
 | P13 Psychosis effects and chat | `feat/p13-tuning` | **done** — released in v1.0; T-169/T-174 two-client walks move to T-207 |
 | P14 Release 2 | `integration/r2` | **done** — 882 tests green, Codex review closed, owner and bot acceptance passed; ready to release as v2.0 |
 | P15 Release 2.0.1 | `main`, tag `v2.0.1` | **done** — 946 unit tests and 15/15 live bot scenarios green; owner checked tab prefix, effects, anonymous head, two-click reveal, EssentialsX chat and name hover live |
+| P16 Release 2.0.2 | `integration/r2.0.2` | **review** |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -378,3 +379,10 @@ acceptance; this worktree does not run Maven.
 | T-227 | Two-page feature GUI with all 45 switches, bounded navigation and retained page on audited toggle refresh. | SB-180 | done |
 | T-228 | Consolidate merged release requirements/acceptance and README; prune attached obsolete-key comments with upgrade regression coverage. | SB-182, §15.6, §16 | done |
 | T-229 | Owner manual check 2.0.1: tab prefix, the 13 effects visually, anonymous head, two-click reveal, EssentialsX chat look. | SB-160, SB-164 to SB-181 | done |
+
+
+## P16 — Release 2.0.2
+
+| id | task | spec | status |
+|---|---|---|---|
+| T-230 | Show the rating calendar date after every history reason in GUI and chat/console, with a validated live-editable pattern, server time zone, both languages and plain-data tests. | SB-183 | review |

@@ -2,21 +2,37 @@ package com.dasannn.socialblueprint.config;
 
 import org.bukkit.configuration.ConfigurationSection;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DecimalStyle;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
  * Immutable configuration section for rating history and anonymity per SB-084 and T-124.
  * Defines the reveal cost charged through Vault to unmask an anonymous rater.
  */
-public record HistoryConfig(double revealCost, int revealConfirmSeconds) {
+public record HistoryConfig(double revealCost, int revealConfirmSeconds, String dateFormat) {
 
     public static final double DEFAULT_REVEAL_COST = 100.0;
+    public static final String DEFAULT_DATE_FORMAT = "MM/dd/yyyy";
+
+    public HistoryConfig(double revealCost, int revealConfirmSeconds) {
+        this(revealCost, revealConfirmSeconds, DEFAULT_DATE_FORMAT);
+    }
 
     public HistoryConfig(double revealCost) {
         this(revealCost, 5);
     }
 
     public HistoryConfig {
+        try {
+            DateTimeFormatter.ofPattern(Objects.requireNonNull(dateFormat), Locale.ROOT);
+        } catch (IllegalArgumentException | NullPointerException ex) {
+            throw new ConfigValidationException("history.date-format",
+                    "Invalid date format pattern: " + dateFormat);
+        }
         if (revealConfirmSeconds < 1 || revealConfirmSeconds > 60) {
             throw new ConfigValidationException("history.reveal-confirm-seconds",
                     "Reveal confirmation seconds must be 1..60, got: " + revealConfirmSeconds);
@@ -25,6 +41,11 @@ public record HistoryConfig(double revealCost, int revealConfirmSeconds) {
             throw new ConfigValidationException("history.reveal-cost",
                     "Reveal cost must be non-negative and finite, got: " + revealCost);
         }
+    }
+
+    public String formatDate(Instant createdAt, ZoneId zone) {
+        return DateTimeFormatter.ofPattern(dateFormat, Locale.ROOT)
+                .withDecimalStyle(DecimalStyle.STANDARD).withZone(zone).format(createdAt);
     }
 
     public static HistoryConfig defaults() {
@@ -47,7 +68,11 @@ public record HistoryConfig(double revealCost, int revealConfirmSeconds) {
             throw new ConfigValidationException("history.reveal-confirm-seconds",
                     "Reveal confirmation seconds must be an integer, got: " + section.get("reveal-confirm-seconds"));
         }
+        if (section.contains("date-format") && !section.isString("date-format")) {
+            throw new ConfigValidationException("history.date-format", "Date format must be a string");
+        }
         return new HistoryConfig(section.getDouble("reveal-cost", DEFAULT_REVEAL_COST),
-                section.getInt("reveal-confirm-seconds", 5));
+                section.getInt("reveal-confirm-seconds", 5),
+                section.getString("date-format", DEFAULT_DATE_FORMAT));
     }
 }

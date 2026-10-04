@@ -83,6 +83,8 @@ Status is derived from recorded reputation changes. New players begin at `0`, wi
 
 ### Honor and history
 
+Rating reasons in GUI and chat history show the calendar date, configured with `history.date-format` (default `MM/dd/yyyy`) in the server time zone.
+
 Giving or taking honor changes status by `+1` or `−1` per accepted rating. The quoted cost is **30 + 8% of the actor’s current Vault balance**, rounded to two decimals; negative balances count as zero. A balance of 10,000 costs **830**. Confirmation charges exactly the quoted amount, with a fresh funds check. The same actor-target pair has a **24-hour** cooldown and a cap of **3 positive and 3 negative ratings**, counted separately over **7 days**. Self-rating is rejected. Commands and GUI rejections show the time left until another rating is allowed; profile rating buttons show whether you can rate now or how long you must wait.
 
 Both giving and taking honor require a written reason, with at least **3 visible characters** by default and at most **100 characters**. Reasons are rendered as inert plain text. Profile GUI buttons prompt for the reason in chat and open a confirmation chest showing the target, exact cost, and reason. Confirmation lasts **60 seconds**; command ratings also support `/status confirm`. Payment and the recorded rating share the same honor path, with compensation handling for failed writes.

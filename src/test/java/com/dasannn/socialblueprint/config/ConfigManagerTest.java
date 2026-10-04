@@ -48,6 +48,23 @@ class ConfigManagerTest {
     }
 
     @Test
+    void historyDatePatternMergesEditsAndRejectsInvalidChanges() throws Exception {
+        YamlFileUpdater.removeLeafAndSave(configFile, "history.date-format");
+        configManager.reload();
+        assertThat(configManager.get("history.date-format")).isEqualTo("MM/dd/yyyy");
+        assertThat(configManager.isEditableKey("history.date-format")).isTrue();
+        configManager.set("history.date-format", "dd.MM.yyyy");
+        configManager.reload();
+        assertThat(configManager.get("history.date-format")).isEqualTo("dd.MM.yyyy");
+        RuntimeSnapshot before = configManager.snapshot();
+        String disk = Files.readString(configFile.toPath());
+        assertThatThrownBy(() -> configManager.set("history.date-format", "invalid"))
+                .isInstanceOf(ConfigValidationException.class).hasMessageContaining("history.date-format");
+        assertThat(configManager.snapshot()).isSameAs(before);
+        assertThat(Files.readString(configFile.toPath())).isEqualTo(disk);
+    }
+
+    @Test
     void effectsDebugIsMergedEditableAndStrictlyBoolean() throws Exception {
         assertThat(configManager.config().effects().debug()).isFalse();
         YamlFileUpdater.removeLeafAndSave(configFile, "effects.debug");

@@ -1512,7 +1512,24 @@ any non-comment line. This includes honor multipliers/their window and legacy
 kill-world exemptions. Preserve unrelated comments, values and sections;
 ordinary value updates retain their attached comments.
 
+### 15.7 Release 2.0.2
+
+**SB-183.** Wherever a stored rating reason is shown in history, show its
+calendar date immediately after the reason, including anonymous, revealed and
+system events. GUI lore and chat/console lines use translated `{date}` messages
+in both languages. Format the event's `createdAt` in `ZoneId.systemDefault()`
+with Locale.ROOT digits and no time. `history.date-format` defaults to
+`MM/dd/yyyy`, is live-editable (short key `date-format`), and is validated as a
+`java.time.format.DateTimeFormatter` pattern on load; an invalid pattern fails
+with `ConfigValidationException` naming `history.date-format`. This supersedes
+SB-085's fixed ISO date example; timestamps remain unchanged in storage.
+
 ## 16. Acceptance criteria for release 2
+
+- [ ] Release 2.0.2 history displays the rating date immediately after every
+      reason in GUI lore and chat/console, in both languages and for anonymous,
+      revealed and system events. Verify default/custom date patterns, server
+      time zone, no time, and invalid-pattern rejection naming the key (SB-183).
 
 - [ ] One signed mental-state value per player; no 72-hour expiry; nothing
       resets it at once (SB-130, SB-132).

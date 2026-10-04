@@ -77,6 +77,13 @@ class StatusConfigCommandTest {
         messageRegistry.clear();
     }
 
+    @Test
+    void historyDatePatternAcceptsShortKey() {
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+        command.executeAsync(admin, new String[]{"date-format", "dd.MM.yyyy"}, configManager.snapshot()).join();
+        assertThat(configManager.get("history.date-format")).isEqualTo("dd.MM.yyyy");
+    }
+
     @Test void honorPercentAliasReadsAndEditsCanonicalKey() {
         MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
         command.execute(admin, new String[]{"honor.percent"});

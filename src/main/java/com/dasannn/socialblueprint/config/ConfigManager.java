@@ -966,6 +966,7 @@ public class ConfigManager {
         set.add("sounds.creeper-fuse.category");
         set.add("sounds.creeper-fuse.delay");
         set.add("sounds.serenity-clean");
+        set.add("history.date-format");
         set.add("history.reveal-cost");
         set.add("history.reveal-confirm-seconds");
 
@@ -1133,6 +1134,9 @@ public class ConfigManager {
 
         if (config.history() != null && "history.reveal-confirm-seconds".equals(path)) {
             return String.valueOf(config.history().revealConfirmSeconds());
+        }
+        if (config.history() != null && "history.date-format".equals(path)) {
+            return config.history().dateFormat();
         }
         if (config.history() != null && "history.reveal-cost".equals(path)) {
             return String.valueOf(config.history().revealCost());

@@ -89,6 +89,7 @@ status:
   history-header: '&8--- &bHistorial de Reputación: &e{player} &8---'
   history-empty: '&7No hay eventos de reputación registrados.'
   history-entry: '&7[{time}] {delta}&7: &f{reason}'
+  history-date: '&7Fecha: {date}'
   system-actor: 'Sistema'
   read-failed: '&cError al leer el perfil.'
 
@@ -229,6 +230,7 @@ gui:
     confirm-reveal: '&eHaz clic de nuevo para confirmar — cuesta &6{cost}'
     paper-title: '&fMotivo de la calificación'
     no-reason: '&7(Sin motivo)'
+    date: '&7Fecha: {date}'
     positive-banner: '&a+ Calificación positiva'
     negative-banner: '&c- Calificación negativa'
   reveal:
