@@ -1,2 +1,5 @@
-# Primary Ed25519 public key: Claude fills in base64 X.509 SPKI before release.
-# Backup Ed25519 public key: Claude fills in base64 X.509 SPKI before release.
+# Trusted Ed25519 public keys for signed updates (decision 0009).
+# Primary: signs releases. Private key on the release PC.
+MCowBQYDK2VwAyEASz1Co43v4eBGKcqYbUPeGDwwcpavBtgQmBqCbsVKdpc=
+# Backup: kept offline; signs only if the primary is lost.
+MCowBQYDK2VwAyEAT6QIpxBjGI3h6x8BS8WheMTcQR70/X777MCHOLHpbHg=
