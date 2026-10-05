@@ -162,7 +162,6 @@ public class AsyncChatListener implements Listener {
         synchronized (prepared) { bridges.remove(event.getPlayer()); }
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPrepareChat(AsyncChatEvent event) {
         if (event.isCancelled() || prepared.containsKey(event) || event.renderer() instanceof OwnedRenderer) return;
         try {
@@ -176,7 +175,6 @@ public class AsyncChatListener implements Listener {
     }
 
     @SuppressWarnings("deprecation")
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPrepareLegacyChat(AsyncPlayerChatEvent event) {
         if (event.isCancelled() || prepared.containsKey(event)) return;
         try {

@@ -52,6 +52,7 @@ class SocialBlueprintPluginTest {
     private boolean vaultPluginPresent = true;
     private boolean economyServiceRegistered = true;
     private final List<LogRecord> loggedRecords = new ArrayList<>();
+    private final List<org.bukkit.event.Listener> registeredListeners = new ArrayList<>();
 
     @BeforeEach
     @SuppressWarnings({"sunapi", "removal"})
@@ -116,6 +117,7 @@ class SocialBlueprintPluginTest {
                         return null;
                     }
                     if ("registerEvents".equals(name)) {
+                        registeredListeners.add((org.bukkit.event.Listener) args[0]);
                         return null;
                     }
                     if ("getPlugin".equals(name) && args.length >= 1 && "Vault".equals(args[0])) {
@@ -257,6 +259,10 @@ class SocialBlueprintPluginTest {
         // storage and migrations were not awaited on the calling thread.
         plugin.onEnable();
 
+        assertThat(registeredListeners).hasSize(1);
+        assertThat(registeredListeners.getFirst())
+                .isInstanceOf(com.dasannn.socialblueprint.platform.listener.EarlyChatListener.class);
+
         // At the moment onEnable returns, the storage engine must not be set on the plugin yet
         // because initialization is offloaded to the background storage executor
         assertThat(plugin.getStorageEngine())
@@ -299,6 +305,10 @@ class SocialBlueprintPluginTest {
         assertThat(plugin.getAmbientEffectScheduler()).isNotNull();
         assertThat(plugin.getRaterRevealRepository()).isNotNull();
         assertThat(plugin.getStatusGuiService()).isNotNull();
+        assertThat(registeredListeners.stream().filter(listener -> listener instanceof
+                com.dasannn.socialblueprint.platform.listener.EarlyChatListener).count()).isEqualTo(1);
+        assertThat(registeredListeners.stream().filter(listener -> listener instanceof
+                com.dasannn.socialblueprint.platform.listener.AsyncChatListener).count()).isEqualTo(1);
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.dasannn.socialblueprint.config.PluginConfig;
 import com.dasannn.socialblueprint.feature.profile.ProfileService;
 import com.dasannn.socialblueprint.platform.BukkitPlayerLookup;
 import com.dasannn.socialblueprint.platform.listener.AsyncChatListener;
+import com.dasannn.socialblueprint.platform.listener.EarlyChatListener;
 import com.dasannn.socialblueprint.platform.listener.PlayerLifecycleListener;
 import com.dasannn.socialblueprint.storage.AuditRepository;
 import com.dasannn.socialblueprint.storage.ProfileRepository;
@@ -40,6 +41,7 @@ import java.util.logging.Level;
 
 public final class SocialBlueprintPlugin extends JavaPlugin {
 
+    private EarlyChatListener earlyChatListener;
     private ConfigManager configManager;
     private MessageRegistry messageRegistry;
     private StorageEngine storageEngine;
@@ -69,6 +71,10 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        // Reserve LOWEST registration order before later plugins enable.
+        this.earlyChatListener = new EarlyChatListener();
+        getServer().getPluginManager().registerEvents(earlyChatListener, this);
+
         // Ensure data folder exists
         if (!getDataFolder().exists()) {
             getDataFolder().mkdirs();
@@ -452,11 +458,13 @@ public final class SocialBlueprintPlugin extends JavaPlugin {
 
         this.updateService.onStartup(configManager.snapshot());
 
+        earlyChatListener.setDelegate(chatListener);
         getLogger().info("SocialBlueprint enabled.");
     }
 
     @Override
     public void onDisable() {
+        if (earlyChatListener != null) earlyChatListener.setDelegate(null);
         if (playerPresentation != null) playerPresentation.stop();
         if (serenityTask != null) serenityTask.cancel();
         if (mindInputListener != null) mindInputListener.clear();

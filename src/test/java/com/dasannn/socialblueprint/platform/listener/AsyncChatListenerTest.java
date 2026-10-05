@@ -288,7 +288,7 @@ class AsyncChatListenerTest {
         var annotation = AsyncChatListener.class.getMethod("onChat", AsyncChatEvent.class)
                 .getAnnotation(org.bukkit.event.EventHandler.class);
         assertThat(annotation.priority()).isEqualTo(org.bukkit.event.EventPriority.HIGHEST);
-        var preparation = AsyncChatListener.class.getMethod("onPrepareChat", AsyncChatEvent.class)
+        var preparation = EarlyChatListener.class.getMethod("onPrepareChat", AsyncChatEvent.class)
                 .getAnnotation(org.bukkit.event.EventHandler.class);
         assertThat(preparation.priority()).isEqualTo(org.bukkit.event.EventPriority.LOWEST);
         try (var in = getClass().getClassLoader().getResourceAsStream("plugin.yml");
@@ -886,7 +886,7 @@ class AsyncChatListenerTest {
         MinigameReader minigame = new MinigameReader();
         minigame.legacy(event);
         assertThat(minigame.legacy).isEqualTo(expected).isNotEqualTo(input);
-        assertThat(AsyncChatListener.class.getMethod("onPrepareLegacyChat", AsyncPlayerChatEvent.class)
+        assertThat(EarlyChatListener.class.getMethod("onPrepareLegacyChat", AsyncPlayerChatEvent.class)
                 .getAnnotation(org.bukkit.event.EventHandler.class).priority())
                 .isEqualTo(org.bukkit.event.EventPriority.LOWEST);
         assertThat(MinigameReader.class.getMethod("legacy", AsyncPlayerChatEvent.class)
@@ -1048,6 +1048,68 @@ class AsyncChatListenerTest {
         chatListener.onRenderedChat(event);
         assertThat(chatState("prepared")).isEmpty();
         assertThat(chatState("bridges")).isEmpty();
+    }
+
+    @Test
+    void earlyListenerPassesThroughBeforeInitialization() throws Exception {
+        assertEarlyPassThrough(new EarlyChatListener());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void earlyListenerDelegatesBothEventsAfterInitialization() throws Exception {
+        EarlyChatListener early = new EarlyChatListener();
+        early.setDelegate(chatListener);
+        AsyncChatEvent modern = chatEvent(null, Component.text("ordinary message"));
+        AsyncPlayerChatEvent legacy = new AsyncPlayerChatEvent(true, null, "ordinary message", Collections.emptySet());
+        early.onPrepareChat(modern);
+        early.onPrepareLegacyChat(legacy);
+        assertThat(cacheReads.get()).isEqualTo(2);
+        assertThat(chatState("prepared").containsKey(modern)).isTrue();
+        assertThat(chatState("prepared").containsKey(legacy)).isTrue();
+        chatListener.onChat(modern);
+        chatListener.onRenderedChat(modern);
+        chatListener.onRenderedLegacyChat(legacy);
+        assertThat(chatState("prepared")).isEmpty();
+    }
+
+    @Test
+    void earlyListenerPassesThroughAfterDisable() throws Exception {
+        EarlyChatListener early = new EarlyChatListener();
+        early.setDelegate(chatListener);
+        early.setDelegate(null);
+        assertEarlyPassThrough(early);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void assertEarlyPassThrough(EarlyChatListener early) throws Exception {
+        Component body = Component.text("ordinary message").color(net.kyori.adventure.text.format.NamedTextColor.AQUA);
+        AsyncChatEvent modern = chatEvent(null, body);
+        ChatRenderer renderer = modern.renderer();
+        String legacyBody = new String("ordinary message");
+        AsyncPlayerChatEvent legacy = new AsyncPlayerChatEvent(true, null, legacyBody, Collections.emptySet());
+        early.onPrepareChat(modern);
+        early.onPrepareLegacyChat(legacy);
+        assertThat(modern.message()).isSameAs(body);
+        assertThat(modern.renderer()).isSameAs(renderer);
+        assertThat(legacy.getMessage()).isSameAs(legacyBody);
+        assertThat(modern.isCancelled()).isFalse();
+        assertThat(legacy.isCancelled()).isFalse();
+        assertThat(cacheReads.get()).isZero();
+        assertThat(chatState("prepared")).isEmpty();
+    }
+
+    @Test
+    void onlyEarlyListenerRegistersLowestPreparation() throws Exception {
+        for (var type : java.util.List.of(AsyncChatEvent.class, AsyncPlayerChatEvent.class)) {
+            String method = type == AsyncChatEvent.class ? "onPrepareChat" : "onPrepareLegacyChat";
+            var handler = EarlyChatListener.class.getMethod(method, type)
+                    .getAnnotation(org.bukkit.event.EventHandler.class);
+            assertThat(handler.priority()).isEqualTo(org.bukkit.event.EventPriority.LOWEST);
+            assertThat(handler.ignoreCancelled()).isTrue();
+            assertThat(AsyncChatListener.class.getMethod(method, type)
+                    .getAnnotation(org.bukkit.event.EventHandler.class)).isNull();
+        }
     }
 
     private static AsyncChatEvent chatEvent(Player player, Component message) {
