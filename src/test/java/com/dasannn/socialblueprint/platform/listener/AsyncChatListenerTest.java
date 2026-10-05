@@ -30,6 +30,7 @@ import com.dasannn.socialblueprint.storage.StatusCache;
 import com.dasannn.socialblueprint.storage.StorageEngine;
 import io.papermc.paper.chat.ChatRenderer;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import net.kyori.adventure.chat.SignedMessage;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -289,11 +290,12 @@ class AsyncChatListenerTest {
         assertThat(annotation.priority()).isEqualTo(org.bukkit.event.EventPriority.HIGHEST);
         var preparation = AsyncChatListener.class.getMethod("onPrepareChat", AsyncChatEvent.class)
                 .getAnnotation(org.bukkit.event.EventHandler.class);
-        assertThat(preparation.priority()).isEqualTo(org.bukkit.event.EventPriority.HIGH);
+        assertThat(preparation.priority()).isEqualTo(org.bukkit.event.EventPriority.LOWEST);
         try (var in = getClass().getClassLoader().getResourceAsStream("plugin.yml");
              var reader = new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
             var manifest = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(reader);
             assertThat(manifest.getStringList("softdepend")).contains("EssentialsChat");
+            assertThat(manifest.getStringList("loadbefore")).contains("LDActivities");
         }
         var initialSnapshot = configManager.snapshot();
         Component hover = chatListener.buildHoverComponent(initialSnapshot,
@@ -336,7 +338,7 @@ class AsyncChatListenerTest {
         AsyncChatEvent event = chatEvent(null, Component.text(input));
         event.renderer(foreign);
         chatListener.onPrepareChat(event);
-        assertThat(event.message()).isEqualTo(Component.text(input));
+        assertThat(event.message()).isEqualTo(Component.text(filtered));
         chatListener.onChat(event);
         assertThat(event.renderer()).isSameAs(foreign);
         assertThat(event.message()).isEqualTo(Component.text(filtered));
@@ -348,7 +350,77 @@ class AsyncChatListenerTest {
         chatListener.onChat(intact);
         assertThat(intact.message()).isSameAs(originalBody);
         assertThat(intact.renderer()).isSameAs(foreign);
-        assertThat(cacheReads.get()).isEqualTo(3); // Only the three wrap events read the profile.
+        assertThat(cacheReads.get()).isEqualTo(5); // Preparation also applies in leave mode.
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    void intactMessagesRetainModernFormattingAndLegacyIdentityInBothModes() throws Exception {
+        for (String mode : java.util.List.of("wrap", "leave")) {
+            configManager.set("chat.foreign-renderer.mode", mode);
+            Player speaker = preparedSpeaker("world", true);
+            // Sequence zero is an episode; sequence one must preserve even code-looking input.
+            AsyncChatEvent episode = chatEvent(speaker, Component.text("diamantes wooden supplies"));
+            chatListener.onPrepareChat(episode);
+            assertThat(episode.message().color()).isNotNull();
+            chatListener.onRenderedChat(episode);
+            String episodeText = new String(AsyncChatListener.extractPlainText(episode.message()));
+            AsyncPlayerChatEvent legacyEpisode = new AsyncPlayerChatEvent(true, speaker, episodeText, Collections.emptySet());
+            chatListener.onPrepareLegacyChat(legacyEpisode);
+            assertThat(legacyEpisode.getMessage()).isSameAs(episodeText);
+            chatListener.onRenderedLegacyChat(legacyEpisode);
+            String input = new String("ordinary &a message \u00a7b with links");
+            Component original = Component.text(input, NamedTextColor.GREEN)
+                    .clickEvent(ClickEvent.openUrl("https://example.com"))
+                    .append(Component.text(" formatted", NamedTextColor.GOLD));
+            AsyncChatEvent modern = chatEvent(speaker, original);
+            ChatRenderer foreign = (source, name, body, viewer) -> body;
+            modern.renderer(foreign);
+            chatListener.onPrepareChat(modern);
+            assertThat(modern.message()).isSameAs(original);
+            chatListener.onChat(modern);
+            assertThat(modern.message()).isSameAs(original);
+            if (mode.equals("leave")) assertThat(modern.renderer()).isSameAs(foreign);
+            else assertThat(modern.renderer().render(speaker, Component.text("Speaker"), Component.empty(), null)
+                    .children().getLast()).isSameAs(original);
+            chatListener.onRenderedChat(modern);
+            String legacyInput = new String(AsyncChatListener.extractPlainText(original));
+            AsyncPlayerChatEvent legacy = new AsyncPlayerChatEvent(true, speaker, legacyInput, Collections.emptySet());
+            chatListener.onPrepareLegacyChat(legacy);
+            assertThat(legacy.getMessage()).isSameAs(legacyInput);
+            chatListener.onRenderedLegacyChat(legacy);
+            assertThat(messageSequence(speaker)).isEqualTo(2);
+            assertThat(chatState("bridges")).isEmpty();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    void neutralLegacyMessagesKeepIdentityAndStillFilterInBothModes() {
+        for (String mode : java.util.List.of("wrap", "leave")) {
+            configManager.set("chat.foreign-renderer.mode", mode);
+            String original = new String("ordinary &a message \u00a7b");
+            Component component = Component.text(original, NamedTextColor.GREEN)
+                    .clickEvent(ClickEvent.openUrl("https://example.com"));
+            AsyncChatEvent modern = chatEvent(null, component);
+            modern.renderer((source, name, body, viewer) -> body);
+            chatListener.onPrepareChat(modern);
+            chatListener.onChat(modern);
+            assertThat(modern.message()).isSameAs(component);
+            chatListener.onRenderedChat(modern);
+            AsyncPlayerChatEvent intact = new AsyncPlayerChatEvent(true, null, original, Collections.emptySet());
+            chatListener.onPrepareLegacyChat(intact);
+            assertThat(intact.getMessage()).isSameAs(original);
+            chatListener.onRenderedLegacyChat(intact);
+            String input = "Please idiot bring wooden supplies";
+            String filtered = configManager.config().chatFilter().apply(input,
+                    messageRegistry.getRaw(configManager.snapshot(), "chat-filter.replacement"));
+            assertThat(filtered).isNotEqualTo(input);
+            AsyncPlayerChatEvent event = new AsyncPlayerChatEvent(true, null, input, Collections.emptySet());
+            chatListener.onPrepareLegacyChat(event);
+            assertThat(event.getMessage()).isEqualTo(filtered);
+            chatListener.onRenderedLegacyChat(event);
+        }
     }
 
     @Test
@@ -639,12 +711,10 @@ class AsyncChatListenerTest {
                     AsyncChatEvent event = chatEvent(speaker, Component.text(unfiltered));
                     if (foreign && !capturing) event.renderer((source, name, message, viewer) ->
                             Component.empty().append(name).append(Component.text(" :: ")).append(message));
-                    Component initialBody = event.message();
                     chatListener.onPrepareChat(event);
                     Component preparedBody = event.message();
                     chatListener.onPrepareChat(event); // Preparing twice must not reroll either.
                     assertThat(event.message()).isSameAs(preparedBody);
-                    if (!foreign) assertThat(preparedBody).isSameAs(initialBody);
                     if (capturing) {
                         // Simulate EssentialsChat at HIGHEST: capture the event body and ignore render's message argument.
                         Component captured = event.message();
@@ -665,8 +735,8 @@ class AsyncChatListenerTest {
                             snapshot.config().psychosis().chat());
                     Component expectedBody = Component.text(expectedText);
                     if (episode) expectedBody = expectedBody.color(TextColor.fromHexString("#303030"));
-                    if (foreign) assertThat(preparedBody).isEqualTo(expectedBody);
-                    else assertThat(event.message()).isEqualTo(Component.text(original));
+                    assertThat(preparedBody).isEqualTo(expectedBody);
+                    assertThat(event.message()).isEqualTo(expectedBody);
                     if (!expectedText.equals(original)) changed.set(true);
                     Component first = null;
                     for (int reader = 0; reader < 4; reader++) {
@@ -715,6 +785,271 @@ class AsyncChatListenerTest {
         assertThat(((java.util.concurrent.atomic.AtomicLong) sequenceMethod.invoke(identity)).get()).isEqualTo(100);
     }
 
+    private static class MinigameReader implements org.bukkit.event.Listener {
+        String modern;
+        String legacy;
+
+        @org.bukkit.event.EventHandler(priority = org.bukkit.event.EventPriority.NORMAL)
+        public void modern(AsyncChatEvent event) {
+            modern = AsyncChatListener.extractPlainText(event.message());
+        }
+
+        @SuppressWarnings("deprecation")
+        @org.bukkit.event.EventHandler(priority = org.bukkit.event.EventPriority.NORMAL)
+        public void legacy(AsyncPlayerChatEvent event) { legacy = event.getMessage(); }
+    }
+
+    private Player preparedSpeaker(String worldName, boolean psychotic) {
+        UUID uuid = UUID.fromString("00000000-0000-0000-0000-000000000123");
+        PlayerId id = PlayerId.of(uuid);
+        if (psychotic) {
+            configManager.set("psychosis.chat.extreme-rate", "50");
+            for (int i = 0; i < configManager.snapshot().config().psychosis().extremeThreshold(); i++) {
+                psychosisRepo.saveAsync(new PsychosisEvent(id, PlayerId.of(UUID.randomUUID()),
+                        CombatContext.OPEN, Instant.now())).join();
+            }
+        }
+        PlayerSocialView view = profileService.loadViewAsync(id, "Speaker", configManager.snapshot()).join();
+        assertThat(view.psychosis()).isEqualTo(psychotic ? PsychosisLevel.EXTREME : PsychosisLevel.NEUTRAL);
+        org.bukkit.World world = (org.bukkit.World) Proxy.newProxyInstance(
+                org.bukkit.World.class.getClassLoader(), new Class<?>[]{org.bukkit.World.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getName")) return worldName;
+                    throw new AssertionError("Unexpected World call: " + method.getName());
+                });
+        Player speaker = (Player) Proxy.newProxyInstance(Player.class.getClassLoader(), new Class<?>[]{Player.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getUniqueId" -> uuid;
+                    case "getWorld" -> world;
+                    default -> throw new AssertionError("Unexpected Player call: " + method.getName());
+                });
+        chatListener.registerPlayer(speaker);
+        cacheReads.set(0);
+        return speaker;
+    }
+
+    private long messageSequence(Player speaker) throws Exception {
+        var field = AsyncChatListener.class.getDeclaredField("identities");
+        field.setAccessible(true);
+        Object identity = ((java.util.Map<?, ?>) field.get(chatListener)).get(speaker);
+        var sequence = identity.getClass().getDeclaredMethod("sequence");
+        sequence.setAccessible(true);
+        return ((java.util.concurrent.atomic.AtomicLong) sequence.invoke(identity)).get();
+    }
+
+    private java.util.Map<?, ?> chatState(String name) throws Exception {
+        var field = AsyncChatListener.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return (java.util.Map<?, ?>) field.get(chatListener);
+    }
+
+    @Test
+    void lowestModernMessageIsFilteredThenCorruptedBeforeNormalMinigameRead() throws Exception {
+        Player speaker = preparedSpeaker("world", true);
+        String input = "Please idiot bring diamantes wooden supplies";
+        String filtered = configManager.config().chatFilter().apply(input,
+                messageRegistry.getRaw(configManager.snapshot(), "chat-filter.replacement"));
+        Component expected = AsyncChatListener.messageBody(filtered, PsychosisLevel.EXTREME, 0x123, 0,
+                configManager.config().psychosis().chat());
+        assertThat(AsyncChatListener.extractPlainText(expected)).isNotEqualTo(filtered);
+        AsyncChatEvent event = chatEvent(speaker, Component.text(input));
+        chatListener.onPrepareChat(event);
+        assertThat(event.message()).isEqualTo(expected);
+        assertThat(event.message().color()).isNotNull();
+        MinigameReader minigame = new MinigameReader();
+        minigame.modern(event);
+        assertThat(minigame.modern).isEqualTo(AsyncChatListener.extractPlainText(expected)).isNotEqualTo(input);
+        assertThat(MinigameReader.class.getMethod("modern", AsyncChatEvent.class)
+                .getAnnotation(org.bukkit.event.EventHandler.class).priority())
+                .isEqualTo(org.bukkit.event.EventPriority.NORMAL);
+        chatListener.onChat(event);
+        assertThat(event.renderer().render(speaker, Component.text("Speaker"), Component.text(input), null)
+                .children().getLast()).isEqualTo(expected);
+        assertThat(cacheReads.get()).isEqualTo(1);
+        assertThat(messageSequence(speaker)).isEqualTo(1);
+        chatListener.onRenderedChat(event);
+        assertThat(chatState("prepared")).isEmpty();
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    void lowestLegacyMessageIsPlainCorruptionBeforeNormalMinigameRead() throws Exception {
+        Player speaker = preparedSpeaker("world", true);
+        String input = "Please idiot bring diamantes wooden supplies";
+        String filtered = configManager.config().chatFilter().apply(input,
+                messageRegistry.getRaw(configManager.snapshot(), "chat-filter.replacement"));
+        String expected = ChatCorruption.corrupt(filtered, PsychosisLevel.EXTREME, 0x123, 0,
+                configManager.config().psychosis().chat());
+        AsyncPlayerChatEvent event = new AsyncPlayerChatEvent(true, speaker, input, Collections.emptySet());
+        chatListener.onPrepareLegacyChat(event);
+        assertThat(event.getMessage()).isEqualTo(expected).isNotEqualTo(filtered).doesNotContain("§", "&");
+        MinigameReader minigame = new MinigameReader();
+        minigame.legacy(event);
+        assertThat(minigame.legacy).isEqualTo(expected).isNotEqualTo(input);
+        assertThat(AsyncChatListener.class.getMethod("onPrepareLegacyChat", AsyncPlayerChatEvent.class)
+                .getAnnotation(org.bukkit.event.EventHandler.class).priority())
+                .isEqualTo(org.bukkit.event.EventPriority.LOWEST);
+        assertThat(MinigameReader.class.getMethod("legacy", AsyncPlayerChatEvent.class)
+                .getAnnotation(org.bukkit.event.EventHandler.class).priority())
+                .isEqualTo(org.bukkit.event.EventPriority.NORMAL);
+        chatListener.onPrepareLegacyChat(event);
+        assertThat(cacheReads.get()).isEqualTo(1);
+        assertThat(messageSequence(speaker)).isEqualTo(1);
+        chatListener.onRenderedLegacyChat(event);
+        assertThat(chatState("prepared")).isEmpty();
+    }
+
+    @Test
+    void legacyThenModernShareDecisionAcrossMonitorAndRestoreCapturedColour() throws Exception {
+        pairedMessages(false, "world", true);
+    }
+
+    @Test
+    void modernThenLegacyShareDecisionAcrossMonitor() throws Exception {
+        pairedMessages(true, "world", true);
+    }
+
+    @Test
+    void disabledWorldLeavesBothEventMessagesUntouchedAtLowest() throws Exception {
+        pairedMessages(false, "minigames", true);
+    }
+
+    @Test
+    void neutralMessagesStayIntactForBothNormalReaders() throws Exception {
+        pairedMessages(true, "world", false);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void pairedMessages(boolean modernFirst, String world, boolean psychotic) throws Exception {
+        Player speaker = preparedSpeaker(world, psychotic);
+        boolean disabled = world.equals("minigames");
+        String input = disabled ? "Please idiot bring diamantes wooden supplies" : "diamantes wooden supplies";
+        var snapshot = configManager.snapshot();
+        MinigameReader minigame = new MinigameReader();
+        for (int sequence = 0; sequence < 4; sequence++) {
+            Component expected = AsyncChatListener.messageBody(input,
+                    disabled || !psychotic ? PsychosisLevel.NEUTRAL : PsychosisLevel.EXTREME,
+                    0x123, sequence, snapshot.config().psychosis().chat());
+            AsyncChatEvent modern = chatEvent(speaker, Component.text(input));
+            AsyncPlayerChatEvent legacy = new AsyncPlayerChatEvent(true, speaker, input, Collections.emptySet());
+            if (modernFirst) {
+                chatListener.onPrepareChat(modern);
+                minigame.modern(modern);
+                chatListener.onChat(modern);
+                chatListener.onRenderedChat(modern);
+                assertThat(chatState("prepared")).isEmpty();
+                legacy.setMessage(minigame.modern); // Bridge forwards the modified mutable message.
+                chatListener.onPrepareLegacyChat(legacy);
+                minigame.legacy(legacy);
+                chatListener.onRenderedLegacyChat(legacy);
+            } else {
+                chatListener.onPrepareLegacyChat(legacy);
+                minigame.legacy(legacy);
+                chatListener.onRenderedLegacyChat(legacy);
+                assertThat(chatState("prepared")).isEmpty();
+                modern.message(Component.text(minigame.legacy)); // Original remains input, as in Paper.
+                chatListener.onPrepareChat(modern);
+                minigame.modern(modern);
+                Component captured = modern.message();
+                modern.renderer((source, name, ignored, viewer) -> Component.text("<")
+                        .append(name).append(Component.text("> ")).append(captured));
+                chatListener.onChat(modern);
+                chatListener.onRenderedChat(modern);
+            }
+            assertThat(minigame.modern).isEqualTo(minigame.legacy)
+                    .isEqualTo(AsyncChatListener.extractPlainText(expected));
+            assertThat(modern.message()).isEqualTo(expected);
+            if (psychotic && !disabled && sequence % 2 == 0) {
+                assertThat(minigame.modern).isNotEqualTo(input);
+                assertThat(modern.message().color()).isNotNull();
+            } else {
+                assertThat(minigame.modern).isEqualTo(input);
+                assertThat(modern.message().color()).isNull();
+            }
+            Component line = modern.renderer().render(speaker, Component.text("Speaker"), Component.text("ignored"), null);
+            Component renderedBody = modernFirst ? line.children().getLast()
+                    : line.children().getLast().children().getLast();
+            assertThat(renderedBody).isEqualTo(expected);
+            assertThat(cacheReads.get()).isEqualTo(sequence + 1);
+            assertThat(messageSequence(speaker)).isEqualTo(sequence + 1);
+            assertThat(chatState("prepared")).isEmpty();
+            assertThat(chatState("bridges")).isEmpty();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    @Test
+    void cancelledLegacyContextAndHandoffAreClearedAtMonitor() throws Exception {
+        Player speaker = preparedSpeaker("world", true);
+        AsyncPlayerChatEvent event = new AsyncPlayerChatEvent(true, speaker, "diamantes", Collections.emptySet());
+        chatListener.onPrepareLegacyChat(event);
+        event.setCancelled(true);
+        chatListener.onRenderedLegacyChat(event);
+        assertThat(chatState("prepared")).isEmpty();
+        assertThat(chatState("bridges")).isEmpty();
+        var monitor = AsyncChatListener.class.getMethod("onRenderedLegacyChat", AsyncPlayerChatEvent.class)
+                .getAnnotation(org.bukkit.event.EventHandler.class);
+        assertThat(monitor.priority()).isEqualTo(org.bukkit.event.EventPriority.MONITOR);
+        assertThat(monitor.ignoreCancelled()).isFalse();
+    }
+
+    @Test
+    void leaveModeStillPublishesEpisodeBodyAtLowest() throws Exception {
+        configManager.set("chat.foreign-renderer.mode", "leave");
+        Player speaker = preparedSpeaker("world", true);
+        Component expected = AsyncChatListener.messageBody("diamantes wooden supplies",
+                PsychosisLevel.EXTREME, 0x123, 0, configManager.config().psychosis().chat());
+        AsyncChatEvent event = chatEvent(speaker, Component.text("diamantes wooden supplies"));
+        ChatRenderer foreign = (source, name, body, viewer) -> body;
+        event.renderer(foreign);
+        chatListener.onPrepareChat(event);
+        Component body = event.message();
+        assertThat(body).isEqualTo(expected);
+        assertThat(AsyncChatListener.extractPlainText(body)).isNotEqualTo("diamantes wooden supplies");
+        assertThat(body.color()).isNotNull();
+        chatListener.onChat(event);
+        assertThat(event.renderer()).isSameAs(foreign);
+        assertThat(event.message()).isSameAs(body);
+        assertThat(cacheReads.get()).isEqualTo(1);
+        assertThat(messageSequence(speaker)).isEqualTo(1);
+    }
+
+    @Test
+    void unmatchedHandoffExpiresBeforeAnotherMessageCanReuseIt() throws Exception {
+        Player speaker = preparedSpeaker("world", true);
+        AsyncChatEvent first = chatEvent(speaker, Component.text("diamantes wooden supplies"));
+        chatListener.onPrepareChat(first);
+        chatListener.onRenderedChat(first);
+        assertThat(chatState("prepared")).isEmpty();
+        assertThat(chatState("bridges")).hasSize(1);
+        // Advance cleanup's monotonic deadline without sleeping or changing the clock.
+        var prune = AsyncChatListener.class.getDeclaredMethod("pruneBridges", long.class);
+        prune.setAccessible(true);
+        prune.invoke(chatListener, System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(6));
+        assertThat(chatState("bridges")).isEmpty();
+        AsyncPlayerChatEvent next = new AsyncPlayerChatEvent(true, speaker,
+                "diamantes wooden supplies", Collections.emptySet());
+        chatListener.onPrepareLegacyChat(next);
+        assertThat(next.getMessage()).isEqualTo("diamantes wooden supplies"); // Protected sequence 1.
+        assertThat(cacheReads.get()).isEqualTo(2);
+        assertThat(messageSequence(speaker)).isEqualTo(2);
+        chatListener.onRenderedLegacyChat(next);
+        chatListener.onQuit(new org.bukkit.event.player.PlayerQuitEvent(speaker, Component.empty()));
+        assertThat(chatState("bridges")).isEmpty();
+        assertThat(chatState("identities")).isEmpty();
+    }
+
+    @Test
+    void modernCancellationClearsContextAndHandoffAtMonitor() throws Exception {
+        Player speaker = preparedSpeaker("world", true);
+        AsyncChatEvent event = chatEvent(speaker, Component.text("diamantes wooden supplies"));
+        chatListener.onPrepareChat(event);
+        event.setCancelled(true);
+        chatListener.onRenderedChat(event);
+        assertThat(chatState("prepared")).isEmpty();
+        assertThat(chatState("bridges")).isEmpty();
+    }
+
     private static AsyncChatEvent chatEvent(Player player, Component message) {
         return new AsyncChatEvent(true, player, Collections.emptySet(), ChatRenderer.defaultRenderer(),
                 message, message, SignedMessage.system(AsyncChatListener.extractPlainText(message), message));
@@ -742,7 +1077,7 @@ class AsyncChatListenerTest {
     }
 
     @Test
-    void preparedContextIsClearedAtHighestAndMonitorEvenWhenCancelled() throws Exception {
+    void preparedContextIsClearedAtMonitorEvenWhenCancelled() throws Exception {
         var field = AsyncChatListener.class.getDeclaredField("prepared");
         field.setAccessible(true);
         var contexts = (java.util.Map<?, ?>) field.get(chatListener);
@@ -752,7 +1087,10 @@ class AsyncChatListenerTest {
             chatListener.onPrepareChat(event);
             assertThat(contexts.size()).isEqualTo(1);
             if (cancelled) event.setCancelled(true);
-            else chatListener.onChat(event);
+            else {
+                chatListener.onChat(event);
+                assertThat(contexts.size()).isEqualTo(1);
+            }
             chatListener.onRenderedChat(event);
             assertThat(contexts).isEmpty();
         }

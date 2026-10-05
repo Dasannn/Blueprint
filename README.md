@@ -59,7 +59,7 @@ Each imported score becomes a legacy reputation event. Already imported players 
 
 ## Features
 
-**Fairness:** no metric grants or removes combat advantage or material rewards: no damage, health, movement/mining speed, drops, items, or reputation payouts. All effects are cosmetic. Madness hallucinations are private to the affected player; chat presentation and eligible nearby serenity observers are described below. Even the lowest-status player can still chat, build, trade, move, and play. See [constitution §2.1](docs/constitution.md#21-consequences-are-social-never-mechanical).
+**Fairness:** no metric grants or removes combat advantage or material rewards: no damage, health, movement/mining speed, drops, items, or reputation payouts. Ambient effects are cosmetic; Psychosis chat corruption can affect chat-based games ([decision 0010](docs/decisions/0010-chat-corruption-is-the-message.md)). Madness hallucinations are private to the affected player; chat presentation and eligible nearby serenity observers are described below. Even the lowest-status player can still chat, build, trade, move, and play. See [constitution §2.1](docs/constitution.md#21-consequences-are-social-never-mechanical).
 
 ### Social status and nine tiers
 
@@ -80,6 +80,8 @@ Status is derived from recorded reputation changes. New players begin at `0`, wi
 **Reputation Confidence** measures age-weighted evidence from distinct raters: `Unknown`, `Low`, `Established`, or `High`. Repeating one person's opinion does not increase the number of contributors. Administrative adjustments and legacy imports do not count as community evidence.
 
 **Decay** reduces old events' contribution to current status, with a default 30-day half-life. Events remain in history. Confidence has its own independent age weighting and half-life.
+
+Release **2.0.3** filters and corrupts chat once at LOWEST in both modern and legacy events, so LDActivities, loggers and bridges reading the mutable message receive the corrupted letters.
 
 ### Honor and history
 

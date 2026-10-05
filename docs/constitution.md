@@ -53,6 +53,11 @@ a violation of this constitution.
 One exception is recorded by the owner in decision 0007: received honor
 ratings are a capped input to Psychosis. Status never reads Psychosis.
 
+Decision 0010 records one narrow exception to §2.1: Psychosis chat corruption
+changes the message other plugins receive and may affect chat-based games.
+Ambient effects remain cosmetic; no combat, movement or material benefit is
+granted by SocialBlueprint, and chat corruption writes no metric or money.
+
 ### 2.4 Emitting an opinion costs something
 
 Giving or removing honor charges the actor. The purpose is not to sell

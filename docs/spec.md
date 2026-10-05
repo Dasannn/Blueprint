@@ -261,10 +261,12 @@ configurable.
 
 **SB-044.** Superseded by SB-101. The ambient opt-out is removed.
 
-**SB-100.** Psychosis and serenity cause cosmetic effects only; neither
+**SB-100.** Psychosis and serenity ambient effects are cosmetic; neither metric
 derives from nor alters status, as required by constitution §2.3 and
 SB-001/SB-004. Ambient effects and chat corruption cannot change status,
-Reputation Confidence or money, nor grant or remove any mechanical advantage.
+Reputation Confidence or money. Ambient effects cannot grant or remove any
+mechanical advantage. Decision 0010 makes chat corruption the message received
+by other plugins, accepting consequences in chat-based games (SB-188).
 They never change damage, health, absorption, invulnerability, combat state,
 movement, collision, reach, mining, drops or what a player can survive or do.
 A kill may feed Psychosis and the separate status event of SB-032, but an
@@ -1483,7 +1485,8 @@ No metric, inventory, money, health, movement or real-world state changes.
 `chat.foreign-renderer.mode` accepts `wrap` (default) or `leave`;
 `chat.foreign-renderer.prefix` accepts `before-line` (default), `display-name`
 or `none`. In wrap mode, compute one filtered, Psychosis-corrupted and
-episode-coloured body per event for every viewer. Publish it at HIGH before
+episode-coloured body per message for every viewer. Release 2.0.3 publishes it
+at LOWEST across legacy and modern events (SB-188/SB-189), before
 EssentialsChat captures the message at HIGHEST, then wrap the renderer at
 HIGHEST, delegating its source/viewer and passing that same body. Preserve
 foreign formatting, recipients, name styling and click actions. Attach the
@@ -1493,10 +1496,11 @@ supplied name can still show the summary on that prefix. Prefix the complete lin
 display name, or omit the prefix; `none` still replaces the body. Wrapping and
 early preparation are idempotent and use one runtime snapshot/cache lookup.
 `softdepend: [EssentialsChat]` orders normal startup registration. Leave mode
-retains the foreign renderer, skips our prefix/body processing but retains word
-filtering and the one-time diagnostic. Missing leaves independently adopt the
+retains the foreign renderer and skips our prefix/wrapper processing. Release
+2.0.3 still publishes the filtered/corrupted body at LOWEST (SB-190), retaining
+the one-time diagnostic. Missing leaves independently adopt the
 defaults, validate allowed strings and support live editing/reload. A renderer
-that captures text before HIGH or replaces the wrapper later needs separate
+that captures text before our LOWEST listener or replaces the wrapper later needs separate
 compatibility verification; the MONITOR observer never mutates a renderer.
 
 **SB-180.** `/status admin features` uses two 54-slot pages. Page 1 contains
@@ -1577,7 +1581,51 @@ signature-enforcing release to receive this protection. Follow
 [the release guide](guides/releasing.md) for key storage, rotation, recovery and
 publishing the final jar, checksum and signature together.
 
+### 15.8 Release 2.0.3
+
+**SB-188.** **Chat corruption is the message** (decision 0010). Apply the chat
+word filter, then choose the Psychosis episode and corrupted body once at
+LOWEST. Paper `AsyncChatEvent.message` receives that body, with episode colour;
+legacy Bukkit `AsyncPlayerChatEvent.setMessage` receives identical letters as
+plain text without colour codes. Other plugins reading the mutable message,
+including LDActivities, loggers and bridges, receive the corrupted text. The
+owner accepts gameplay consequences in chat-based games; this narrowly amends
+SB-100 and constitution §2.1, leaving ambient harmlessness and metric separation
+unchanged. Paper's original/signed message remains the original player input.
+
+**SB-189.** **One preparation across the Paper bridge.** Match the legacy and
+modern events by cached player identity, processing thread and original or
+prepared text, with a short-lived handoff. One message consumes one sequence
+step and one episode decision whichever event prepares first. Clear event
+contexts at MONITOR, including cancellation; retain only the handoff value
+between the first MONITOR and the second LOWEST, consume it on pairing, expire
+unmatched values after five seconds and remove them on quit. Same-event repeats
+and successive identical messages must not reroll or reuse an older decision.
+
+**SB-190.** Preserve SB-179's HIGHEST default/foreign renderer integration,
+prefix placement, hover summary and `chat.foreign-renderer.*` choices. Rendering
+reuses the prepared body and colour without a second corruption pass. `leave`
+leaves the foreign renderer in control while LOWEST still prepares its message.
+Disabled worlds skip filtering, corruption and episode colour; ordinary intact
+text stays unchanged for all readers. Add `loadbefore: [LDActivities]` so our
+LOWEST listeners register first when both plugins use that priority; absence
+of LDActivities is harmless. Release version is `2.0.3`.
+
 ## 16. Acceptance criteria for release 2
+
+- [ ] At LOWEST, modern and legacy mutable messages contain the same filtered,
+      corrupted letters; legacy contains no colour codes. A NORMAL minigame
+      reader sees the corruption and cannot match the originally shown word
+      during an episode (SB-188).
+- [ ] Dispatch both complete events in each order, including the first MONITOR
+      before the second LOWEST: one profile/episode decision and sequence step,
+      identical letters, restored modern episode colour. Cancellation clears
+      event contexts; paired handoffs clear, unmatched handoffs expire and quit
+      removes them. Consecutive identical messages advance independently (SB-189).
+- [ ] Default and EssentialsX-style capturing renderers reuse the coloured
+      prepared body. Verify prefix modes, hover, `leave`, disabled-world bypass
+      and intact messages; verify load ordering with LDActivities present and
+      startup without it (SB-190).
 
 - [ ] Manual and automatic downloads stage only jars signed by an embedded
       primary or backup Ed25519 key after size, HTTPS, SHA-256 and metadata

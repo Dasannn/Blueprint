@@ -121,3 +121,4 @@ libraries:
 
 # EssentialsChat installs its Paper renderer at HIGHEST; register ours after it.
 softdepend: [EssentialsChat]
+loadbefore: [LDActivities]

@@ -13,6 +13,7 @@ import io.papermc.paper.chat.ChatRenderer;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.HoverEvent;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.entity.Player;
@@ -34,7 +35,7 @@ import java.util.function.Function;
  * Async chat listener and renderer per T-040, T-041, T-042, T-043, and T-044.
  * - Reads one immutable snapshot per event.
  * - Non-blocking lookup: if profile is not cached, renders with neutral default.
- * - Computes shared plain-text Psychosis corruption once per event.
+ * - Prepares shared Psychosis corruption once per bridged message at LOWEST.
  * - Attaches compact hover summary to the player's name component.
  * - Never touches Bukkit entities, worlds, or databases on the chat path.
  * - Never cancels, truncates, delays or blocks messages (Constitution §2.2).
@@ -56,15 +57,20 @@ public class AsyncChatListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onRenderedChat(AsyncChatEvent event) {
-        prepared.remove(event);
+        finishChat(event, event.isCancelled());
         if (!event.isCancelled() && !(event.renderer() instanceof OwnedRenderer) && !(event.renderer() instanceof ChatRenderer.Default))
             warnForeignRenderer();
     }
 
     private record ChatIdentity(PlayerId id, AtomicLong sequence, String world) {}
-    private record PreparedChat(RuntimeSnapshot snapshot, PlayerSocialView view, Component body) {}
-    private final Map<AsyncChatEvent, PreparedChat> prepared = Collections.synchronizedMap(new IdentityHashMap<>());
-    private final boolean essentialsChat;
+    private record PreparedChat(RuntimeSnapshot snapshot, PlayerSocialView view, Component body, boolean changed) {}
+    // ponytail: one preparation lock; use per-player locks only if chat throughput warrants it.
+    private final Map<Object, PreparedChat> prepared = Collections.synchronizedMap(new IdentityHashMap<>());
+    // Paper completes legacy MONITOR before modern LOWEST. Retain only the value,
+    // never the first event, until its opposite event consumes it or it expires.
+    private record BridgeChat(String original, boolean legacy, long thread, long expires, PreparedChat context) {}
+    private static final long BRIDGE_TTL_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+    private final Map<Player, java.util.List<BridgeChat>> bridges = new IdentityHashMap<>();
     // Identity keys never invoke a Player method (including hashCode) on the chat thread.
     private final Map<Player, ChatIdentity> identities = Collections.synchronizedMap(new IdentityHashMap<>());
     private final ProfileService profileService;
@@ -117,7 +123,6 @@ public class AsyncChatListener implements Listener {
             Function<UUID, Player> playerResolver,
             boolean essentialsChat
     ) {
-        this.essentialsChat = essentialsChat;
         this.profileService = Objects.requireNonNull(profileService, "ProfileService must not be null");
         this.configManager = Objects.requireNonNull(configManager, "ConfigManager must not be null");
         this.messageRegistry = Objects.requireNonNull(messageRegistry, "MessageRegistry must not be null");
@@ -152,91 +157,141 @@ public class AsyncChatListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
-    public void onQuit(PlayerQuitEvent event) { identities.remove(event.getPlayer()); }
+    public void onQuit(PlayerQuitEvent event) {
+        identities.remove(event.getPlayer());
+        synchronized (prepared) { bridges.remove(event.getPlayer()); }
+    }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPrepareChat(AsyncChatEvent event) {
-        // EssentialsChat installs its capturing renderer at HIGHEST, after this stage.
-        if (prepared.containsKey(event) || event.renderer() instanceof OwnedRenderer) return;
-        if (!essentialsChat && event.renderer() instanceof ChatRenderer.Default) return;
-        handleChat(event, true);
+        if (event.isCancelled() || prepared.containsKey(event) || event.renderer() instanceof OwnedRenderer) return;
+        try {
+            PreparedChat context = prepareChat(event, event.getPlayer(), extractPlainText(event.message()),
+                    extractPlainText(event.originalMessage()), false);
+            if (context == null) event.setCancelled(true);
+            else if (context.changed()) event.message(context.body());
+        } catch (Throwable t) {
+            // Preserve chat availability if preparation fails.
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPrepareLegacyChat(AsyncPlayerChatEvent event) {
+        if (event.isCancelled() || prepared.containsKey(event)) return;
+        try {
+            PreparedChat context = prepareChat(event, event.getPlayer(), event.getMessage(), event.getMessage(), true);
+            if (context == null) event.setCancelled(true);
+            else if (context.changed()) {
+                String body = extractPlainText(context.body());
+                if (!body.equals(event.getMessage())) event.setMessage(body);
+            }
+        } catch (Throwable t) {
+            // Preserve chat availability if preparation fails.
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onRenderedLegacyChat(AsyncPlayerChatEvent event) {
+        finishChat(event, event.isCancelled());
+    }
+
+    private void finishChat(Object event, boolean cancelled) {
+        synchronized (prepared) {
+            PreparedChat context = prepared.remove(event);
+            if (cancelled && context != null) {
+                bridges.values().forEach(values -> values.removeIf(value -> value.context() == context));
+            }
+            pruneBridges(System.nanoTime());
+        }
+    }
+
+    private void pruneBridges(long now) {
+        bridges.values().removeIf(values -> {
+            values.removeIf(value -> now - value.expires() >= 0);
+            return values.isEmpty();
+        });
+    }
+
+    private PreparedChat prepareChat(Object event, Player player, String plain, String original, boolean legacy) {
+        synchronized (prepared) {
+            PreparedChat existing = prepared.get(event);
+            if (existing != null) return existing;
+            long now = System.nanoTime();
+            pruneBridges(now);
+            ChatIdentity identity = identities.get(player);
+            java.util.List<BridgeChat> pending = bridges.get(player);
+            if (identity != null && pending != null) {
+                for (var iterator = pending.iterator(); iterator.hasNext();) {
+                    BridgeChat bridge = iterator.next();
+                    if (bridge.legacy() != legacy && bridge.thread() == Thread.currentThread().threadId()
+                            && (bridge.original().equals(original)
+                            || extractPlainText(bridge.context().body()).equals(plain))) {
+                        iterator.remove();
+                        if (pending.isEmpty()) bridges.remove(player);
+                        prepared.put(event, bridge.context());
+                        return bridge.context();
+                    }
+                }
+            }
+            RuntimeSnapshot snapshot = configManager.snapshot();
+            if (consumeReason(player, plain, snapshot)) return null;
+            boolean disabled = snapshot.config().worldRules().isDisabled(identity != null ? identity.world() : null);
+            String filtered = disabled ? plain : snapshot.config().chatFilter().apply(plain,
+                    messageRegistry.getRaw(snapshot, "chat-filter.replacement"));
+            PlayerSocialView view = profileService.getViewCached(identity != null ? identity.id() : null, snapshot);
+            long sequence = identity != null ? identity.sequence().getAndIncrement() : 1;
+            UUID uuid = identity != null ? identity.id().uuid() : null;
+            long seed = uuid != null ? uuid.getMostSignificantBits() ^ uuid.getLeastSignificantBits() : 0;
+            Component body = messageBodyInWorld(filtered, view.psychosis(), seed, sequence,
+                    snapshot.config().psychosis().chat(), snapshot.config().worldRules(), identity != null ? identity.world() : "");
+            boolean episode = body.color() != null;
+            // Intact input retains its formatting; filtering alone keeps the original filter output.
+            if (!episode) body = Component.text(filtered);
+            PreparedChat context = new PreparedChat(snapshot, view, body, episode || !filtered.equals(plain));
+            prepared.put(event, context);
+            if (identity != null) bridges.computeIfAbsent(player, ignored -> new java.util.ArrayList<>())
+                    .add(new BridgeChat(original, legacy, Thread.currentThread().threadId(), now + BRIDGE_TTL_NANOS, context));
+            return context;
+        }
+    }
+
+    private boolean consumeReason(Player player, String rawReason, RuntimeSnapshot snapshot) {
+        if (statusGuiService == null) return false;
+        ChatIdentity identity = identities.get(player);
+        UUID uuid = identity != null ? identity.id().uuid() : null;
+        if (uuid == null) return false;
+        if (snapshot.config().worldRules().isDisabled(identity.world())) {
+            mainThreadRunner.accept(() -> statusGuiService.cancelPendingReason(uuid));
+            return false;
+        }
+        if (!statusGuiService.hasPendingReason(uuid)) return false;
+        mainThreadRunner.accept(() -> {
+            Player online = playerResolver.apply(uuid);
+            if (online != null && online.isOnline()) statusGuiService.consumePendingReason(online, rawReason);
+            else statusGuiService.cancelPendingReason(uuid);
+        });
+        return true;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
+        if (event.isCancelled() || event.renderer() instanceof OwnedRenderer) return;
         try {
-            handleChat(event, false);
-        } finally {
-            prepared.remove(event);
-        }
-    }
-
-    private void handleChat(AsyncChatEvent event, boolean preparing) {
-        try {
-            if (event.renderer() instanceof OwnedRenderer) return;
+            if (!prepared.containsKey(event)) onPrepareChat(event);
             PreparedChat context = prepared.get(event);
-            if (context != null && context.body() != null) {
-                installRenderer(event, context.snapshot(), context.view(), context.body());
-                return;
-            }
-            // Read one immutable snapshot across both priorities.
-            RuntimeSnapshot snapshot = context != null ? context.snapshot() : configManager.snapshot();
-            if (preparing && snapshot.config().foreignRenderer().mode().equals("leave")) {
-                prepared.put(event, new PreparedChat(snapshot, null, null));
-                return;
-            }
-            // Hook GUI pending written reason prompt before normal chat formatting (Finding 3 / Finding 6)
-            ChatIdentity identity = identities.get(event.getPlayer());
-            UUID playerUuid = identity != null ? identity.id().uuid() : null;
-            boolean disabled = snapshot.config().worldRules().isDisabled(identity != null ? identity.world() : null);
-            if (disabled && playerUuid != null && statusGuiService != null)
-                mainThreadRunner.accept(() -> statusGuiService.cancelPendingReason(playerUuid));
-            if (!disabled && playerUuid != null && statusGuiService != null && statusGuiService.hasPendingReason(playerUuid)) {
-                event.setCancelled(true);
-                String rawReason = extractPlainText(event.message());
-                mainThreadRunner.accept(() -> {
-                    Player player = playerResolver.apply(playerUuid);
-                    if (player != null && player.isOnline()) {
-                        statusGuiService.consumePendingReason(player, rawReason);
-                    } else {
-                        statusGuiService.cancelPendingReason(playerUuid);
-                    }
-                });
-                return;
-            }
-            // Read one immutable snapshot per event (T-040, T-042)
-            String plain = extractPlainText(event.message());
-            String original = disabled ? plain : snapshot.config().chatFilter().apply(plain,
-                    messageRegistry.getRaw(snapshot, "chat-filter.replacement"));
-            if (!original.equals(extractPlainText(event.message()))) event.message(Component.text(original));
-            ChatRenderer renderer = event.renderer();
-            boolean foreign = !(renderer instanceof ChatRenderer.Default);
-            if (foreign && snapshot.config().foreignRenderer().mode().equals("leave")) {
+            if (event.isCancelled() || context == null) return;
+            if (!(event.renderer() instanceof ChatRenderer.Default)
+                    && context.snapshot().config().foreignRenderer().mode().equals("leave")) {
                 warnForeignRenderer();
                 return;
             }
-
-            PlayerId playerId = identity != null ? identity.id() : null;
-
-            // Single read from in-memory cache, neutral default if absent (T-042)
-            PlayerSocialView view = profileService.getViewCached(playerId, snapshot);
-
-            long sequence = identity != null ? identity.sequence().getAndIncrement() : 1;
-            long speakerSeed = playerUuid != null
-                    ? playerUuid.getMostSignificantBits() ^ playerUuid.getLeastSignificantBits() : 0;
-            Component body = messageBodyInWorld(original, view.psychosis(), speakerSeed, sequence,
-                    snapshot.config().psychosis().chat(), snapshot.config().worldRules(), identity != null ? identity.world() : "");
-
-            if (preparing) {
-                prepared.put(event, new PreparedChat(snapshot, view, body));
-                event.message(body);
-                return;
-            }
-            installRenderer(event, snapshot, view, body);
+            installRenderer(event, context.snapshot(), context.view(),
+                    context.changed() ? context.body() : event.message());
         } catch (Throwable t) {
-            // Keep even the fallback body fixed for all viewers.
             Component body = plainBody(event.message());
-            if (!preparing && event.renderer() instanceof ChatRenderer.Default) {
+            if (event.renderer() instanceof ChatRenderer.Default) {
                 event.renderer(new OwnedRenderer((source, sourceDisplayName, message, viewer) ->
                         Component.empty().append(sourceDisplayName).append(Component.text(": ")).append(body)));
             }
