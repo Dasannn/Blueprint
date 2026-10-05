@@ -33,7 +33,7 @@ second place where progress is recorded.
 | P14 Release 2 | `integration/r2` | **done** — 882 tests green, Codex review closed, owner and bot acceptance passed; ready to release as v2.0 |
 | P15 Release 2.0.1 | `main`, tag `v2.0.1` | **done** — 946 unit tests and 15/15 live bot scenarios green; owner checked tab prefix, effects, anonymous head, two-click reveal, EssentialsX chat and name hover live |
 | P16 Release 2.0.2 | `main`, tag `v2.0.2` | **done** — 971 unit tests green; signed with the primary release key; owner confirmed T-230 history date live |
-| P17 Release 2.0.3 | `integration/r2.0.3` | **review** — code and regression coverage ready; Claude build and live acceptance pending |
+| P17 Release 2.0.3 | `main`, tag `v2.0.3` | **done** — 987 unit tests and 15/15 live bot scenarios green; a stand-in LDActivities read the corrupted text at LOWEST and NORMAL on both chat events; signed; real LDActivities typing game awaits the owner's live check |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -399,9 +399,9 @@ LDActivities/EssentialsX acceptance walk; Codex writes code and regression tests
 
 | id | task | spec | status |
 |---|---|---|---|
-| T-234 | Record the narrow chat-gameplay exception and early message contract in constitution, spec, decision 0010 and README; bump release to 2.0.3. | SB-188 to SB-190 | review |
-| T-235 | Prepare filtered/corrupted modern and legacy messages at LOWEST, share the bridge decision and sequence, clear contexts at MONITOR and preserve renderer integration; load before LDActivities. | SB-188 to SB-190 | review |
-| T-236 | Plain Adventure/event/renderer regression tests for both orders, NORMAL minigame reads, sequence, cleanup, disabled worlds, intact messages and captured episode colour. | SB-188 to SB-190, §16 | review |
+| T-234 | Record the narrow chat-gameplay exception and early message contract in constitution, spec, decision 0010 and README; bump release to 2.0.3. | SB-188 to SB-190 | done |
+| T-235 | Prepare filtered/corrupted modern and legacy messages at LOWEST, share the bridge decision and sequence, clear contexts at MONITOR and preserve renderer integration; load before LDActivities. | SB-188 to SB-190 | done |
+| T-236 | Plain Adventure/event/renderer regression tests for both orders, NORMAL minigame reads, sequence, cleanup, disabled worlds, intact messages and captured episode colour. | SB-188 to SB-190, §16 | done |
 
 **Gate:** Claude's build/tests and owner live LDActivities/EssentialsX walk confirm
 that every mutable-message reader receives the same once-corrupted text.
