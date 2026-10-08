@@ -34,7 +34,7 @@ second place where progress is recorded.
 | P15 Release 2.0.1 | `main`, tag `v2.0.1` | **done** — 946 unit tests and 15/15 live bot scenarios green; owner checked tab prefix, effects, anonymous head, two-click reveal, EssentialsX chat and name hover live |
 | P16 Release 2.0.2 | `main`, tag `v2.0.2` | **done** — 971 unit tests green; signed with the primary release key; owner confirmed T-230 history date live |
 | P17 Release 2.0.3 | `main`, tag `v2.0.3` | **done** — 987 unit tests and 15/15 live bot scenarios green; a stand-in LDActivities read the corrupted text at LOWEST and NORMAL on both chat events; signed; real LDActivities typing game awaits the owner's live check |
-| P18 Release 2.0.4 | `integration/r2.0.4` | **review** |
+| P18 Release 2.0.4 | `main`, tag `v2.0.4` | **done** — 995 unit tests and live bot scenarios (levels, notices, reduce) green; signed |
 
 An integration branch, `integration/r1`, carries P4 through P7 merged together
 and is the base for P10 and P12. It exists because three phases branched from
@@ -411,4 +411,4 @@ that every mutable-message reader receives the same once-corrupted text.
 
 | id | task | requirements | status |
 |---|---|---|---|
-| T-237 | Private Psychosis level phrases, session baselines, config/messages, decision and wiring tests, release metadata. | SB-191 | review |
+| T-237 | Private Psychosis level phrases, session baselines, config/messages, decision and wiring tests, release metadata. | SB-191 | done |
