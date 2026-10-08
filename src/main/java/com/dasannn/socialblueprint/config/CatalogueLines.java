@@ -11,9 +11,18 @@ import java.util.regex.Pattern;
 /** Single-line catalogue validation shared by load, edit and delivery. */
 public final class CatalogueLines {
     public static final String CUSTOM = "effects.private-chat.custom-lines";
+    public static final Set<String> LEVEL_PHRASES = Set.of(
+            "mind-levels.psychosis-rose.low.lines", "mind-levels.psychosis-rose.medium.lines",
+            "mind-levels.psychosis-rose.high.lines", "mind-levels.psychosis-rose.extreme.lines",
+            "mind-levels.psychosis-fell.high.lines", "mind-levels.psychosis-fell.medium.lines",
+            "mind-levels.psychosis-fell.low.lines", "mind-levels.psychosis-fell.neutral.lines");
     public static final Set<String> LISTS = Set.of("effects.private-chat.lines", CUSTOM,
             "effects.advancement-toast.lines", "effects.boss-bar.lines", "effects.false-death.lines",
-            "effects.serenity.warm-phrases.lines", "effects.subliminal.words");
+            "effects.serenity.warm-phrases.lines", "effects.subliminal.words",
+            "mind-levels.psychosis-rose.low.lines", "mind-levels.psychosis-rose.medium.lines",
+            "mind-levels.psychosis-rose.high.lines", "mind-levels.psychosis-rose.extreme.lines",
+            "mind-levels.psychosis-fell.high.lines", "mind-levels.psychosis-fell.medium.lines",
+            "mind-levels.psychosis-fell.low.lines", "mind-levels.psychosis-fell.neutral.lines");
     public static final Set<String> TEMPLATES = Set.of("effects.fake-connection.join",
             "effects.fake-connection.leave");
     // ponytail: conservative English/Spanish keywords; extend for additional server languages.
@@ -43,7 +52,7 @@ public final class CatalogueLines {
     }
 
     public static List<String> validateList(String key, Object raw, int max) {
-        if (!(raw instanceof List<?> list) || list.isEmpty() && !key.equals(CUSTOM))
+        if (!(raw instanceof List<?> list) || list.isEmpty() && !key.equals(CUSTOM) && !LEVEL_PHRASES.contains(key))
             throw new ConfigValidationException(key, "Expected a list of lines");
         for (int i = 0; i < list.size(); i++) {
             if (!(list.get(i) instanceof String line))
@@ -78,7 +87,7 @@ public final class CatalogueLines {
             Map<String, String> map = maps.get(m);
             for (String key : LISTS) {
                 String raw = map.get(key);
-                if (raw == null || raw.isEmpty() && key.equals(CUSTOM)) continue;
+                if (raw == null || raw.isEmpty() && (key.equals(CUSTOM) || LEVEL_PHRASES.contains(key))) continue;
                 validateList(key, List.of(raw.split("\n", -1)), m < 2 && key.startsWith("effects.private-chat.") ? max : 160);
             }
             for (String key : TEMPLATES) if (map.containsKey(key))

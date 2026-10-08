@@ -679,6 +679,8 @@ chat-filter:
 tab:
   enabled: true
 mind:
+  level-phrases:
+    enabled: true
   notices:
     enabled: true
     step: 5

@@ -261,6 +261,7 @@ See the complete [default config.yml](src/main/resources/config.yml) for every e
 | `psychosis.inputs.<id>.*` | Enabled; amounts and caps above | Individual mental-state inputs |
 | `tab.enabled` | `true` | Tier prefix and name in vanilla tab |
 | `mind.notices.enabled`, `.step`, `.rises`, `.falls` | `true`, `5`, `true`, `true` | Private mental-state change notices |
+| `mind.level-phrases.enabled` | `true` | One private thought on a Psychosis level change, after any notice; edit `mind-levels` lists in message files (short key: `level-phrases.enabled`) |
 | `disabled-worlds` | `[minigames]` | Exact world names with no gameplay inputs, effects, duels or actor honor; prefixes/profiles/admin remain |
 | `honor.reason.min-length` | `3` | Minimum visible reason length |
 | `chat-filter.enabled`, `.words.en`, `.words.es` | `true`, English/Spanish word lists | Chat and reason filtering |

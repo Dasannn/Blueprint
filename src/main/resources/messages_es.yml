@@ -355,3 +355,55 @@ mind-notices:
 
 worlds:
   disabled: '&eEl honor y los duelos de SocialBlueprint están desactivados en este mundo.'
+
+mind-levels:
+  psychosis-rose:
+    low:
+      lines:
+        - '&8&oAlgo no est? bien... me cuesta concentrarme.'
+        - '&8&oSiento un peso extra?o en la cabeza.'
+        - '&8&oJurar?a que alguien me est? mirando.'
+        - '&8&oMe estoy sintiendo mal de la cabeza...'
+    medium:
+      lines:
+        - '&8&oLos ruidos suenan m?s cerca de lo que deber?an.'
+        - '&8&oNo logro sacarme esta inquietud de encima.'
+        - '&8&oLas sombras se mueven cuando no las miro.'
+        - '&8&oMi cabeza no deja de dar vueltas...'
+    high:
+      lines:
+        - '&8&oYa no s? qu? es real y qu? no.'
+        - '&8&oLas voces se est?n volviendo m?s fuertes.'
+        - '&8&oAlgo me sigue... lo puedo sentir.'
+        - '&8&oNo puedo confiar ni en mis propios ojos.'
+    extreme:
+      lines:
+        - '&8&oMe estoy perdiendo a m? mismo.'
+        - '&8&oEllos est?n aqu?. Siempre estuvieron aqu?.'
+        - '&8&oNo hay salida de esta cabeza.'
+        - '&8&oTodo se rompe... y yo con ello.'
+  psychosis-fell:
+    high:
+      lines:
+        - '&a&oPor un momento... el ruido se calm?.'
+        - '&a&oPuedo respirar otra vez, aunque sea un poco.'
+        - '&a&oLas voces se alejan, solo un poco.'
+        - '&a&oAlgo de m? vuelve a estar aqu?.'
+    medium:
+      lines:
+        - '&a&oMe siento un poco m?s aliviado...'
+        - '&a&oLas sombras ya no me persiguen tanto.'
+        - '&a&oEmpiezo a distinguir lo real otra vez.'
+        - '&a&oMi mente se aclara de a poco.'
+    low:
+      lines:
+        - '&a&oRespiro m?s tranquilo.'
+        - '&a&oLa inquietud se va apagando.'
+        - '&a&oEl mundo vuelve a tener sentido.'
+        - '&a&oYa casi no escucho nada raro.'
+    neutral:
+      lines:
+        - '&a&oPor fin, mi cabeza est? en silencio.'
+        - '&a&oMe siento yo mismo otra vez.'
+        - '&a&oTodo est? en calma.'
+        - '&a&oSe acab?... al menos por ahora.'

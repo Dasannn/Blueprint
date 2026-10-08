@@ -871,6 +871,7 @@ public class ConfigManager {
         set.add("honor.cost");
         set.add("honor.cost-percent");
         set.add("tab.enabled");
+        set.add("mind.level-phrases.enabled");
         set.add("mind.notices.enabled");
         set.add("mind.notices.step");
         set.add("mind.notices.rises");
@@ -1054,6 +1055,7 @@ public class ConfigManager {
         if ("psychosis.serenity.idle-timeout-seconds".equals(path)) return String.valueOf(config.psychosis().serenity().idleTimeoutSeconds());
 
         if ("tab.enabled".equals(path)) return String.valueOf(config.tabEnabled());
+        if ("mind.level-phrases.enabled".equals(path)) return String.valueOf(config.levelPhrasesEnabled());
         if ("mind.notices.enabled".equals(path)) return String.valueOf(config.mindNotices().enabled());
         if ("mind.notices.step".equals(path)) return String.valueOf(config.mindNotices().step());
         if ("mind.notices.rises".equals(path)) return String.valueOf(config.mindNotices().rises());

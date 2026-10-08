@@ -77,6 +77,17 @@ class StatusConfigCommandTest {
         messageRegistry.clear();
     }
 
+    @Test void levelPhrasesAcceptsShortKeyAndOffersCompletion() {
+        MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");
+        assertThat(command.tabComplete(admin, new String[]{"level-phrases"}))
+                .contains("level-phrases.enabled");
+        command.executeAsync(admin, new String[]{"level-phrases.enabled", "false"}, configManager.snapshot()).join();
+        assertThat(configManager.config().levelPhrasesEnabled()).isFalse();
+        command.execute(admin, new String[]{"level-phrases.enabled"});
+        assertThat(messageRegistry.lastCall().placeholders())
+                .containsEntry("key", "mind.level-phrases.enabled").containsEntry("value", "false");
+    }
+
     @Test
     void historyDatePatternAcceptsShortKey() {
         MockSender admin = new MockSender("Admin", "socialblueprint.admin.config");

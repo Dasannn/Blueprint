@@ -1611,6 +1611,26 @@ text stays unchanged for all readers. Add `loadbefore: [LDActivities]` so our
 LOWEST listeners register first when both plugins use that priority; absence
 of LDActivities is harmless. Release version is `2.0.3`.
 
+### 15.9 Release 2.0.4
+
+**SB-191.** Owner, 2026-10-08: when Psychosis changes level, send the player
+one private thought selected at random for the final level and direction:
+`mind-levels.psychosis-rose.<level>.lines` for rising into Low/Medium/High/Extreme,
+`mind-levels.psychosis-fell.<level>.lines` for falling into High/Medium/Low/Neutral.
+Use the existing SB-131 thresholds and SB-161 session lifecycle and rebuild
+triggers (every input, honor review, admin set/reset/reduce). Initialize from
+profile load without a join phrase. Track the immediately previous level
+independently of the cumulative five-point notice baseline; a multi-level jump
+sends only the final level's phrase, after any five-point notice. Serenity
+level changes send no phrase. Disabled worlds suppress delivery but admin
+changes there update the level baseline silently. `mind.level-phrases.enabled`
+is a validated, live-editable boolean, shipped and merged on upgrade as `true`;
+`level-phrases.enabled` is its unique short config key. The approved English and
+Spanish thought lists are editable in the message files, with `&8&o` rising
+and `&a&o` falling and no plugin prefix. Empty or missing active-language lists
+send nothing without an error or fallback. Decisions use plain data and random
+selection is injectable for tests.
+
 ## 16. Acceptance criteria for release 2
 
 - [ ] At LOWEST, modern and legacy mutable messages contain the same filtered,
@@ -1774,3 +1794,9 @@ of LDActivities is harmless. Release version is `2.0.3`.
 - [ ] Upgrading honor and kill-world legacy keys also removes their attached
       comments, preserving comments across blank/key boundaries; ordinary
       value updates preserve comments and owner values (SB-182).
+
+- [ ] Psychosis level changes send one private, unprefixed final-level thought
+      after any five-point notice, with no join/Serenity phrase; every input,
+      honor review and admin set/reset/reduce use the shared session baseline.
+      Check both directions, jumps, thresholds, disabled-world silent tracking,
+      live config/upgrade and empty/missing lists in both languages (SB-191).

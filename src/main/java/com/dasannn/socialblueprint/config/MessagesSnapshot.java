@@ -34,6 +34,12 @@ public record MessagesSnapshot(
      */
     public String resolveRaw(String key, Set<String> warnedKeys, Logger logger) {
         Objects.requireNonNull(key, "Message key must not be null");
+        // Optional thoughts never fall back to a different language or a bundled list.
+        if (CatalogueLines.LEVEL_PHRASES.stream().anyMatch(list -> key.equals(list) || key.startsWith(list + "."))) {
+            String phrase = lookup(activeMessages, key);
+            return phrase == null ? "" : phrase;
+        }
+
 
         // 1. Try active language from disk/memory
         String val = lookup(activeMessages, key);

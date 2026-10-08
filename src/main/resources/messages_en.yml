@@ -355,3 +355,55 @@ mind-notices:
 
 worlds:
   disabled: '&eSocialBlueprint honor and duels are disabled in this world.'
+
+mind-levels:
+  psychosis-rose:
+    low:
+      lines:
+        - '&8&oSomething isn''t right... I can''t focus.'
+        - '&8&oThere''s a strange weight in my head.'
+        - '&8&oI could swear someone is watching me.'
+        - '&8&oMy head is starting to feel wrong...'
+    medium:
+      lines:
+        - '&8&oThe noises sound closer than they should.'
+        - '&8&oI can''t shake this unease.'
+        - '&8&oThe shadows move when I''m not looking.'
+        - '&8&oMy head won''t stop spinning...'
+    high:
+      lines:
+        - '&8&oI don''t know what''s real anymore.'
+        - '&8&oThe voices are getting louder.'
+        - '&8&oSomething is following me... I can feel it.'
+        - '&8&oI can''t even trust my own eyes.'
+    extreme:
+      lines:
+        - '&8&oI''m losing myself.'
+        - '&8&oThey''re here. They were always here.'
+        - '&8&oThere''s no way out of this head.'
+        - '&8&oEverything is breaking... and me with it.'
+  psychosis-fell:
+    high:
+      lines:
+        - '&a&oFor a moment... the noise went quiet.'
+        - '&a&oI can breathe again, if only a little.'
+        - '&a&oThe voices are fading, just a little.'
+        - '&a&oPart of me is coming back.'
+    medium:
+      lines:
+        - '&a&oI feel a little more relieved...'
+        - '&a&oThe shadows don''t chase me as much.'
+        - '&a&oI''m starting to tell what''s real again.'
+        - '&a&oMy mind is slowly clearing.'
+    low:
+      lines:
+        - '&a&oI''m breathing easier.'
+        - '&a&oThe unease is fading.'
+        - '&a&oThe world makes sense again.'
+        - '&a&oI barely hear anything strange now.'
+    neutral:
+      lines:
+        - '&a&oFinally, my head is quiet.'
+        - '&a&oI feel like myself again.'
+        - '&a&oEverything is calm.'
+        - '&a&oIt''s over... for now at least.'

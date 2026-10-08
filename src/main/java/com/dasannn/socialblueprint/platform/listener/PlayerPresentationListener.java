@@ -17,10 +17,16 @@ public final class PlayerPresentationListener implements Listener {
     private final ProfileService profiles;
     private final ConfigManager configs;
     private final MessageRegistry messages;
+    private final java.util.Random random;
     private final Map<PlayerId, MindNotices> baselines = new HashMap<>();
     private final java.util.concurrent.ConcurrentMap<PlayerId, Long> sessions = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicLong sessionSequence = new java.util.concurrent.atomic.AtomicLong();
     public PlayerPresentationListener(Plugin plugin, ProfileService profiles, ConfigManager configs, MessageRegistry messages) {
+        this(plugin, profiles, configs, messages, new java.util.Random());
+    }
+    public PlayerPresentationListener(Plugin plugin, ProfileService profiles, ConfigManager configs,
+                                      MessageRegistry messages, java.util.Random random) {
+        this.random = random;
         this.plugin = plugin; this.profiles = profiles; this.configs = configs; this.messages = messages;
         for (Player player : plugin.getServer().getOnlinePlayers())
             sessions.put(PlayerId.of(player.getUniqueId()), sessionSequence.incrementAndGet());
@@ -52,11 +58,17 @@ public final class PlayerPresentationListener implements Listener {
                 ? PlayerNameRenderer.name(prefix, player.getName()) : null);
         double value = view.psychosis() == PsychosisLevel.SERENITY ? view.psychosisMagnitude() : -view.psychosisMagnitude();
         MindNotices baseline = baselines.get(view.playerId());
-        if (baseline == null) baselines.put(view.playerId(), new MindNotices(value));
+        if (baseline == null) baselines.put(view.playerId(), new MindNotices(value, view.psychosis()));
         else {
             var config = snapshot.config().mindNotices();
             for (var notice : baseline.update(value, config.step(), config.enabled(), config.rises(), config.falls()))
                 player.sendMessage(messages.renderWithPrefix(snapshot, notice.key(), notice.values()));
+            String key = baseline.updateLevel(view.psychosis(), snapshot.config().levelPhrasesEnabled(),
+                    snapshot.config().worldRules().isDisabled(player.getWorld().getName()));
+            if (key != null) {
+                var lines = snapshot.messages().lineKeys(key);
+                if (!lines.isEmpty()) player.sendMessage(messages.render(snapshot, lines.get(random.nextInt(lines.size()))));
+            }
         }
     }
     @EventHandler(priority = EventPriority.LOWEST)
